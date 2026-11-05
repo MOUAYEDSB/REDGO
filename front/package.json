@@ -1,0 +1,14 @@
+{
+  "name": "@redgo/frontend",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @redgo/admin && npm run typecheck --workspace @redgo/client && npm run typecheck --workspace @redgo/driver",
+    "lint": "npm run lint --workspace @redgo/admin && npm run lint --workspace @redgo/client && npm run lint --workspace @redgo/driver",
+    "typecheck": "npm run typecheck --workspace @redgo/client && npm run typecheck --workspace @redgo/driver && npm run build --workspace @redgo/admin"
+  }
+}

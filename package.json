@@ -1,0 +1,11 @@
+{
+  "name": "redgo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "front": "npm --prefix front run",
+    "build:front": "npm --prefix front run build",
+    "lint:front": "npm --prefix front run lint",
+    "typecheck:front": "npm --prefix front run typecheck"
+  }
+}
