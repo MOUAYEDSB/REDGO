@@ -5,7 +5,6 @@
   "scripts": {
     "start": "npm --prefix front run client",
     "client": "npm --prefix front run client",
-    "driver": "npm --prefix front run driver",
     "admin": "npm --prefix front run admin",
     "front": "npm --prefix front run",
     "build:front": "npm --prefix front run build",

@@ -11,12 +11,10 @@
     "client": "npm run start --workspace @redgo/client",
     "client:ios": "npm run ios --workspace @redgo/client",
     "client:android": "npm run android --workspace @redgo/client",
-    "driver": "npm run start --workspace @redgo/driver",
-    "driver:preview": "npm run start --workspace @redgo/driver",
     "admin": "npm run dev --workspace @redgo/admin",
-    "build": "npm run build --workspace @redgo/admin && npm run typecheck --workspace @redgo/client && npm run typecheck --workspace @redgo/driver",
-    "lint": "npm run lint --workspace @redgo/admin && npm run lint --workspace @redgo/client && npm run lint --workspace @redgo/driver",
-    "typecheck": "npm run typecheck --workspace @redgo/client && npm run typecheck --workspace @redgo/driver && npm run build --workspace @redgo/admin"
+    "build": "npm run build --workspace @redgo/admin && npm run typecheck --workspace @redgo/client",
+    "lint": "npm run lint --workspace @redgo/admin && npm run lint --workspace @redgo/client",
+    "typecheck": "npm run typecheck --workspace @redgo/client && npm run build --workspace @redgo/admin"
   },
   "devDependencies": {
     "typescript": "~6.0.3"

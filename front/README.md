@@ -2,32 +2,29 @@
 
 ## Architecture
 
-La vraie application mobile principale est l’espace client de `apps/client`.
-
-- `apps/client`: application principale, avec onboarding, auth, client, driver preview et garde-fous de rôle.
-- `apps/driver`: compatibilité / aperçu chauffeur, conservé uniquement pour tester l’interface sans backend.
+- `apps/client`: l’unique application mobile Expo, avec les espaces Client et Chauffeur.
 - `apps/admin`: application web d’administration séparée.
-- `packages/shared`: types partagés REDGO.
+- `packages/shared`: types REDGO partagés.
 - `packages/theme`: tokens visuels REDGO.
 
-## Règle de conception
+L’utilisateur choisit son espace dans l’application mobile. Les deux espaces partagent la même installation et l’authentification; l’accès chauffeur dépend des autorisations serveur. Le mode aperçu chauffeur ne représente pas un backend réel.
 
-Il n’y a qu’une seule app mobile installée par utilisateur :
-
-- l’utilisateur choisit son espace au lancement ;
-- le client et le chauffeur ont des interfaces différentes dans le même app ;
-- le driver preview reste un mode d’aperçu UI et ne doit pas être présenté comme un backend réel.
-
-## Lancement rapide
+## Lancement
 
 ```powershell
 cd front
 npm run client
 ```
 
-Pour tester l’aperçu chauffeur uniquement :
+Pour lancer l’administration web :
 
 ```powershell
 cd front
-npm run driver
+npm run admin
+```
+
+## Vérification
+
+```powershell
+npm run typecheck
 ```
