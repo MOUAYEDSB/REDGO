@@ -1,0 +1,11 @@
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Screen } from '../../components/Screen';
+import { Button } from '../../components/ui';
+import { colors } from '../../constants/theme';
+
+export default function RidePickup() {
+  return <Screen style={styles.screen}><Text style={styles.title}>Point de départ</Text><View style={styles.search}><Ionicons name="search-outline" size={20} color={colors.textSecondary} /><TextInput placeholder="Rechercher dans M'saken ou Messaadine" placeholderTextColor={colors.textSecondary} style={styles.input} /></View>  <Pressable style={styles.option} onPress={() => router.push({ pathname: '/booking/map', params: { mode: 'pickup', flow: 'ride' } })}><Ionicons name="map-outline" size={22} color={colors.success} /><View><Text style={styles.optionTitle}>Choisir sur la carte</Text><Text style={styles.optionText}>Touchez la carte pour placer le départ</Text></View></Pressable>{["M'saken, avenue principale", "Messaadine, centre-ville"].map((place) => <Pressable key={place} style={styles.option} onPress={() => router.push({ pathname: '/ride/destination', params: { pickupAddress: place } })}><Ionicons name="time-outline" size={20} color={colors.textSecondary} /><View><Text style={styles.optionTitle}>{place}</Text><Text style={styles.optionText}>Adresse enregistrée</Text></View></Pressable>)}<View style={styles.footer}><Button title="Continuer vers la destination" onPress={() => router.push('/ride/destination')} /></View></Screen>;
+}
+const styles = StyleSheet.create({ screen: { paddingHorizontal: 20 }, title: { color: colors.text, fontSize: 28, fontWeight: '900', marginVertical: 22 }, search: { height: 56, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16 }, input: { flex: 1, color: colors.text }, option: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 14, borderBottomWidth: 1, borderBottomColor: colors.border }, optionTitle: { color: colors.text, fontWeight: '800' }, optionText: { color: colors.textSecondary, fontSize: 12, marginTop: 4 }, footer: { marginTop: 'auto', paddingBottom: 24 } });

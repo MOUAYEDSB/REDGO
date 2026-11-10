@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "REDGO",
+    "slug": "mouayed",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "scheme": "redgo",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "REDGO utilise votre position pour sélectionner les adresses de départ et de livraison dans les zones couvertes."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "4363d46f-3a42-4396-b19d-e828d7131167"
+      }
+    },
+    "owner": "toutousbs-team",
+    "plugins": [
+      "expo-image",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "REDGO utilise votre position pour le suivi des courses et livraisons."
+        }
+      ]
+    ]
+  }
+}

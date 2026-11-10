@@ -45,6 +45,7 @@ supabase/.temp/
 # Editors and OS files
 .vscode/
 .idea/
+.claude/
 .DS_Store
 Thumbs.db
 *.swp
