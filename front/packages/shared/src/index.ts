@@ -140,6 +140,35 @@ export type CashPaymentStatusRow = {
   ready_for_payment: boolean;
 };
 
+export type DeliveryOrderItemRow = {
+  id: string;
+  order_id: string;
+  product_id: string | null;
+  business_id: string;
+  product_name: string;
+  business_name: string;
+  quantity: number;
+  unit_price_millimes: number;
+  options_price_millimes: number;
+  selected_options: unknown;
+  notes: string;
+  created_at: string;
+};
+
+export type DeliveryOrderStopRow = {
+  id: string;
+  order_id: string;
+  business_id: string;
+  business_name: string;
+  stop_type: BusinessKind;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+  sequence_number: number;
+  status: 'pending' | 'reached' | 'completed';
+  created_at: string;
+};
+
 export type DeliveryOrderRow = {
   id: string;
   reference: string;
@@ -199,6 +228,45 @@ export type ScooterRideRow = {
   updated_at: string;
   assigned_at: string | null;
   completed_at: string | null;
+};
+
+export type ScooterTariffRow = {
+  id: string;
+  name: string;
+  description: string;
+  fare_millimes: number;
+  passenger_capacity: number;
+  helmet_provided: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DriverMissionStatus = 'searching' | 'assigned' | 'accepted' | 'in_progress' | 'completed' | 'cancelled';
+
+export type DriverMissionRow = {
+  id: string;
+  mission_type: CashPaymentMissionType;
+  delivery_order_id: string | null;
+  scooter_ride_id: string | null;
+  customer_id: string;
+  driver_id: string | null;
+  status: DriverMissionStatus;
+  created_at: string;
+  updated_at: string;
+  accepted_at: string | null;
+  completed_at: string | null;
+};
+
+export type NotificationRow = {
+  id: string;
+  user_id: string;
+  title: string;
+  body: string;
+  category: 'general' | 'delivery' | 'scooter_ride' | 'account';
+  entity_id: string | null;
+  read_at: string | null;
+  created_at: string;
 };
 
 export type DriverCity = 'Msaken' | 'Messadine';
@@ -316,16 +384,46 @@ export type Database = {
         Update: never;
         Relationships: [];
       };
+      delivery_order_items: {
+        Row: DeliveryOrderItemRow;
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      delivery_order_stops: {
+        Row: DeliveryOrderStopRow;
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
       scooter_rides: {
         Row: ScooterRideRow;
         Insert: never;
         Update: never;
         Relationships: [];
       };
+      scooter_tariffs: {
+        Row: ScooterTariffRow;
+        Insert: Pick<ScooterTariffRow, 'id' | 'name' | 'fare_millimes'> & Partial<Omit<ScooterTariffRow, 'id' | 'name' | 'fare_millimes'>>;
+        Update: Partial<Omit<ScooterTariffRow, 'id' | 'created_at'>>;
+        Relationships: [];
+      };
+      driver_missions: {
+        Row: DriverMissionRow;
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      notifications: {
+        Row: NotificationRow;
+        Insert: never;
+        Update: Partial<Pick<NotificationRow, 'read_at'>>;
+        Relationships: [];
+      };
       driver_profiles: {
         Row: DriverProfileRow;
         Insert: never;
-        Update: Partial<Pick<DriverProfileRow, 'is_online' | 'deliveries_enabled' | 'scooter_taxi_enabled' | 'vehicle_model' | 'plate_number'>>;
+        Update: Partial<Omit<DriverProfileRow, 'user_id' | 'created_at'>>;
         Relationships: [];
       };
     };
@@ -367,6 +465,7 @@ export type Database = {
         };
         Returns: string;
       };
+      redgo_is_admin: { Args: Record<string, never>; Returns: boolean };
       request_client_access: { Args: Record<string, never>; Returns: undefined };
       submit_driver_application: { Args: Record<string, never>; Returns: string };
       review_driver_application: {
