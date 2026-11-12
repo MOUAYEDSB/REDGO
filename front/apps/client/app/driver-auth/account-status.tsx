@@ -7,9 +7,10 @@ import { colors } from '../../constants/theme';
 import { useRedgoAuth } from '../../context/RedgoAuthContext';
 
 export default function DriverAccountStatus() {
-  const { driverApplicationStatus, roles, signOut } = useRedgoAuth();
+  const { driverApplicationStatus, driverApplicationReviewNote, roles, signOut } = useRedgoAuth();
   const [error, setError] = useState<string | null>(null);
   const isSuspended = driverApplicationStatus === 'suspended';
+  const rejectionReason = driverApplicationStatus === 'rejected' ? driverApplicationReviewNote?.trim() : null;
 
   const leaveAccount = async () => {
     setError(null);
@@ -30,6 +31,11 @@ export default function DriverAccountStatus() {
           ? 'L’accès à l’espace chauffeur est suspendu. Contactez l’administration REDGO pour plus d’informations.'
           : 'Votre candidature chauffeur n’a pas été approuvée. Aucun accès aux missions n’est accordé.'}
       </Text>
+      {rejectionReason ? (
+        <Text style={styles.reason}>Motif du refus : {rejectionReason}</Text>
+      ) : !isSuspended ? (
+        <Text style={styles.reason}>Motif du refus : Votre dossier ne répond pas aux critères requis.</Text>
+      ) : null}
       {roles.includes('client') ? (
         <Pressable accessibilityRole="button" onPress={() => router.replace('/(tabs)/home')} style={styles.primary}>
           <Text style={styles.primaryText}>Ouvrir l’espace client</Text>
@@ -48,6 +54,7 @@ const styles = StyleSheet.create({
   icon: { width: 80, height: 80, borderRadius: 27, backgroundColor: '#2A1417', alignItems: 'center', justifyContent: 'center' },
   title: { color: colors.text, fontSize: 25, lineHeight: 32, fontWeight: '900', textAlign: 'center', marginTop: 22 },
   subtitle: { color: colors.textSecondary, fontSize: 13, lineHeight: 21, textAlign: 'center', marginTop: 10, marginBottom: 22 },
+  reason: { width: '100%', color: colors.text, fontSize: 13, lineHeight: 20, textAlign: 'center', backgroundColor: colors.card, borderRadius: 14, padding: 14, marginBottom: 18 },
   primary: { width: '100%', height: 52, borderRadius: 15, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
   primaryText: { color: colors.text, fontSize: 13, fontWeight: '900' },
   secondary: { width: '100%', height: 50, borderRadius: 15, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },

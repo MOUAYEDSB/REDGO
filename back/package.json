@@ -1,0 +1,24 @@
+{
+  "name": "@redgo/backend-config",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.9"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit false --outDir dist",
+    "start": "node --env-file-if-exists=.env dist/server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
+    "nodemailer": "^7.0.10",
+    "standardwebhooks": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/nodemailer": "^6.4.21",
+    "typescript": "~6.0.3"
+  }
+}

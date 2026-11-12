@@ -2,12 +2,14 @@ import { Link, router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Screen } from '../../components/Screen';
+import { PasswordInput } from '../../components/PasswordInput';
 import { colors } from '../../constants/theme';
 import { useRedgoAuth } from '../../context/RedgoAuthContext';
 
 const destinations = {
   client: '/(tabs)/home',
   driver: '/driver/home',
+  'driver-onboarding': '/driver-auth/onboarding',
   pending: '/driver-auth/pending-approval',
   'account-status': '/driver-auth/account-status',
   'role-selection': '/role-selection',
@@ -15,17 +17,17 @@ const destinations = {
 
 export default function Login() {
   const { signIn, requestedRole, isSubmitting } = useRedgoAuth();
-  const [identifier, setIdentifier] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
-    if (!identifier.trim() || !password) {
-      setError('Saisissez votre téléphone ou votre e-mail et votre mot de passe.');
+    if (!email.trim() || !password) {
+      setError('Saisissez votre adresse e-mail et votre mot de passe.');
       return;
     }
     setError(null);
-    const result = await signIn(identifier.trim(), password);
+    const result = await signIn(email.trim(), password);
     if (result.error) {
       setError(result.error);
       return;
@@ -42,28 +44,29 @@ export default function Login() {
       </Text>
 
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-      <Text style={styles.label}>Téléphone ou e-mail</Text>
+      <Text style={styles.label}>Adresse e-mail</Text>
       <TextInput
-        value={identifier}
-        onChangeText={setIdentifier}
-        placeholder="+216 20 000 000 ou nom@exemple.tn"
+        value={email}
+        onChangeText={setEmail}
+        placeholder="vous@exemple.tn"
         placeholderTextColor={colors.textSecondary}
         keyboardType="email-address"
         autoCapitalize="none"
-        autoComplete="username"
-        textContentType="username"
+        autoComplete="email"
+        textContentType="emailAddress"
+        autoCorrect={false}
         style={styles.input}
         editable={!isSubmitting}
       />
       <Text style={styles.label}>Mot de passe</Text>
-      <TextInput
+      <PasswordInput
         value={password}
         onChangeText={setPassword}
         placeholder="Votre mot de passe"
         placeholderTextColor={colors.textSecondary}
-        secureTextEntry
         autoComplete="password"
         textContentType="password"
+        accessibilityLabel="Mot de passe"
         style={styles.input}
         editable={!isSubmitting}
         onSubmitEditing={submit}
@@ -76,12 +79,15 @@ export default function Login() {
       >
         <Text style={styles.submitText}>{isSubmitting ? 'Connexion…' : 'Se connecter'}</Text>
       </Pressable>
+      <Pressable onPress={() => router.push('/(auth)/forgot-password')} style={styles.forgot}>
+        <Text style={styles.link}>Mot de passe oublié ?</Text>
+      </Pressable>
       <Text style={styles.register}>
         Nouveau sur REDGO ?{' '}
         <Link href="/(auth)/register" style={styles.link}>Créer un compte</Link>
       </Text>
       <Pressable onPress={() => router.replace('/role-selection')} style={styles.back}>
-        <Text style={styles.backText}>Changer d’espace</Text>
+        <Text style={styles.backText}>Connexion chauffeur / changer d’espace</Text>
       </Pressable>
     </Screen>
   );
@@ -99,6 +105,7 @@ const styles = StyleSheet.create({
   submitText: { color: '#fff', fontSize: 14, fontWeight: '900' },
   pressed: { opacity: 0.8 },
   register: { color: colors.textSecondary, textAlign: 'center', marginTop: 24, fontSize: 13 },
+  forgot: { alignSelf: 'flex-end', paddingVertical: 13 },
   link: { color: colors.primary, fontWeight: '900' },
   back: { alignItems: 'center', padding: 14 },
   backText: { color: colors.textSecondary, fontSize: 12, fontWeight: '700' },

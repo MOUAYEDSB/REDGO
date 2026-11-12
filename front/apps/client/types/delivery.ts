@@ -6,7 +6,8 @@ export type DeliveryStage =
   | 'collecting_restaurant'
   | 'on_the_way'
   | 'delivered'
-  | 'cash_collected';
+  | 'cash_collected'
+  | 'cancelled';
 
 export type Coordinates = {
   latitude: number;

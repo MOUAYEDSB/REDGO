@@ -38,6 +38,13 @@
     "plugins": [
       "expo-image",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "REDGO utilise la caméra pour scanner les QR de paiement et compléter les dossiers chauffeur.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "REDGO utilise votre position pour le suivi des courses et livraisons."

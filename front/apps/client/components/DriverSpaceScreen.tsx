@@ -9,6 +9,7 @@ export default function DriverSpaceScreen() {
 
   return (
     <DriverAppView
+      userId={auth.user?.id ?? null}
       isPreview={isPreview}
       isLoading={auth.isLoading}
       sessionError={auth.authError}

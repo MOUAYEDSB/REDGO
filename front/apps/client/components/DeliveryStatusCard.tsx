@@ -68,6 +68,13 @@ export function DeliveryStatusCard({ order }: DeliveryStatusCardProps) {
           icon: 'checkmark-done-circle' as const,
           color: colors.success,
         };
+      case 'cancelled':
+        return {
+          title: 'Commande annulée',
+          subtitle: 'Cette commande a été annulée.',
+          icon: 'close-circle' as const,
+          color: colors.error,
+        };
     }
   };
 

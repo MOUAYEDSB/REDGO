@@ -27,7 +27,7 @@ export default function Welcome() {
           <Text style={styles.primaryText}>Continuer</Text>
           <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
         </Pressable>
-        <Text style={styles.footerNote}>Choisissez votre espace pour commencer</Text>
+        <Text style={styles.footerNote}>Choisissez votre espace pour vous connecter ou créer un compte</Text>
       </View>
     </Screen>
   );

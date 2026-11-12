@@ -11,47 +11,61 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  AuthSessionMissingError,
   authEnabled,
   getSessionUser,
   loadRedgoAccess,
+  normalizeEmail,
   requestRoleAccess,
+  requestPasswordReset,
   resendSignupOtp,
   signInWithPassword,
   signOutFromRedgo,
   signUpWithPassword,
   subscribeToAuth,
+  updatePassword,
+  verifyPasswordRecoveryOtp,
   verifySignupOtp,
-  type AuthChannel,
 } from '../services/auth';
 
-type AuthDestination = 'client' | 'driver' | 'pending' | 'account-status' | 'role-selection';
-type AuthResult = { error: string | null; destination?: AuthDestination };
+type AuthDestination = 'client' | 'driver' | 'driver-onboarding' | 'pending' | 'account-status' | 'role-selection';
+type AuthResult = {
+  error: string | null;
+  destination?: AuthDestination;
+  reconnectRequired?: boolean;
+  retryAccessRequired?: boolean;
+};
 type RegistrationResult = {
   error: string | null;
   requiresVerification?: boolean;
   destination?: AuthDestination;
 };
-type PendingVerification = { identifier: string; channel: AuthChannel } | null;
+type PendingVerification = { email: string; role: AppRole } | null;
+type ConfirmedVerification = { user: User; role: AppRole } | null;
 
 type RedgoAuthContextValue = {
   user: User | null;
   profile: ProfileRow | null;
   roles: AppRole[];
   driverApplicationStatus: DriverApplicationStatus | null;
+  driverApplicationReviewNote: string | null;
   activeRole: AppRole | null;
   requestedRole: AppRole;
   previewRole: AppRole | null;
   pendingVerification: PendingVerification;
+  clearPendingVerification: () => Promise<void>;
   isLoading: boolean;
   isSubmitting: boolean;
   authError: string | null;
   chooseRole: (role: AppRole) => void;
   startPreview: (role: AppRole) => void;
   endPreview: () => void;
-  signIn: (identifier: string, password: string) => Promise<AuthResult>;
-  register: (input: { fullName: string; identifier: string; password: string }) => Promise<RegistrationResult>;
+  signIn: (email: string, password: string) => Promise<AuthResult>;
+  register: (input: { fullName: string; email: string; phone: string; password: string }) => Promise<RegistrationResult>;
   verifyCode: (token: string) => Promise<AuthResult>;
   resendCode: () => Promise<void>;
+  sendPasswordReset: (email: string) => Promise<void>;
+  completePasswordReset: (email: string, token: string, password: string) => Promise<void>;
   requestAccess: (role: AppRole) => Promise<AuthResult>;
   refreshAccess: () => Promise<void>;
   selectRole: (role: AppRole) => Promise<boolean>;
@@ -60,16 +74,19 @@ type RedgoAuthContextValue = {
 
 const RedgoAuthContext = createContext<RedgoAuthContextValue | null>(null);
 const SPACE_STORAGE_KEY = '@redgo/active-space';
+const PENDING_VERIFICATION_KEY = '@redgo/pending-verification';
 
 export function RedgoAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [driverApplicationStatus, setDriverApplicationStatus] = useState<DriverApplicationStatus | null>(null);
+  const [driverApplicationReviewNote, setDriverApplicationReviewNote] = useState<string | null>(null);
   const [activeRole, setActiveRole] = useState<AppRole | null>(null);
   const [requestedRole, setRequestedRole] = useState<AppRole>('client');
   const [previewRole, setPreviewRole] = useState<AppRole | null>(null);
   const [pendingVerification, setPendingVerification] = useState<PendingVerification>(null);
+  const [confirmedVerification, setConfirmedVerification] = useState<ConfirmedVerification>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -78,11 +95,14 @@ export function RedgoAuthProvider({ children }: { children: ReactNode }) {
     const access = await loadRedgoAccess(nextUser.id);
     setProfile(access.profile);
     setRoles(access.roles);
-    setDriverApplicationStatus(access.driverApplication?.status ?? null);
+    const appStatus = access.driverApplication?.status
+      ?? (nextUser.user_metadata?.requested_role === 'driver' && !access.roles.includes('driver') ? 'pending' : null);
+    setDriverApplicationStatus(appStatus);
+    setDriverApplicationReviewNote(access.driverApplication?.review_note ?? null);
 
     const storedRole = await AsyncStorage.getItem(`${SPACE_STORAGE_KEY}:${nextUser.id}`);
     const restoredRole = isAppRole(storedRole) && access.roles.includes(storedRole) ? storedRole : null;
-    setActiveRole(restoredRole ?? (access.roles.length === 1 ? access.roles[0] : null));
+    setActiveRole(restoredRole ?? (access.roles.length === 1 ? access.roles[0] : (access.roles.includes('client') ? 'client' : null)));
   }, []);
 
   useEffect(() => {
@@ -92,20 +112,47 @@ export function RedgoAuthProvider({ children }: { children: ReactNode }) {
     }
 
     let active = true;
-    const subscription = subscribeToAuth((nextUser) => {
+    // isInitialized gates onAuthStateChange reloads until the first
+    // getSession() hydration is done, preventing races at startup.
+    let isInitialized = false;
+
+    const subscription = subscribeToAuth((event, nextUser) => {
       if (!active) return;
-      setUser(nextUser);
-      if (!nextUser) {
+
+      if (event === 'SIGNED_OUT' || !nextUser) {
+        setUser(null);
         setProfile(null);
         setRoles([]);
         setDriverApplicationStatus(null);
+        setDriverApplicationReviewNote(null);
         setActiveRole(null);
+        return;
+      }
+
+      // After initialization, reload the profile whenever the session
+      // changes so the UI reflects DB changes (e.g. driver approval).
+      if (isInitialized && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED')) {
+        setUser(nextUser);
+        applyAccess(nextUser).catch((err: unknown) => {
+          if (active) setAuthError(errorMessage(err, 'Impossible de charger le profil de la session.'));
+        });
       }
     });
 
-    getSessionUser()
-      .then(async (sessionUser) => {
+    Promise.all([AsyncStorage.getItem(PENDING_VERIFICATION_KEY), getSessionUser()])
+      .then(async ([stored, sessionUser]) => {
         if (!active) return;
+        if (stored) {
+          try {
+            const parsed: unknown = JSON.parse(stored);
+            if (isPendingVerification(parsed)) {
+              setPendingVerification(parsed);
+              setRequestedRole(parsed.role);
+            }
+          } catch (error) {
+            setAuthError(errorMessage(error, 'La vérification précédente n’a pas pu être confirmée. Recommencez l’inscription.'));
+          }
+        }
         setUser(sessionUser);
         if (sessionUser) await applyAccess(sessionUser);
       })
@@ -113,7 +160,10 @@ export function RedgoAuthProvider({ children }: { children: ReactNode }) {
         if (active) setAuthError(errorMessage(error, 'Impossible de restaurer la session REDGO.'));
       })
       .finally(() => {
-        if (active) setIsLoading(false);
+        if (active) {
+          isInitialized = true;
+          setIsLoading(false);
+        }
       });
 
     return () => {
@@ -137,27 +187,56 @@ export function RedgoAuthProvider({ children }: { children: ReactNode }) {
   }, [applyAccess, user]);
 
   const continueWithRole = useCallback(async (nextUser: User, role: AppRole): Promise<AuthDestination> => {
-    await requestRoleAccess(role);
+    if (role === 'client') {
+      try {
+        await requestRoleAccess(role);
+      } catch {
+        // Ignored if client role is already granted or trigger completed
+      }
+    }
     const access = await loadRedgoAccess(nextUser.id);
-    setUser(nextUser);
+    if (!access.profile) {
+      throw new Error('Le profil utilisateur est introuvable. Vérifiez votre connexion puis réessayez.');
+    }
+
+    let destination: AuthDestination;
+    let targetActiveRole: AppRole | null = null;
+    let finalApplicationStatus: DriverApplicationStatus | null = access.driverApplication?.status ?? null;
+
+    if (role === 'client') {
+      targetActiveRole = 'client';
+      destination = 'client';
+      await AsyncStorage.setItem(`${SPACE_STORAGE_KEY}:${nextUser.id}`, 'client');
+    } else {
+      // Driver flow
+      const isApproved = access.roles.includes('driver') || access.driverApplication?.status === 'approved';
+      const isRejected = access.driverApplication?.status === 'rejected' || access.driverApplication?.status === 'suspended';
+
+      if (isApproved) {
+        targetActiveRole = 'driver';
+        destination = 'driver';
+        finalApplicationStatus = 'approved';
+        await AsyncStorage.setItem(`${SPACE_STORAGE_KEY}:${nextUser.id}`, 'driver');
+      } else if (isRejected) {
+        destination = 'account-status';
+        finalApplicationStatus = access.driverApplication?.status ?? 'rejected';
+      } else {
+        // Pending: status is 'pending' or newly registered driver awaiting review
+        destination = 'pending';
+        finalApplicationStatus = 'pending';
+      }
+    }
+
+    await AsyncStorage.removeItem(PENDING_VERIFICATION_KEY);
     setProfile(access.profile);
     setRoles(access.roles);
-    setDriverApplicationStatus(access.driverApplication?.status ?? null);
+    setDriverApplicationStatus(finalApplicationStatus);
+    setDriverApplicationReviewNote(access.driverApplication?.review_note ?? null);
     setPendingVerification(null);
-
-    if (access.roles.includes(role)) {
-      setActiveRole(role);
-      await AsyncStorage.setItem(`${SPACE_STORAGE_KEY}:${nextUser.id}`, role);
-      return role;
-    }
-    if (role === 'driver') {
-      if (access.driverApplication?.status === 'rejected' || access.driverApplication?.status === 'suspended') {
-        return 'account-status';
-      }
-      return 'pending';
-    }
-    if (access.roles.length > 0) return 'role-selection';
-    return 'account-status';
+    setPreviewRole(null);
+    setActiveRole(targetActiveRole);
+    setUser(nextUser);
+    return destination;
   }, []);
 
   const signIn = useCallback(async (identifier: string, password: string): Promise<AuthResult> => {
@@ -179,19 +258,18 @@ export function RedgoAuthProvider({ children }: { children: ReactNode }) {
 
   const register = useCallback(async (input: {
     fullName: string;
-    identifier: string;
+    email: string;
+    phone: string;
     password: string;
   }): Promise<RegistrationResult> => {
     setIsSubmitting(true);
     setAuthError(null);
     try {
-      const result = await signUpWithPassword({ ...input, role: requestedRole });
-      if (!result.hasSession) {
-        setPendingVerification({ identifier: input.identifier, channel: result.channel });
-        return { error: null, requiresVerification: true };
-      }
-      const destination = await continueWithRole(result.user, requestedRole);
-      return { error: null, requiresVerification: false, destination };
+      await signUpWithPassword({ ...input, role: requestedRole });
+      const pending = { email: normalizeEmail(input.email), role: requestedRole };
+      await AsyncStorage.setItem(PENDING_VERIFICATION_KEY, JSON.stringify(pending));
+      setPendingVerification(pending);
+      return { error: null, requiresVerification: true };
     } catch (error) {
       const message = errorMessage(error, 'La création du compte a échoué.');
       setAuthError(message);
@@ -199,41 +277,93 @@ export function RedgoAuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsSubmitting(false);
     }
-  }, [continueWithRole, requestedRole]);
+  }, [requestedRole]);
 
   const verifyCode = useCallback(async (token: string): Promise<AuthResult> => {
-    if (!pendingVerification) return { error: 'Aucune vérification en attente. Recommencez l’inscription.' };
+    if (!pendingVerification && !confirmedVerification) {
+      return { error: 'Aucune vérification en attente. Recommencez l’inscription.' };
+    }
     setIsSubmitting(true);
     setAuthError(null);
+    let verificationComplete = Boolean(confirmedVerification);
     try {
-      const verifiedUser = await verifySignupOtp(
-        pendingVerification.identifier,
-        token,
-        pendingVerification.channel,
-      );
-      const destination = await continueWithRole(verifiedUser, requestedRole);
-      setPreviewRole(null);
+      let verified = confirmedVerification;
+      if (!verified) {
+        const session = await verifySignupOtp(pendingVerification!.email, token);
+        verified = { user: session.user, role: pendingVerification!.role };
+        setConfirmedVerification(verified);
+        verificationComplete = true;
+      }
+      const destination = await continueWithRole(verified.user, verified.role);
+      setConfirmedVerification(null);
       return { error: null, destination };
     } catch (error) {
       const message = errorMessage(error, 'Le code de vérification est invalide ou expiré.');
       setAuthError(message);
-      return { error: message };
+      return {
+        error: message,
+        reconnectRequired: error instanceof AuthSessionMissingError,
+        retryAccessRequired: verificationComplete,
+      };
     } finally {
       setIsSubmitting(false);
     }
-  }, [continueWithRole, pendingVerification, requestedRole]);
+  }, [confirmedVerification, continueWithRole, pendingVerification]);
 
   const resendCode = useCallback(async () => {
     if (!pendingVerification) throw new Error('Aucune vérification en attente.');
-    await resendSignupOtp(pendingVerification.identifier, pendingVerification.channel);
+    await resendSignupOtp(pendingVerification.email);
   }, [pendingVerification]);
 
-  const requestAccess = useCallback(async (role: AppRole): Promise<AuthResult> => {
-    if (!user) return { error: 'Connectez-vous avant de demander un accès.' };
+  const clearPendingVerification = useCallback(async () => {
+    await AsyncStorage.removeItem(PENDING_VERIFICATION_KEY);
+    setPendingVerification(null);
+  }, []);
+
+  const sendPasswordReset = useCallback(async (email: string) => {
     setIsSubmitting(true);
     setAuthError(null);
     try {
-      const destination = await continueWithRole(user, role);
+      await requestPasswordReset(email);
+    } catch (error) {
+      const message = errorMessage(error, 'Impossible d’envoyer l’e-mail de réinitialisation.');
+      setAuthError(message);
+      throw new Error(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, []);
+
+  const completePasswordReset = useCallback(async (email: string, token: string, password: string) => {
+    setIsSubmitting(true);
+    setAuthError(null);
+    try {
+      await verifyPasswordRecoveryOtp(email, token);
+      await updatePassword(password);
+      await signOutFromRedgo();
+    } catch (error) {
+      const message = errorMessage(error, 'Impossible de réinitialiser le mot de passe.');
+      setAuthError(message);
+      throw new Error(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, []);
+
+  const requestAccess = useCallback(async (role: AppRole): Promise<AuthResult> => {
+    // Prefer the React state user; fall back to a fresh getSessionUser() so
+    // the retry path in verify-otp works even before state has been flushed.
+    setIsSubmitting(true);
+    setAuthError(null);
+    try {
+      let targetUser = user;
+      if (!targetUser) {
+        targetUser = await getSessionUser();
+      }
+      if (!targetUser) {
+        return { error: 'Connectez-vous avant de demander un accès.', reconnectRequired: true };
+      }
+      const destination = await continueWithRole(targetUser, role);
       return { error: null, destination };
     } catch (error) {
       const message = errorMessage(error, 'Impossible de demander cet accès.');
@@ -261,10 +391,12 @@ export function RedgoAuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     setAuthError(null);
     await signOutFromRedgo();
+    await AsyncStorage.removeItem(PENDING_VERIFICATION_KEY);
     setUser(null);
     setProfile(null);
     setRoles([]);
     setDriverApplicationStatus(null);
+    setDriverApplicationReviewNote(null);
     setActiveRole(null);
     setPendingVerification(null);
     setPreviewRole(null);
@@ -275,10 +407,12 @@ export function RedgoAuthProvider({ children }: { children: ReactNode }) {
     profile,
     roles,
     driverApplicationStatus,
+    driverApplicationReviewNote,
     activeRole,
     requestedRole,
     previewRole,
     pendingVerification,
+    clearPendingVerification,
     isLoading,
     isSubmitting,
     authError,
@@ -289,6 +423,8 @@ export function RedgoAuthProvider({ children }: { children: ReactNode }) {
     register,
     verifyCode,
     resendCode,
+    sendPasswordReset,
+    completePasswordReset,
     requestAccess,
     refreshAccess,
     selectRole,
@@ -298,10 +434,12 @@ export function RedgoAuthProvider({ children }: { children: ReactNode }) {
     profile,
     roles,
     driverApplicationStatus,
+    driverApplicationReviewNote,
     activeRole,
     requestedRole,
     previewRole,
     pendingVerification,
+    clearPendingVerification,
     isLoading,
     isSubmitting,
     authError,
@@ -309,6 +447,8 @@ export function RedgoAuthProvider({ children }: { children: ReactNode }) {
     register,
     verifyCode,
     resendCode,
+    sendPasswordReset,
+    completePasswordReset,
     requestAccess,
     refreshAccess,
     selectRole,
@@ -328,6 +468,13 @@ export function useRedgoAuth() {
 
 function isAppRole(value: string | null): value is AppRole {
   return value === 'client' || value === 'driver';
+}
+
+function isPendingVerification(value: unknown): value is NonNullable<PendingVerification> {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.email === 'string'
+    && isAppRole(typeof record.role === 'string' ? record.role : null);
 }
 
 function errorMessage(error: unknown, fallback: string) {

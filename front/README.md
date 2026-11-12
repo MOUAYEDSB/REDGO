@@ -18,7 +18,7 @@ npm run client
 
 Par défaut, l’application démarre en mode aperçu sans authentification : choisissez l’espace Client ou Chauffeur pour parcourir les interfaces. Aucun compte n’est requis; les actions qui dépendent du backend ne sont pas simulées.
 
-L’authentification Supabase peut être activée plus tard en renseignant les variables Supabase dans `apps/client/.env` et en définissant `EXPO_PUBLIC_ENABLE_AUTH=true`.
+La configuration Supabase mobile se trouve dans `apps/client/.env` (copiez `apps/client/.env.example` si nécessaire). Utilisez `EXPO_PUBLIC_SUPABASE_URL` et `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; ne mettez jamais de clé secrète dans l’application. L’authentification reste désactivée par défaut : définissez `EXPO_PUBLIC_ENABLE_AUTH=true` pour l’activer.
 
 Pour lancer l’administration web :
 

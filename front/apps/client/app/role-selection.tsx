@@ -11,6 +11,7 @@ import { authEnabled } from '../services/auth';
 const destinations = {
   client: '/(tabs)/home',
   driver: '/driver/home',
+  'driver-onboarding': '/driver-auth/onboarding',
   pending: '/driver-auth/pending-approval',
   'account-status': '/driver-auth/account-status',
   'role-selection': '/role-selection',
@@ -57,6 +58,11 @@ export default function RoleSelection() {
     if (result.destination) router.replace(destinations[result.destination]);
   };
 
+  const signInAs = (role: AppRole) => {
+    chooseRole(role);
+    router.push('/(auth)/login');
+  };
+
   return (
     <Screen scroll style={styles.screen}>
       <View style={styles.brand}>
@@ -69,7 +75,7 @@ export default function RoleSelection() {
           ? 'Mode aperçu : explorez les espaces sans créer de compte ni vous connecter.'
           : user
           ? 'Vous ne pouvez ouvrir que les espaces autorisés pour votre compte.'
-          : 'Votre compte et vos accès seront gérés par REDGO.'}
+          : 'Choisissez votre espace, puis connectez-vous ou créez votre compte.'}
       </Text>
 
       <RoleCard
@@ -79,6 +85,9 @@ export default function RoleSelection() {
         enabled={!user || roles.includes('client')}
         actionLabel={!authEnabled ? 'Explorer l’espace client' : user ? 'Ouvrir mon espace' : 'Créer un compte client'}
         onPress={() => continueAs('client', true)}
+        loginLabel="Déjà client ? Se connecter"
+        onLogin={() => signInAs('client')}
+        showLogin={!user && authEnabled}
         loading={isSubmitting}
       />
       <RoleCard
@@ -98,6 +107,9 @@ export default function RoleSelection() {
             : 'Candidater comme chauffeur'
         }
         onPress={() => continueAs('driver', true)}
+        loginLabel="Déjà chauffeur ? Se connecter"
+        onLogin={() => signInAs('driver')}
+        showLogin={!user && authEnabled}
         loading={isSubmitting}
       />
       {!user && authEnabled && __DEV__ ? (
@@ -141,6 +153,9 @@ function RoleCard({
   enabled,
   actionLabel,
   onPress,
+  loginLabel,
+  onLogin,
+  showLogin,
   loading,
 }: {
   title: string;
@@ -149,6 +164,9 @@ function RoleCard({
   enabled: boolean;
   actionLabel: string;
   onPress: () => void;
+  loginLabel: string;
+  onLogin: () => void;
+  showLogin: boolean;
   loading: boolean;
 }) {
   return (
@@ -166,6 +184,19 @@ function RoleCard({
       <Text style={styles.cardTitle}>{title}</Text>
       <Text style={styles.cardDescription}>{description}</Text>
       <View style={styles.cardAction}><Text style={styles.cardActionText}>{loading ? 'Chargement…' : actionLabel}</Text></View>
+      {showLogin ? (
+        <Pressable
+          accessibilityRole="button"
+          disabled={loading}
+          onPress={(event) => {
+            event.stopPropagation();
+            onLogin();
+          }}
+          style={styles.cardLogin}
+        >
+          <Text style={styles.cardLoginText}>{loginLabel}</Text>
+        </Pressable>
+      ) : null}
     </Pressable>
   );
 }
@@ -186,6 +217,8 @@ const styles = StyleSheet.create({
   cardDescription: { color: colors.textSecondary, fontSize: 12, lineHeight: 19, marginTop: 6 },
   cardAction: { borderTopWidth: 1, borderTopColor: colors.border, marginTop: 14, paddingTop: 12 },
   cardActionText: { color: colors.primary, fontSize: 12, fontWeight: '900' },
+  cardLogin: { alignSelf: 'flex-start', paddingTop: 11 },
+  cardLoginText: { color: colors.textSecondary, fontSize: 11, fontWeight: '800' },
   previewButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, marginBottom: 8 },
   previewText: { color: colors.textSecondary, fontSize: 12, fontWeight: '800' },
   pressed: { opacity: 0.8 },

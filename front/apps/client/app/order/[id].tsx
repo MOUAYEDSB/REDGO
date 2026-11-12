@@ -7,6 +7,7 @@ import { DriverInfoCard } from '../../components/DriverInfoCard';
 import { LiveTrackingMap } from '../../components/LiveTrackingMap';
 import { OrderStatusTimeline } from '../../components/OrderStatusTimeline';
 import { Screen } from '../../components/Screen';
+import { CashPaymentPanel } from '../../components/CashPaymentPanel';
 import { colors } from '../../constants/theme';
 import { MSAKEN_CENTER } from '../../services/delivery';
 import { LocationConnectionState, subscribeToDriverLocation } from '../../services/driverLocation';
@@ -136,6 +137,10 @@ export default function LiveDeliveryTrackingScreen() {
         hasCourses={order.hasCourses}
         hasFood={order.hasFood}
       />
+
+      {id !== 'order_default' ? (
+        <CashPaymentPanel targetType="delivery" targetId={String(id)} />
+      ) : null}
 
       {/* Help & Support Button */}
       <Pressable

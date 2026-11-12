@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { DriverInfoCard } from '../../../components/DriverInfoCard';
+import { CashPaymentPanel } from '../../../components/CashPaymentPanel';
 import { LiveTrackingMap } from '../../../components/LiveTrackingMap';
 import { Screen } from '../../../components/Screen';
 import { colors } from '../../../constants/theme';
@@ -215,6 +216,10 @@ export default function RideTrackingScreen() {
         roleDescription="Livreur REDGO"
         isAssigned={trackingState === 'live'}
       />
+
+      {id !== 'ride_101' ? (
+        <CashPaymentPanel targetType="scooter_ride" targetId={String(id)} />
+      ) : null}
 
       {/* Itinerary Details */}
       <View style={styles.itineraryCard}>

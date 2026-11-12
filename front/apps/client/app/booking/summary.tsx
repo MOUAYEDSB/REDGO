@@ -57,9 +57,7 @@ import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
           pickupLocation,
           destinationAddress: destination,
           destinationLocation,
-          distanceKm,
           durationMinutes,
-          fareMillimes,
         });
 
         router.replace({
@@ -69,7 +67,7 @@ import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
             reference: ride.reference,
             pickup,
             destination,
-            fare: fareMillimes.toString(),
+            fare: ride.metrics.fareMillimes.toString(),
           },
         });
       } catch (error: any) {
@@ -142,9 +140,12 @@ import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
             <Text style={[styles.metricValue, { color: colors.primary }]}>
               {formatMillimes(fareMillimes)}
             </Text>
-            <Text style={styles.metricLabel}>Prix fixe</Text>
+            <Text style={styles.metricLabel}>Tarif indicatif</Text>
           </View>
         </View>
+        <Text style={styles.tariffNotice}>
+          Le tarif final est calculé et confirmé par le serveur lors de la réservation.
+        </Text>
 
         {/* Service Details Card */}
         <View style={styles.detailsCard}>
@@ -294,6 +295,12 @@ import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
       borderColor: '#2A2A38',
       paddingVertical: 14,
       marginTop: 14,
+    },
+    tariffNotice: {
+      color: colors.textSecondary,
+      fontSize: 11,
+      lineHeight: 16,
+      marginTop: 7,
     },
     metricItem: {
       alignItems: 'center',
