@@ -1,8 +1,17 @@
 "use client";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { AdminCashPaymentRow } from "@redgo/shared";
+import type { AdminCashPaymentRow, Database } from "@redgo/shared";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import ProductCatalog from "./product-catalog";
+
+type AdminSection = "payments" | "drivers" | "catalog";
+
+const sectionDetails: Record<AdminSection, { label: string; description: string }> = {
+  payments: { label: "Paiements", description: "Suivi des encaissements et des missions." },
+  drivers: { label: "Chauffeurs", description: "Examen et suivi des candidatures." },
+  catalog: { label: "Catalogue produits", description: "Gestion des produits, prix et options." },
+};
 
 export default function Home() {
   const [email, setEmail] = useState("");
@@ -11,7 +20,7 @@ export default function Home() {
   const [payments, setPayments] = useState<AdminCashPaymentRow[]>([]);
   const [driverApplications, setDriverApplications] = useState<DriverApplicationAdminRow[]>([]);
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
-  const [activeSection, setActiveSection] = useState<"payments" | "drivers">("payments");
+  const [activeSection, setActiveSection] = useState<AdminSection>("payments");
   const [isLoadingApplications, setIsLoadingApplications] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -184,89 +193,165 @@ export default function Home() {
     );
   }
 
-  return (
-    <main className="min-h-screen bg-[#09090B] text-white">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#27272A] px-5 py-5 md:px-8">
-        <div className="flex items-center gap-3">
+  if (!isAuthenticated) {
+    return (
+      <main className="min-h-screen bg-[#101112] text-white">
+        <header className="flex items-center gap-3 border-b border-[#292A2D] px-5 py-4 sm:px-8">
           <div className="flex size-10 items-center justify-center rounded-xl bg-[#FF2638] text-xl font-black">R</div>
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#FF2638]">Console administration</p>
-            <h1 className="mt-1 text-xl font-bold">Paiements en espèces</h1>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#FF6672]">REDGO</p>
+            <p className="text-sm font-semibold">Console d’administration</p>
+          </div>
+        </header>
+        <div className="flex min-h-[calc(100vh-73px)] items-center justify-center px-4 py-10">
+          <div className="w-full max-w-md">
+            <div className="mb-6">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#FF6672]">Espace sécurisé</p>
+              <h1 className="mt-2 text-2xl font-bold tracking-tight">Connexion administrateur</h1>
+              <p className="mt-2 text-sm leading-6 text-[#A1A1AA]">
+                Utilisez un compte Supabase autorisé avec le rôle administrateur.
+              </p>
+            </div>
+            {error ? <div role="alert" className="mb-4 rounded-lg border border-red-900 bg-red-950/50 p-3 text-sm text-red-200">{error}</div> : null}
+            <form onSubmit={handleLogin} className="rounded-xl border border-[#292A2D] bg-[#18191B] p-5 sm:p-6">
+              <label className="block text-sm font-semibold" htmlFor="email">E-mail</label>
+              <input
+                id="email"
+                type="email"
+                autoComplete="username"
+                required
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="mt-2 w-full rounded-lg border border-[#3F4044] bg-[#101112] px-3 py-3 text-sm outline-none transition focus:border-[#FF2638]"
+              />
+              <label className="mt-4 block text-sm font-semibold" htmlFor="password">Mot de passe</label>
+              <input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="mt-2 w-full rounded-lg border border-[#3F4044] bg-[#101112] px-3 py-3 text-sm outline-none transition focus:border-[#FF2638]"
+              />
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="mt-5 w-full rounded-lg bg-[#FF2638] px-4 py-3 text-sm font-bold transition hover:bg-[#E91E31] disabled:opacity-60"
+              >
+                {isLoading ? "Connexion…" : "Se connecter"}
+              </button>
+            </form>
+            <p className="mt-4 text-center text-xs text-[#71717A]">Authentification et autorisations gérées par Supabase.</p>
           </div>
         </div>
-        {isAuthenticated ? (
-          <div className="flex gap-2">
+      </main>
+    );
+  }
+
+  const pendingDrivers = driverApplications.filter((application) => application.status === "pending").length;
+  const navigationItems = [
+    { id: "payments" as const, label: "Paiements", detail: "Encaissements", count: payments.length },
+    { id: "drivers" as const, label: "Chauffeurs", detail: "Candidatures", count: pendingDrivers },
+    { id: "catalog" as const, label: "Catalogue", detail: "Produits et options", count: null },
+  ];
+
+  return (
+    <main className="min-h-screen bg-[#101112] text-white lg:pl-[264px]">
+      <aside className="border-b border-[#292A2D] bg-[#151617] lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:flex lg:w-[264px] lg:flex-col lg:border-b-0 lg:border-r">
+        <div className="flex items-center gap-3 px-5 py-4 lg:px-6 lg:py-6">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#FF2638] text-xl font-black">R</div>
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-white">REDGO</p>
+            <p className="mt-0.5 truncate text-xs text-[#8F9196]">Administration</p>
+          </div>
+          <span className="ml-auto rounded-full border border-emerald-900/80 bg-emerald-950/50 px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-emerald-300 lg:hidden">En ligne</span>
+        </div>
+
+        <div className="hidden px-4 pt-5 lg:block">
+          <p className="px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-[#71717A]">Espace de travail</p>
+          <nav className="mt-3 space-y-1" aria-label="Navigation administration">
+            {navigationItems.map((item) => (
+              <SectionNavButton
+                key={item.id}
+                active={activeSection === item.id}
+                detail={item.detail}
+                label={item.label}
+                count={item.count}
+                onClick={() => setActiveSection(item.id)}
+              />
+            ))}
+          </nav>
+        </div>
+
+        <div className="mt-auto hidden border-t border-[#292A2D] p-4 lg:block">
+          <div className="mb-3 flex items-center gap-3 rounded-lg bg-[#1D1E20] px-3 py-3">
+            <span className="flex size-8 items-center justify-center rounded-full bg-[#352023] text-xs font-black text-[#FF7A84]">AD</span>
+            <div className="min-w-0">
+              <p className="truncate text-xs font-semibold">Administrateur</p>
+              <p className="mt-0.5 text-[10px] text-[#8F9196]">Accès sécurisé</p>
+            </div>
+          </div>
+          <button type="button" onClick={() => void handleLogout()} className="w-full rounded-lg border border-[#38393D] px-3 py-2.5 text-left text-xs font-semibold text-[#C8C9CC] transition hover:border-[#66686D] hover:bg-[#202123]">
+            Se déconnecter
+          </button>
+        </div>
+      </aside>
+
+      <div className="min-h-screen">
+        <header className="sticky top-0 z-20 flex min-h-[76px] items-center justify-between gap-4 border-b border-[#292A2D] bg-[#101112]/95 px-4 backdrop-blur sm:px-7 lg:px-9">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8F9196]">REDGO <span className="px-1 text-[#53555A]">/</span> {sectionDetails[activeSection].label}</p>
+            <h1 className="mt-1 truncate text-lg font-bold sm:text-xl">{sectionDetails[activeSection].label}</h1>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="hidden items-center gap-2 rounded-full border border-[#303236] px-3 py-2 text-[11px] font-medium text-[#A1A1AA] sm:flex">
+              <span className="size-1.5 rounded-full bg-emerald-400" />Session active
+            </span>
             <button
+              type="button"
+              aria-label="Actualiser les données"
               onClick={() => {
                 void loadPayments(supabase);
                 void loadDriverApplications(supabase);
               }}
-              className="rounded-xl border border-[#3F3F46] px-4 py-2 text-sm font-semibold hover:bg-[#27272A]"
+              disabled={isLoading || isLoadingApplications}
+              className="rounded-lg border border-[#38393D] px-3 py-2 text-xs font-semibold text-[#D4D4D8] transition hover:bg-[#202123] disabled:opacity-50"
             >
               Actualiser
             </button>
-            <button
-              onClick={() => void handleLogout()}
-              className="rounded-xl border border-[#3F3F46] px-4 py-2 text-sm font-semibold hover:bg-[#27272A]"
-            >
-              Déconnexion
+            <button type="button" onClick={() => void handleLogout()} className="rounded-lg border border-[#38393D] px-3 py-2 text-xs font-semibold text-[#D4D4D8] transition hover:bg-[#202123] lg:hidden">
+              Quitter
             </button>
           </div>
-        ) : null}
-      </header>
+        </header>
 
-      <div className="mx-auto max-w-7xl p-5 md:p-8">
-        {error ? (
-          <div role="alert" className="mb-5 rounded-xl border border-red-900 bg-red-950/40 p-4 text-sm text-red-200">
-            {error}
+        <nav className="flex gap-2 overflow-x-auto border-b border-[#292A2D] bg-[#151617] px-4 py-2.5 lg:hidden" aria-label="Navigation administration">
+          {navigationItems.map((item) => (
+            <SectionNavButton
+              key={item.id}
+              active={activeSection === item.id}
+              detail={item.detail}
+              label={item.label}
+              count={item.count}
+              onClick={() => setActiveSection(item.id)}
+              compact
+            />
+          ))}
+        </nav>
+
+        <div className="mx-auto max-w-[1480px] px-4 py-6 sm:px-7 lg:px-9 lg:py-8">
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+            <p className="max-w-2xl text-sm text-[#8F9196]">{sectionDetails[activeSection].description}</p>
+            <span className="text-[11px] font-medium text-[#71717A]">Espace protégé par Supabase RLS</span>
           </div>
-        ) : null}
+          {error ? (
+            <div role="alert" className="mb-5 rounded-lg border border-red-900 bg-red-950/40 p-4 text-sm text-red-200">
+              {error}
+            </div>
+          ) : null}
 
-        {!isAuthenticated ? (
-          <form onSubmit={handleLogin} className="mx-auto max-w-md rounded-2xl border border-[#27272A] bg-[#18181B] p-6">
-            <h2 className="text-lg font-bold">Connexion administrateur</h2>
-            <p className="mt-2 text-sm text-[#A1A1AA]">
-              Seuls les comptes dont le rôle admin est autorisé côté Supabase peuvent consulter les paiements.
-            </p>
-            <label className="mt-5 block text-sm font-semibold" htmlFor="email">E-mail</label>
-            <input
-              id="email"
-              type="email"
-              autoComplete="username"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="mt-2 w-full rounded-xl border border-[#3F3F46] bg-[#09090B] px-3 py-3 outline-none focus:border-[#FF2638]"
-            />
-            <label className="mt-4 block text-sm font-semibold" htmlFor="password">Mot de passe</label>
-            <input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="mt-2 w-full rounded-xl border border-[#3F3F46] bg-[#09090B] px-3 py-3 outline-none focus:border-[#FF2638]"
-            />
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="mt-5 w-full rounded-xl bg-[#FF2638] px-4 py-3 font-bold disabled:opacity-60"
-            >
-              {isLoading ? "Connexion…" : "Se connecter"}
-            </button>
-          </form>
-        ) : (
-          <>
-          <nav className="mb-5 flex gap-2" aria-label="Sections d’administration">
-            <button onClick={() => setActiveSection("payments")} className={`rounded-xl px-4 py-2 text-sm font-bold ${activeSection === "payments" ? "bg-[#FF2638]" : "border border-[#3F3F46]"}`}>
-              Paiements
-            </button>
-            <button onClick={() => setActiveSection("drivers")} className={`rounded-xl px-4 py-2 text-sm font-bold ${activeSection === "drivers" ? "bg-[#FF2638]" : "border border-[#3F3F46]"}`}>
-              Candidatures chauffeur ({driverApplications.length})
-            </button>
-          </nav>
-          {activeSection === "payments" ? <section className="rounded-2xl border border-[#27272A] bg-[#18181B]">
+          {activeSection === "payments" ? <section className="overflow-hidden rounded-xl border border-[#292A2D] bg-[#18191B]">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#27272A] p-5">
               <div>
                 <h2 className="font-bold">Registre des paiements</h2>
@@ -323,8 +408,8 @@ export default function Home() {
                 </table>
               </div>
             )}
-          </section> : (
-            <section className="rounded-2xl border border-[#27272A] bg-[#18181B]">
+          </section> : activeSection === "drivers" ? (
+            <section className="overflow-hidden rounded-xl border border-[#292A2D] bg-[#18191B]">
               <div className="border-b border-[#27272A] p-5">
                 <h2 className="font-bold">Candidatures chauffeur</h2>
                 <p className="mt-1 text-xs text-[#A1A1AA]">Consultez les informations et les photos avant de décider.</p>
@@ -371,11 +456,44 @@ export default function Home() {
                 </div>
               )}
             </section>
-          )}
-          </>
-        )}
+          ) : <ProductCatalog client={supabase} />}
+      </div>
       </div>
     </main>
+  );
+}
+
+function SectionNavButton({
+  active,
+  detail,
+  label,
+  count,
+  onClick,
+  compact = false,
+}: {
+  active: boolean;
+  detail: string;
+  label: string;
+  count: number | null;
+  onClick: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      aria-current={active ? "page" : undefined}
+      onClick={onClick}
+      className={compact
+        ? `flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold transition ${active ? "bg-[#FF2638] text-white" : "text-[#A1A1AA] hover:bg-[#222326] hover:text-white"}`
+        : `flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition ${active ? "bg-[#2A1B1D] text-white ring-1 ring-inset ring-[#5A272D]" : "text-[#A1A1AA] hover:bg-[#202123] hover:text-white"}`}
+    >
+      {!compact ? <span className={`h-8 w-1 shrink-0 rounded-full ${active ? "bg-[#FF2638]" : "bg-transparent"}`} /> : null}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{label}</span>
+        {!compact ? <span className="mt-1 block text-[10px] font-normal text-[#77797E]">{detail}</span> : null}
+      </span>
+      {count !== null ? <span className={`min-w-6 rounded-full px-1.5 py-1 text-center text-[10px] font-bold ${active && compact ? "bg-white/15 text-white" : "bg-[#292A2D] text-[#B8B9BD]"}`}>{count}</span> : null}
+    </button>
   );
 }
 
@@ -384,7 +502,7 @@ function createAdminClient() {
   const publishableKey =
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
     || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  return url && publishableKey ? createClient(url, publishableKey) : null;
+  return url && publishableKey ? createClient<Database>(url, publishableKey) : null;
 }
 
 type DriverApplicationAdminRow = {

@@ -30,6 +30,48 @@ export type ProfileRow = {
   updated_at: string;
 };
 
+export type BusinessKind = 'courses' | 'restaurant';
+
+export type BusinessRow = {
+  id: string;
+  kind: BusinessKind;
+  name: string;
+  description: string;
+  phone: string | null;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+  cover_image_url: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProductRow = {
+  id: string;
+  business_id: string;
+  name: string;
+  description: string;
+  category: string;
+  price_millimes: number;
+  image_url: string | null;
+  max_quantity: number;
+  is_available: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProductOptionRow = {
+  id: string;
+  product_id: string;
+  name: string;
+  price_millimes: number;
+  is_available: boolean;
+  sort_order: number;
+  created_at: string;
+};
+
 export type UserRoleRow = {
   user_id: string;
   role: AppRole;
@@ -220,6 +262,24 @@ export type AdminCashPaymentRow = {
 export type Database = {
   public: {
     Tables: {
+      businesses: {
+        Row: BusinessRow;
+        Insert: Pick<BusinessRow, 'id' | 'kind' | 'name'> & Partial<Omit<BusinessRow, 'id' | 'kind' | 'name'>>;
+        Update: Partial<Omit<BusinessRow, 'id' | 'created_at'>>;
+        Relationships: [];
+      };
+      products: {
+        Row: ProductRow;
+        Insert: Pick<ProductRow, 'id' | 'business_id' | 'name' | 'price_millimes'> & Partial<Omit<ProductRow, 'id' | 'business_id' | 'name' | 'price_millimes'>>;
+        Update: Partial<Omit<ProductRow, 'id' | 'created_at'>>;
+        Relationships: [];
+      };
+      product_options: {
+        Row: ProductOptionRow;
+        Insert: Pick<ProductOptionRow, 'id' | 'product_id' | 'name'> & Partial<Omit<ProductOptionRow, 'id' | 'product_id' | 'name'>>;
+        Update: Partial<Omit<ProductOptionRow, 'id' | 'product_id' | 'created_at'>>;
+        Relationships: [];
+      };
       profiles: {
         Row: ProfileRow;
         Insert: Pick<ProfileRow, 'id'> & Partial<Omit<ProfileRow, 'id'>>;
