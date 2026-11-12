@@ -112,19 +112,6 @@ export default function RoleSelection() {
         showLogin={!user && authEnabled}
         loading={isSubmitting}
       />
-      {!user && authEnabled && __DEV__ ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            startPreview('driver');
-            router.replace('/driver/home');
-          }}
-          style={styles.previewButton}
-        >
-          <Text style={styles.previewText}>Aperçu chauffeur — démo sans connexion</Text>
-        </Pressable>
-      ) : null}
-
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {!user && authEnabled ? (
         <Pressable
@@ -219,8 +206,6 @@ const styles = StyleSheet.create({
   cardActionText: { color: colors.primary, fontSize: 12, fontWeight: '900' },
   cardLogin: { alignSelf: 'flex-start', paddingTop: 11 },
   cardLoginText: { color: colors.textSecondary, fontSize: 11, fontWeight: '800' },
-  previewButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, marginBottom: 8 },
-  previewText: { color: colors.textSecondary, fontSize: 12, fontWeight: '800' },
   pressed: { opacity: 0.8 },
   error: { color: colors.error, fontSize: 12, lineHeight: 18, marginTop: 6 },
   loginLink: { paddingVertical: 15, alignItems: 'center' },
