@@ -79,8 +79,8 @@ function authEmailMessage(payload: AuthEmailHookPayload) {
   const token = payload.email_data?.token;
   const isAuthenticationAction = AUTHENTICATION_ACTIONS.has(action);
 
-  if (isAuthenticationAction && (!token || !/^\d{8}$/.test(token))) {
-    throw new Error('Supabase did not provide a valid eight-digit authentication code.');
+  if (isAuthenticationAction && (!token || !/^\d{6}$/.test(token))) {
+    throw new Error('Supabase did not provide a valid six-digit authentication code.');
   }
 
   const subject = action === 'signup'
@@ -101,7 +101,7 @@ function authEmailMessage(payload: AuthEmailHookPayload) {
     : '<div style="font-size:28px;font-weight:900;letter-spacing:3px;color:#ff2638;margin-bottom:24px;">REDGO</div>';
   const content = isAuthenticationAction
     ? `<h1 style="font-size:22px;margin:0 0 12px;color:#18181b;">${action === 'signup' ? 'Confirmez votre e-mail' : action === 'recovery' ? 'Réinitialisez votre mot de passe' : 'Votre code de vérification'}</h1>
-       <p style="font-size:15px;line-height:1.6;color:#52525b;">Bonjour ${safeName}, utilisez ce code à huit chiffres dans l’application REDGO :</p>
+      <p style="font-size:15px;line-height:1.6;color:#52525b;">Bonjour ${safeName}, utilisez ce code à six chiffres dans l’application REDGO :</p>
        <div style="margin:26px 0;padding:18px;border-radius:12px;background:#fff1f2;color:#be123c;font-size:32px;font-weight:800;letter-spacing:10px;text-align:center;">${escapeHtml(token ?? '')}</div>
        <p style="font-size:13px;line-height:1.6;color:#71717a;">Ce code est à usage unique. Si vous n’êtes pas à l’origine de cette demande, ignorez cet e-mail.</p>`
     : `<h1 style="font-size:22px;margin:0 0 12px;color:#18181b;">Notification de sécurité</h1>

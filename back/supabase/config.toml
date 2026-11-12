@@ -18,6 +18,9 @@ sql_paths = ["./seed.sql"]
 enabled = true
 site_url = "http://localhost:3000"
 
+[auth.email]
+otp_length = 6
+
 [storage]
 enabled = true
 

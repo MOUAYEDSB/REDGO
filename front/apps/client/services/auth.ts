@@ -14,7 +14,7 @@ export type RedgoAccess = {
 
 export const authConfigured = supabase !== null;
 export const authEnabled = authConfigured;
-export const AUTH_OTP_LENGTH = 8;
+export const AUTH_OTP_LENGTH = 6;
 
 export class AuthSessionMissingError extends Error {
   constructor(message = 'Votre e-mail a été confirmé, mais Supabase n’a pas ouvert de session. Connectez-vous pour continuer.') {

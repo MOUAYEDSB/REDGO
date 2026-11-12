@@ -267,17 +267,21 @@ export default function Register() {
                 />
 
                 <Text style={styles.label}>Numéro de téléphone</Text>
-                <TextInput
-                  value={phone}
-                  onChangeText={setPhone}
-                  placeholder="20 000 000"
-                  placeholderTextColor={colors.textSecondary}
-                  keyboardType="phone-pad"
-                  autoComplete="tel"
-                  textContentType="telephoneNumber"
-                  style={styles.input}
-                  editable={!loading}
-                />
+                <View style={styles.phoneInputWrap}>
+                  <Text style={styles.phonePrefix}>+216</Text>
+                  <TextInput
+                    value={phone}
+                    onChangeText={(value) => setPhone(value.replace(/\D/g, '').slice(0, 8))}
+                    placeholder="20 000 000"
+                    placeholderTextColor={colors.textSecondary}
+                    keyboardType="phone-pad"
+                    autoComplete="tel-national"
+                    textContentType="telephoneNumber"
+                    maxLength={8}
+                    style={styles.phoneInput}
+                    editable={!loading}
+                  />
+                </View>
 
                 <Text style={styles.label}>Mot de passe</Text>
                 <PasswordInput
@@ -519,6 +523,18 @@ export default function Register() {
         paddingHorizontal: 14,
         fontSize: 14,
       },
+      phoneInputWrap: {
+        height: 52,
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.card,
+        paddingHorizontal: 14,
+      },
+      phonePrefix: { color: colors.text, fontSize: 14, fontWeight: '800', marginRight: 10 },
+      phoneInput: { flex: 1, height: '100%', color: colors.text, fontSize: 14, padding: 0 },
       terms: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 17 },
       checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
       checkboxActive: { backgroundColor: colors.primary, borderColor: colors.primary },
