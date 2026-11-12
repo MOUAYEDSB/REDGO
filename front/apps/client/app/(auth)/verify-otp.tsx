@@ -1,10 +1,15 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { colors } from '../../constants/theme';
 import { useRedgoAuth } from '../../context/RedgoAuthContext';
-import { AUTH_OTP_LENGTH } from '../../services/auth';
+import {
+  AUTH_OTP_LENGTH,
+  saveDriverApplicationProfile,
+  uploadDriverPhoto,
+} from '../../services/auth';
 
 const destinations = {
   client: '/(tabs)/home',
@@ -17,6 +22,7 @@ const destinations = {
 
 export default function VerifyOtp() {
   const {
+    user,
     pendingVerification,
     verifyCode,
     requestAccess,
@@ -27,9 +33,7 @@ export default function VerifyOtp() {
 
   const [otp, setOtp] = useState('');
   const [error, setError] = useState<string | null>(null);
-  // reconnectRequired  → Supabase didn't return a session after OTP
   const [reconnectRequired, setReconnectRequired] = useState(false);
-  // retryAccessRequired → OTP verified but continueWithRole failed; we can retry
   const [retryAccessRequired, setRetryAccessRequired] = useState(false);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [resendSeconds, setResendSeconds] = useState(0);
@@ -43,6 +47,31 @@ export default function VerifyOtp() {
 
   const navigate = (destination: keyof typeof destinations) => {
     router.replace(destinations[destination]);
+  };
+
+  // Traite l'upload des photos et la sauvegarde des infos véhicule du chauffeur
+  const finalizeDriverDetails = async (userId: string) => {
+    try {
+      const stored = await AsyncStorage.getItem('@redgo/pending-driver-details');
+      if (!stored) return;
+      const details = JSON.parse(stored) as {
+        scooterBrand: string;
+        city: string;
+        scooterPhotoUri: string;
+      };
+      if (details.scooterPhotoUri && details.scooterBrand) {
+        const photoPath = await uploadDriverPhoto(userId, 'scooter', details.scooterPhotoUri);
+        await saveDriverApplicationProfile({
+          scooterBrand: details.scooterBrand,
+          scooterPhotoPath: photoPath,
+          city: details.city,
+        });
+      }
+      await AsyncStorage.removeItem('@redgo/pending-driver-details');
+    } catch (cause) {
+      // Non bloquant : l'accès est accordé, les photos peuvent être réessayées ou mises à jour
+      console.warn('Erreur enregistrement profil scooter :', cause);
+    }
   };
 
   const submit = async () => {
@@ -60,12 +89,14 @@ export default function VerifyOtp() {
       setReconnectRequired(Boolean(result.reconnectRequired));
       setRetryAccessRequired(Boolean(result.retryAccessRequired));
     } else if (result.destination) {
+      // Si chauffeur, finaliser l'upload du scooter en arrière-plan
+      if (user) {
+        void finalizeDriverDetails(user.id);
+      }
       navigate(result.destination);
     }
   };
 
-  // Called when OTP was verified but continueWithRole failed (e.g. network blip).
-  // We skip verifyOtp again and retry only the access/profile loading part.
   const retryAccess = async () => {
     if (!pendingVerification) return;
     setIsRetrying(true);
@@ -76,6 +107,9 @@ export default function VerifyOtp() {
         setError(result.error);
         setReconnectRequired(Boolean(result.reconnectRequired));
       } else if (result.destination) {
+        if (user) {
+          void finalizeDriverDetails(user.id);
+        }
         navigate(result.destination);
       }
     } finally {
@@ -101,14 +135,14 @@ export default function VerifyOtp() {
 
   const restartRegistration = async () => {
     await clearPendingVerification();
+    await AsyncStorage.removeItem('@redgo/pending-driver-details');
     router.replace('/role-selection');
   };
 
-  // Session was not returned after OTP → guide user to sign in normally.
-  // We clear pendingVerification so the login screen is shown cleanly.
   const reconnect = async () => {
     try {
       await clearPendingVerification();
+      await AsyncStorage.removeItem('@redgo/pending-driver-details');
       router.replace('/(auth)/login');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Impossible de préparer la reconnexion.');
@@ -125,8 +159,7 @@ export default function VerifyOtp() {
         <Text style={styles.email}>{pendingVerification?.email ?? 'votre adresse e-mail'}</Text>.
       </Text>
       <Text style={styles.hint}>
-        Utilisez le code du dernier e-mail reçu. Si vous avez déjà confirmé votre compte avec un
-        lien, connectez-vous plutôt que de saisir un code.
+        Utilisez le code du dernier e-mail reçu.
       </Text>
 
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
@@ -248,7 +281,6 @@ const styles = StyleSheet.create({
   resendText: { color: colors.primary, fontWeight: '800' },
   restart: { alignItems: 'center', padding: 14 },
   restartText: { color: colors.textSecondary, fontSize: 12, fontWeight: '700' },
-  // Reconnect box (session missing)
   reconnectBox: {
     backgroundColor: '#1A1420',
     borderWidth: 1,
@@ -269,7 +301,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   reconnectBtnText: { color: '#fff', fontSize: 13, fontWeight: '900' },
-  // Retry box (OTP ok, profile load failed)
   retryBox: {
     backgroundColor: '#112011',
     borderWidth: 1,
