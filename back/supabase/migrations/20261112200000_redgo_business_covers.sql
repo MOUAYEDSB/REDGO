@@ -1,0 +1,42 @@
+-- Storage bucket pour les images des restaurants & commerces (covers)
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'redgo-business-covers',
+  'redgo-business-covers',
+  true,
+  5242880,
+  array['image/jpeg', 'image/png', 'image/webp']
+)
+on conflict (id) do update
+set public = true,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "Admins upload business covers" on storage.objects;
+create policy "Admins upload business covers"
+  on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'redgo-business-covers'
+    and public.redgo_is_admin()
+  );
+
+drop policy if exists "Admins update business covers" on storage.objects;
+create policy "Admins update business covers"
+  on storage.objects for update to authenticated
+  using (
+    bucket_id = 'redgo-business-covers'
+    and public.redgo_is_admin()
+  )
+  with check (
+    bucket_id = 'redgo-business-covers'
+    and public.redgo_is_admin()
+  );
+
+drop policy if exists "Admins delete business covers" on storage.objects;
+create policy "Admins delete business covers"
+  on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'redgo-business-covers'
+    and public.redgo_is_admin()
+  );
+

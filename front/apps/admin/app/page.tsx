@@ -4,12 +4,13 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { AdminCashPaymentRow, Database, DriverApplicationStatus } from "@redgo/shared";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import ProductCatalog from "./product-catalog";
+import BusinessManager from "./business-manager";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-type AdminSection = "overview" | "drivers" | "payments" | "catalog";
+type AdminSection = "overview" | "businesses" | "catalog" | "drivers" | "payments";
 
 type DriverApplicationAdminRow = {
   user_id: string;
@@ -35,9 +36,10 @@ type DriverStatusFilter = "all" | DriverApplicationStatus;
 
 const sectionDetails: Record<AdminSection, { label: string; description: string; icon: string }> = {
   overview: { label: "Vue générale", description: "Aperçu global de l'activité REDGO.", icon: "📊" },
+  businesses: { label: "Restaurants & Commerces", description: "Gestion des restaurants partenaires et commerces.", icon: "🍽️" },
+  catalog: { label: "Produits & Menus", description: "Gestion des plats, menus, prix et suppléments.", icon: "📦" },
   drivers: { label: "Chauffeurs", description: "Gestion des chauffeurs, approbation et suspension.", icon: "🛵" },
   payments: { label: "Paiements", description: "Suivi des encaissements et des missions.", icon: "💰" },
-  catalog: { label: "Catalogue", description: "Gestion des produits, prix et options.", icon: "📦" },
 };
 
 /* ------------------------------------------------------------------ */
@@ -126,13 +128,16 @@ export default function Home() {
 
   const loadPayments = useCallback(async (client: SupabaseClient) => {
     setIsLoading(true);
-    setError(null);
     try {
       const { data, error: rpcError } = await client.rpc("list_admin_cash_payments");
-      if (rpcError) throw rpcError;
-      setPayments(data ?? []);
+      if (rpcError) {
+        console.warn("list_admin_cash_payments RPC non disponible ou non autorisé :", rpcError.message);
+        setPayments([]);
+      } else {
+        setPayments(data ?? []);
+      }
     } catch (cause) {
-      setError(errorMessage(cause));
+      console.warn("Erreur chargement paiements :", cause);
       setPayments([]);
     } finally {
       setIsLoading(false);
@@ -281,7 +286,7 @@ export default function Home() {
       setNotice(
         decision === "approved" ? "Chauffeur approuvé avec succès."
           : decision === "suspended" ? "Chauffeur suspendu."
-          : "Candidature rejetée."
+            : "Candidature rejetée."
       );
       setReviewNotes((current) => {
         const next = { ...current };
@@ -394,9 +399,10 @@ export default function Home() {
 
   const navigationItems: { id: AdminSection; label: string; icon: string; count: number | null }[] = [
     { id: "overview", label: "Vue générale", icon: "📊", count: null },
+    { id: "businesses", label: "Restaurants", icon: "🍽️", count: null },
+    { id: "catalog", label: "Produits & Menus", icon: "📦", count: null },
     { id: "drivers", label: "Chauffeurs", icon: "🛵", count: driversByStatus.pending > 0 ? driversByStatus.pending : null },
     { id: "payments", label: "Paiements", icon: "💰", count: payments.length > 0 ? payments.length : null },
-    { id: "catalog", label: "Catalogue", icon: "📦", count: null },
   ];
 
   const refreshAll = () => {
@@ -558,7 +564,7 @@ export default function Home() {
               </div>
             </div>
 
-          /* ========== DRIVERS ========== */
+            /* ========== DRIVERS ========== */
           ) : activeSection === "drivers" ? (
             <div className="space-y-5">
               {/* KPI row */}
@@ -720,7 +726,7 @@ export default function Home() {
               </section>
             </div>
 
-          /* ========== PAYMENTS ========== */
+            /* ========== PAYMENTS ========== */
           ) : activeSection === "payments" ? (
             <section className="overflow-hidden rounded-xl border border-[#292A2D] bg-[#18191B]">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#27272A] p-5">
@@ -784,7 +790,11 @@ export default function Home() {
               )}
             </section>
 
-          /* ========== CATALOG ========== */
+            /* ========== BUSINESSES ========== */
+          ) : activeSection === "businesses" ? (
+            <BusinessManager client={supabase} />
+
+            /* ========== CATALOG ========== */
           ) : <ProductCatalog client={supabase} />}
         </div>
       </div>
