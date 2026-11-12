@@ -1,4 +1,5 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import { Link, router } from 'expo-router';
 import { useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -92,6 +93,29 @@ export default function Register() {
         const valid = validateStep1();
         if (!valid) return;
         setStep(2);
+      };
+
+      const pickFromGallery = async () => {
+        setError(null);
+        const mediaLibraryPermission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!mediaLibraryPermission.granted) {
+          setError('Autorisez l’accès aux photos pour importer une image de votre scooter.');
+          return;
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          aspect: [4, 3],
+          quality: 0.8,
+        });
+
+        if (result.canceled || !result.assets?.[0]?.uri) {
+          return;
+        }
+
+        setScooterPhotoUri(result.assets[0].uri);
+        setIsCapturing(false);
       };
 
       const startCapture = async () => {
@@ -330,10 +354,13 @@ export default function Register() {
               isCapturing ? (
                 <View style={styles.cameraContainer}>
                   <CameraView ref={camera} style={styles.camera} facing="back" />
-                  <Text style={styles.cameraLabel}>Prenez une photo claire de votre scooter.</Text>
+                  <Text style={styles.cameraLabel}>Prenez une photo claire de votre scooter ou choisissez une image depuis votre galerie.</Text>
                   <View style={styles.actions}>
                     <Pressable onPress={() => setIsCapturing(false)} style={styles.secondaryButton}>
                       <Text style={styles.secondaryButtonText}>Annuler</Text>
+                    </Pressable>
+                    <Pressable disabled={busy} onPress={() => void pickFromGallery()} style={styles.secondaryButton}>
+                      <Text style={styles.secondaryButtonText}>Importer</Text>
                     </Pressable>
                     <Pressable disabled={busy} onPress={takePhoto} style={styles.submit}>
                       <Text style={styles.submitText}>{busy ? 'Enregistrement…' : 'Prendre la photo'}</Text>
@@ -382,7 +409,7 @@ export default function Register() {
                   <Pressable accessibilityRole="button" onPress={() => void startCapture()} style={styles.photoButton}>
                     <Text style={styles.photoTitle}>Photo du véhicule</Text>
                     <Text style={styles.photoState}>
-                      {scooterPhotoUri ? 'Photo prête ✓ (cliquer pour changer)' : 'Prendre la photo du scooter →'}
+                      {scooterPhotoUri ? 'Photo prête ✓ (cliquer pour changer)' : 'Prendre ou importer une photo →'}
                     </Text>
                   </Pressable>
 

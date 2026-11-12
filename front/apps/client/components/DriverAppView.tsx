@@ -4,6 +4,8 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { ActiveDriverMissionRow, DriverProfileRow, OpenDriverMissionRow } from '@redgo/shared';
 import { colors } from '../constants/theme';
+import { useRedgoAuth } from '../context/RedgoAuthContext';
+import { authEnabled } from '../services/auth';
 import {
   acceptDriverMission,
   getDriverProfile,
@@ -38,6 +40,10 @@ export default function DriverAppView({
   const [isLoadingMissions, setIsLoadingMissions] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { user, profile: authProfile, signOut } = useRedgoAuth();
+  const name = authProfile?.full_name || user?.user_metadata?.full_name || 'Chauffeur REDGO';
+  const phone = authProfile?.phone || user?.phone || 'Téléphone non renseigné';
+  const email = user?.email || 'E-mail non renseigné';
 
   const refresh = useCallback(async () => {
     if (isPreview || !userId) return;
@@ -109,22 +115,93 @@ export default function DriverAppView({
 
   const isReady = activeMission ? isReadyForCash(activeMission) : false;
 
+  const handleSignOut = async () => {
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await signOut();
+      router.replace('/welcome');
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const summaryCards = [
+    {
+      label: 'Disponibilité',
+      value: profile?.is_online ? 'En ligne' : 'Hors ligne',
+      accent: profile?.is_online ? '#14532D' : '#3A3030',
+    },
+    {
+      label: 'Missions',
+      value: activeMission ? '1 active' : `${openMissions.length}`,
+      accent: activeMission ? colors.primary : '#2B2A32',
+    },
+    {
+      label: 'Zone',
+      value: profile?.city || 'Msaken',
+      accent: '#2D2342',
+    },
+  ];
+
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <View style={styles.logo}><Text style={styles.logoText}>R</Text></View>
-        <View style={styles.headerCopy}>
-          <Text style={styles.title}>Espace chauffeur</Text>
-          <Text style={styles.subtitle}>Livraisons et courses scooter</Text>
+        <View style={styles.identity}>
+          <View style={styles.logo}><Text style={styles.logoText}>R</Text></View>
+          <View>
+            <Text style={styles.title}>REDGO</Text>
+            <Text style={styles.subtitle}>Bonjour, {name.split(' ')[0] || 'chauffeur'}</Text>
+          </View>
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Actualiser les missions"
-          onPress={() => void refresh()}
-          style={styles.refreshButton}
-        >
-          <Ionicons name="refresh" size={18} color={colors.text} />
-        </Pressable>
+
+        <View style={styles.headerActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Actualiser les missions"
+            onPress={() => void refresh()}
+            style={styles.refreshButton}
+          >
+            <Ionicons name="refresh" size={18} color={colors.text} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push('/driver/profile')}
+            style={styles.avatarButton}
+          >
+            <Text style={styles.avatarText}>{name.slice(0, 1).toUpperCase()}</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <View style={styles.locationBar}>
+        <Ionicons name="location" size={16} color={colors.primary} />
+        <View style={styles.locationTextWrap}>
+          <Text style={styles.locationLabel}>Zone active</Text>
+          <Text style={styles.locationValue}>{profile?.city || 'Msaken'} • M'saken & Messaadine</Text>
+        </View>
+      </View>
+
+      <View style={styles.profileCard}>
+        <View style={styles.avatarWrap}>
+          <Text style={styles.avatarText}>{name.slice(0, 1).toUpperCase()}</Text>
+        </View>
+        <View style={styles.profileInfo}>
+          <Text style={styles.profileName}>{name}</Text>
+          <Text style={styles.profileMeta}>{phone}</Text>
+          <Text style={styles.profileMeta}>{email}</Text>
+        </View>
+      </View>
+
+      <View style={styles.summaryRow}>
+        {summaryCards.map((item) => (
+          <View key={item.label} style={[styles.summaryCard, { backgroundColor: item.accent }]}>
+            <Text style={styles.summaryLabel}>{item.label}</Text>
+            <Text style={styles.summaryValue}>{item.value}</Text>
+          </View>
+        ))}
       </View>
 
       {isPreview ? (
@@ -237,6 +314,12 @@ export default function DriverAppView({
           <Text style={styles.switchText}>Retour à l’espace client</Text>
         </Pressable>
       ) : null}
+
+      {authEnabled ? (
+        <Pressable accessibilityRole="button" disabled={isSubmitting} style={styles.logoutButton} onPress={() => void handleSignOut()}>
+          <Text style={styles.logoutText}>{isSubmitting ? 'Déconnexion…' : 'Se déconnecter'}</Text>
+        </Pressable>
+      ) : null}
     </ScrollView>
   );
 }
@@ -271,14 +354,35 @@ function errorMessage(error: unknown) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  content: { padding: 22, paddingBottom: 36 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 13, marginBottom: 22 },
-  headerCopy: { flex: 1 },
+  content: { paddingHorizontal: 18, paddingTop: 26, paddingBottom: 36 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 16 },
+  identity: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   logo: { width: 48, height: 48, borderRadius: 15, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  logoText: { color: colors.text, fontSize: 26, fontWeight: '900' },
-  title: { color: colors.text, fontSize: 21, fontWeight: '900' },
-  subtitle: { color: colors.textSecondary, fontSize: 12, marginTop: 3 },
+  logoText: { color: colors.text, fontSize: 25, fontWeight: '900' },
+  title: { color: colors.text, fontSize: 22, fontWeight: '900' },
+  subtitle: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   refreshButton: { width: 40, height: 40, borderRadius: 13, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },
+  avatarButton: { width: 40, height: 40, borderRadius: 13, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  locationBar: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#1A1A1D', borderWidth: 1, borderColor: colors.border, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 14 },
+  locationTextWrap: { flex: 1 },
+  locationLabel: { color: colors.textSecondary, fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
+  locationValue: { color: colors.text, fontSize: 12, fontWeight: '800', marginTop: 2 },
+  profileCard: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: colors.card, borderRadius: 18, borderWidth: 1, borderColor: colors.border, padding: 14, marginBottom: 14 },
+  avatarWrap: { width: 52, height: 52, borderRadius: 16, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { color: '#fff', fontSize: 22, fontWeight: '900' },
+  profileInfo: { flex: 1 },
+  profileName: { color: colors.text, fontSize: 16, fontWeight: '900' },
+  profileMeta: { color: colors.textSecondary, fontSize: 11, marginTop: 3 },
+  navRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 },
+  navPill: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+  navPillActive: { backgroundColor: '#1E1410', borderColor: colors.primary },
+  navPillText: { color: colors.textSecondary, fontSize: 11, fontWeight: '800' },
+  navPillTextActive: { color: colors.primary },
+  summaryRow: { flexDirection: 'row', gap: 10, marginBottom: 18 },
+  summaryCard: { flex: 1, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 10, minHeight: 78, justifyContent: 'center' },
+  summaryLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
+  summaryValue: { color: '#FFFFFF', fontSize: 15, fontWeight: '900', marginTop: 8 },
   notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, backgroundColor: '#271417', borderWidth: 1, borderColor: '#552127', borderRadius: 14, padding: 13, marginBottom: 16 },
   noticeText: { color: '#F2B7BB', fontSize: 12, lineHeight: 18, flex: 1 },
   error: { color: colors.error, fontSize: 12, lineHeight: 18, marginBottom: 14 },
@@ -308,5 +412,7 @@ const styles = StyleSheet.create({
   loader: { marginVertical: 20 },
   switchButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 14, marginTop: 23 },
   switchText: { color: colors.text, fontSize: 12, fontWeight: '800' },
+  logoutButton: { minHeight: 52, borderRadius: 14, borderWidth: 1, borderColor: colors.error, alignItems: 'center', justifyContent: 'center', marginTop: 18 },
+  logoutText: { color: colors.error, fontWeight: '800' },
   pressed: { opacity: 0.75 },
 });

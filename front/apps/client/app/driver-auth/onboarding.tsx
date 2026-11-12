@@ -1,4 +1,5 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -25,6 +26,38 @@ export default function DriverOnboarding() {
   const [scooterPhotoPath, setScooterPhotoPath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const pickFromGallery = async () => {
+    if (!user) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const mediaLibraryPermission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!mediaLibraryPermission.granted) {
+        setError('Autorisez l’accès aux photos pour importer une image de votre scooter.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets?.[0]?.uri) {
+        return;
+      }
+
+      const path = await uploadDriverPhoto(user.id, 'scooter', result.assets[0].uri);
+      setScooterPhotoPath(path);
+      setIsCapturing(false);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Impossible d’importer la photo.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const startCapture = async () => {
     setError(null);
@@ -98,11 +131,14 @@ export default function DriverOnboarding() {
             facing="back"
           />
           <Text style={styles.cameraLabel}>
-            Prenez une photo claire de votre scooter.
+            Prenez une photo claire de votre scooter ou choisissez une image depuis votre galerie.
           </Text>
           <View style={styles.actions}>
             <Pressable onPress={() => setIsCapturing(false)} style={styles.secondaryButton}>
               <Text style={styles.secondaryButtonText}>Annuler</Text>
+            </Pressable>
+            <Pressable disabled={busy} onPress={() => void pickFromGallery()} style={styles.secondaryButton}>
+              <Text style={styles.secondaryButtonText}>Importer</Text>
             </Pressable>
             <Pressable disabled={busy} onPress={takePhoto} style={styles.submit}>
               <Text style={styles.submitText}>{busy ? 'Enregistrement…' : 'Prendre la photo'}</Text>
