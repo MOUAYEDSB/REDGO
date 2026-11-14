@@ -1,24 +1,26 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CartBadge } from '../../components/CartBadge';
 import { Screen } from '../../components/Screen';
 import { colors } from '../../constants/theme';
 import { useCart } from '../../context/CartContext';
 import { formatMillimes } from '../../services/cart';
+import { CatalogProduct, fetchCoursesProducts } from '../../services/catalog';
 
-  type MarketProductItem = {
-    id: string;
-    name: string;
-    category: string;
-    priceMillimes: number;
-    image: string;
-    unit: string;
-  };
+type MarketProductItem = {
+  id: string;
+  name: string;
+  category: string;
+  priceMillimes: number;
+  image: string;
+  unit: string;
+};
 
-const MARKET_PRODUCTS: MarketProductItem[] = [
+// Produits par défaut au cas où la base de données est vide ou hors-ligne
+const FALLBACK_PRODUCTS: MarketProductItem[] = [
   {
     id: 'eau-minerale-pack',
     name: 'Pack Eau Minérale Safia (6x1.5L)',
@@ -51,272 +53,304 @@ const MARKET_PRODUCTS: MarketProductItem[] = [
     image: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=500',
     unit: 'Flacon 400ml',
   },
-  {
-    id: 'huile-olive-bio',
-    name: 'Huile d’Olive Extra Vierge de M\'Saken',
-    category: 'Produits locaux',
-    priceMillimes: 18500,
-    image: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=500',
-    unit: 'Bouteille 1L',
-  },
-  {
-    id: 'lessive-liquide',
-    name: 'Lessive Liquide Concentrée',
-    category: 'Hygiène',
-    priceMillimes: 12500,
-    image: 'https://images.unsplash.com/photo-1583947215259-38e31be8751f?w=500',
-    unit: 'Bidon 2.5L',
-  },
 ];
 
-  const CATEGORIES = ['Tous', 'Boissons', 'Épicerie', 'Pharmacie', 'Hygiène', 'Produits locaux'];
+export default function MarketScreen() {
+  const [selectedCategory, setSelectedCategory] = useState('Tous');
+  const [dbProducts, setDbProducts] = useState<CatalogProduct[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const { addProduct } = useCart();
 
-  export default function MarketScreen() {
-    const [selectedCategory, setSelectedCategory] = useState('Tous');
-    const { addProduct } = useCart();
+  const loadProducts = useCallback(async () => {
+    setIsLoading(true);
+    const data = await fetchCoursesProducts();
+    setDbProducts(data);
+    setIsLoading(false);
+  }, []);
 
-    const filteredProducts =
-      selectedCategory === 'Tous'
-        ? MARKET_PRODUCTS
-        : MARKET_PRODUCTS.filter((p) => p.category === selectedCategory);
+  useEffect(() => {
+    void loadProducts();
+  }, [loadProducts]);
 
-    const handleQuickAdd = (product: MarketProductItem) => {
-      addProduct({
-        productId: product.id,
-        productType: 'courses',
-        businessId: 'courses_hub_msaken',
-        businessName: 'Courses REDGO',
-        productName: product.name,
-        productImage: product.image,
-        unitPriceMillimes: product.priceMillimes,
-        quantity: 1,
-      });
-    };
+  // Si des produits ont été ajoutés via l'admin dans Supabase, on les utilise !
+  // Sinon on affiche les produits de base.
+  const allProducts: MarketProductItem[] = useMemo(() => {
+    if (dbProducts.length > 0) {
+      return dbProducts.map((p) => ({
+        id: p.id,
+        name: p.name,
+        category: p.category,
+        priceMillimes: p.priceMillimes,
+        image: p.imageUrl || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500',
+        unit: 'REDGO Direct',
+      }));
+    }
+    return FALLBACK_PRODUCTS;
+  }, [dbProducts]);
 
-    return (
-      <Screen scroll style={styles.screen}>
-        {/* Top Header */}
-        <View style={styles.topHeader}>
-          <View style={styles.headerLeft}>
-            <Pressable
-              style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.7 }]}
-              onPress={() => router.back()}
-            >
-              <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-            </Pressable>
-            <View>
-              <Text style={styles.title}>Courses REDGO</Text>
-              <Text style={styles.subtitle}>Prix fixes gérés par REDGO · M'Saken & Messaadine</Text>
-            </View>
+  // Catégories dynamiques dérivées des produits réels enregistrés
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of allProducts) {
+      if (p.category.trim()) set.add(p.category.trim());
+    }
+    return ['Tous', ...Array.from(set)];
+  }, [allProducts]);
+
+  const filteredProducts = useMemo(() => {
+    if (selectedCategory === 'Tous') return allProducts;
+    return allProducts.filter((p) => p.category === selectedCategory);
+  }, [allProducts, selectedCategory]);
+
+  const handleQuickAdd = (product: MarketProductItem) => {
+    addProduct({
+      productId: product.id,
+      productType: 'courses',
+      businessId: 'courses_hub_msaken',
+      businessName: 'Courses REDGO',
+      productName: product.name,
+      productImage: product.image,
+      unitPriceMillimes: product.priceMillimes,
+      quantity: 1,
+    });
+  };
+
+  return (
+    <Screen scroll style={styles.screen}>
+      {/* Top Header */}
+      <View style={styles.topHeader}>
+        <View style={styles.headerLeft}>
+          <Pressable
+            style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.7 }]}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+          </Pressable>
+          <View>
+            <Text style={styles.title}>Courses REDGO</Text>
+            <Text style={styles.subtitle}>Direct par catégorie · M'Saken & Messaadine</Text>
           </View>
-
-          <CartBadge />
         </View>
 
-        {/* Categories Filter Horizontal Scroll */}
-        <View style={styles.categoriesRow}>
-          {CATEGORIES.map((cat) => {
-            const isActive = selectedCategory === cat;
-            return (
-              <Pressable
-                key={cat}
-                style={[styles.categoryPill, isActive && styles.categoryPillActive]}
-                onPress={() => setSelectedCategory(cat)}
-              >
-                <Text style={[styles.categoryText, isActive && styles.categoryTextActive]}>
-                  {cat}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <CartBadge />
+      </View>
 
-        {/* Products Grid */}
-        <View style={styles.grid}>
-          {filteredProducts.map((product) => (
+      {/* Categories Filter Horizontal Scroll */}
+      <View style={styles.categoriesRow}>
+        {categories.map((cat) => {
+          const isActive = selectedCategory === cat;
+          return (
             <Pressable
-              key={product.id}
-              style={({ pressed }) => [styles.productCard, pressed && { borderColor: colors.primary }]}
-              onPress={() => router.push(`/market/product/${product.id}`)}
+              key={cat}
+              style={[styles.categoryPill, isActive && styles.categoryPillActive]}
+              onPress={() => setSelectedCategory(cat)}
             >
-              <View style={styles.imageContainer}>
-                <Image source={{ uri: product.image }} style={styles.productImage} contentFit="cover" />
-                <View style={styles.categoryBadge}>
-                  <Text style={styles.categoryBadgeText}>{product.category}</Text>
-                </View>
-              </View>
-
-              <View style={styles.productContent}>
-                <Text style={styles.productName} numberOfLines={2}>
-                  {product.name}
-                </Text>
-                <Text style={styles.productUnit}>{product.unit}</Text>
-
-                <View style={styles.priceRow}>
-                  <Text style={styles.productPrice}>{formatMillimes(product.priceMillimes)}</Text>
-
-                  <Pressable
-                    style={({ pressed }) => [styles.quickAddButton, pressed && { transform: [{ scale: 0.9 }] }]}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      handleQuickAdd(product);
-                    }}
-                    hitSlop={8}
-                    accessibilityLabel={`Ajouter ${product.name} au panier`}
-                  >
-                    <Ionicons name="add" size={20} color="#FFFFFF" />
-                  </Pressable>
-                </View>
-              </View>
+              <Text style={[styles.categoryText, isActive && styles.categoryTextActive]}>
+                {cat}
+              </Text>
             </Pressable>
-          ))}
-        </View>
-      </Screen>
-    );
-  }
+          );
+        })}
+      </View>
 
-  const styles = StyleSheet.create({
-    screen: {
-      paddingHorizontal: 18,
-      paddingBottom: 36,
-    },
-    topHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingTop: 16,
-      paddingBottom: 12,
-    },
-    headerLeft: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      flex: 1,
-    },
-    backButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: '#1E1E28',
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: '#2F2F3D',
-    },
-    title: {
-      color: '#FFFFFF',
-      fontSize: 22,
-      fontWeight: '900',
-    },
-    subtitle: {
-      color: colors.textSecondary,
-      fontSize: 11,
-      marginTop: 2,
-    },
-    categoriesRow: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 8,
-      marginVertical: 14,
-    },
-    categoryPill: {
-      paddingHorizontal: 14,
-      paddingVertical: 7,
-      borderRadius: 18,
-      backgroundColor: '#181822',
-      borderWidth: 1,
-      borderColor: '#2A2A38',
-    },
-    categoryPillActive: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primary,
-    },
-    categoryText: {
-      color: '#A1A1AA',
-      fontSize: 12,
-      fontWeight: '700',
-    },
-    categoryTextActive: {
-      color: '#FFFFFF',
-      fontWeight: '800',
-    },
-    grid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 12,
-      marginTop: 6,
-    },
-    productCard: {
-      width: '48%',
-      backgroundColor: '#181822',
-      borderRadius: 18,
-      borderWidth: 1,
-      borderColor: '#2A2A38',
-      overflow: 'hidden',
-    },
-    imageContainer: {
-      position: 'relative',
-      width: '100%',
-      height: 125,
-      backgroundColor: '#22222E',
-    },
-    productImage: {
-      width: '100%',
-      height: '100%',
-    },
-    categoryBadge: {
-      position: 'absolute',
-      top: 8,
-      left: 8,
-      backgroundColor: 'rgba(18, 18, 24, 0.85)',
-      paddingHorizontal: 7,
-      paddingVertical: 3,
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: '#3A3A4A',
-    },
-    categoryBadgeText: {
-      color: '#D4D4D8',
-      fontSize: 9,
-      fontWeight: '700',
-    },
-    productContent: {
-      padding: 10,
-    },
-    productName: {
-      color: '#FFFFFF',
-      fontSize: 13,
-      fontWeight: '800',
-      minHeight: 34,
-      lineHeight: 17,
-    },
-    productUnit: {
-      color: colors.textSecondary,
-      fontSize: 10,
-      marginTop: 3,
-    },
-    priceRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginTop: 10,
-    },
-    productPrice: {
-      color: colors.primary,
-      fontSize: 14,
-      fontWeight: '900',
-    },
-    quickAddButton: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      backgroundColor: colors.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.4,
-      shadowRadius: 4,
-      elevation: 3,
-    },
-  });
+      {/* Loading state */}
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={styles.loadingText}>Mise à jour des produits en direct…</Text>
+        </View>
+      ) : null}
+
+      {/* Products Grid */}
+      <View style={styles.grid}>
+        {filteredProducts.map((product) => (
+          <Pressable
+            key={product.id}
+            style={({ pressed }) => [styles.productCard, pressed && { borderColor: colors.primary }]}
+            onPress={() => router.push(`/market/product/${product.id}`)}
+          >
+            <View style={styles.imageContainer}>
+              <Image source={{ uri: product.image }} style={styles.productImage} contentFit="cover" />
+              <View style={styles.categoryBadge}>
+                <Text style={styles.categoryBadgeText}>{product.category}</Text>
+              </View>
+            </View>
+
+            <View style={styles.productContent}>
+              <Text style={styles.productName} numberOfLines={2}>
+                {product.name}
+              </Text>
+              <Text style={styles.productUnit}>{product.unit}</Text>
+
+              <View style={styles.priceRow}>
+                <Text style={styles.productPrice}>{formatMillimes(product.priceMillimes)}</Text>
+
+                <Pressable
+                  style={({ pressed }) => [styles.quickAddButton, pressed && { transform: [{ scale: 0.9 }] }]}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    handleQuickAdd(product);
+                  }}
+                  hitSlop={8}
+                  accessibilityLabel={`Ajouter ${product.name} au panier`}
+                >
+                  <Ionicons name="add" size={20} color="#FFFFFF" />
+                </Pressable>
+              </View>
+            </View>
+          </Pressable>
+        ))}
+      </View>
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: {
+    backgroundColor: '#0F1012',
+    flex: 1,
+  },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#1E2024',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.5,
+  },
+  subtitle: {
+    fontSize: 12,
+    color: '#9E9E9E',
+    marginTop: 2,
+  },
+  categoriesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  categoryPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#181A1F',
+    borderWidth: 1,
+    borderColor: '#262930',
+  },
+  categoryPillActive: {
+    backgroundColor: '#FF2638',
+    borderColor: '#FF2638',
+  },
+  categoryText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#9E9E9E',
+  },
+  categoryTextActive: {
+    color: '#FFFFFF',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 8,
+  },
+  loadingText: {
+    fontSize: 12,
+    color: '#9E9E9E',
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 40,
+  },
+  productCard: {
+    width: '48%',
+    backgroundColor: '#181A1F',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#262930',
+    overflow: 'hidden',
+  },
+  imageContainer: {
+    height: 120,
+    backgroundColor: '#20232A',
+    position: 'relative',
+  },
+  productImage: {
+    width: '100%',
+    height: '100%',
+  },
+  categoryBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  categoryBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textTransform: 'uppercase',
+  },
+  productContent: {
+    padding: 12,
+  },
+  productName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    lineHeight: 18,
+    minHeight: 36,
+  },
+  productUnit: {
+    fontSize: 11,
+    color: '#757575',
+    marginTop: 4,
+  },
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  productPrice: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FF2638',
+  },
+  quickAddButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FF2638',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
