@@ -110,6 +110,38 @@ export async function fetchRestaurants(): Promise<CatalogBusiness[]> {
 }
 
 /**
+ * Récupère un établissement par son ID (restaurant ou hub courses).
+ */
+export async function fetchBusinessById(businessId: string): Promise<CatalogBusiness | null> {
+  try {
+    const client = requireSupabase();
+    const { data, error } = await client
+      .from('businesses')
+      .select('*')
+      .eq('id', businessId)
+      .single();
+
+    if (error || !data) return null;
+
+    return {
+      id: data.id,
+      kind: data.kind as 'restaurant' | 'courses',
+      name: data.name,
+      description: data.description,
+      phone: data.phone,
+      address: data.address,
+      latitude: data.latitude,
+      longitude: data.longitude,
+      coverImageUrl: data.cover_image_url,
+      isActive: data.is_active,
+    };
+  } catch (err) {
+    console.warn('fetchBusinessById catch :', err);
+    return null;
+  }
+}
+
+/**
  * Récupère les plats d'un restaurant spécifique avec leurs options.
  */
 export async function fetchRestaurantProducts(businessId: string): Promise<CatalogProduct[]> {
