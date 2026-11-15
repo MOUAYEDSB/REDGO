@@ -11,6 +11,7 @@ import { CashPaymentPanel } from '../../components/CashPaymentPanel';
 import { colors } from '../../constants/theme';
 import { MSAKEN_CENTER } from '../../services/delivery';
 import { LocationConnectionState, subscribeToDriverLocation } from '../../services/driverLocation';
+import { fetchCustomerOrderById } from '../../services/ordersHistory';
 import { DeliveryOrder } from '../../types/delivery';
 
 export default function LiveDeliveryTrackingScreen() {
@@ -80,6 +81,15 @@ export default function LiveDeliveryTrackingScreen() {
   const [order, setOrder] = useState<DeliveryOrder>(initialOrder);
   const [driverLocation, setDriverLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [trackingState, setTrackingState] = useState<LocationConnectionState>('connecting');
+
+  useEffect(() => {
+    if (!id || id === 'order_default') return;
+    fetchCustomerOrderById(String(id)).then((realOrder) => {
+      if (realOrder) {
+        setOrder(realOrder);
+      }
+    });
+  }, [id]);
 
   useEffect(() => {
     return subscribeToDriverLocation(
