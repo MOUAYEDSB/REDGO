@@ -190,7 +190,11 @@ export async function fetchProductOptions(productId: string): Promise<ProductOpt
       .eq('is_available', true)
       .order('sort_order', { ascending: true });
 
-    if (error || !data) return [];
+    if (error) {
+      console.warn('Erreur fetchProductOptions Supabase :', error.message);
+      return [];
+    }
+    if (!data) return [];
 
     return data.map((opt) => ({
       id: opt.id,
@@ -198,9 +202,10 @@ export async function fetchProductOptions(productId: string): Promise<ProductOpt
       name: opt.name,
       priceMillimes: opt.price_millimes,
       isAvailable: opt.is_available,
-      sortOrder: opt.sort_order,
+      sortOrder: opt.sort_order ?? 0,
     }));
-  } catch {
+  } catch (err) {
+    console.warn('fetchProductOptions catch :', err);
     return [];
   }
 }

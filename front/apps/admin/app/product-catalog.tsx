@@ -62,6 +62,7 @@ const labelClass = "mb-1.5 block text-xs font-semibold text-[#D4D4D8]";
 export default function ProductCatalog({ client }: ProductCatalogProps) {
   const [businesses, setBusinesses] = useState<BusinessRow[]>([]);
   const [products, setProducts] = useState<ProductRow[]>([]);
+  const [allOptions, setAllOptions] = useState<Pick<ProductOptionRow, "id" | "product_id" | "name" | "price_millimes" | "is_available">[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [savingAvailabilityId, setSavingAvailabilityId] = useState<string | null>(null);
@@ -89,10 +90,12 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
       const catalog = await fetchCatalog(client);
       setBusinesses(catalog.businesses);
       setProducts(catalog.products);
+      setAllOptions(catalog.allOptions);
     } catch (cause) {
       setError(errorMessage(cause));
       setBusinesses([]);
       setProducts([]);
+      setAllOptions([]);
     } finally {
       setIsLoading(false);
     }
@@ -119,6 +122,14 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
     }
     return Array.from(set).sort();
   }, [products]);
+
+  const optionsCountByProductId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const opt of allOptions) {
+      map.set(opt.product_id, (map.get(opt.product_id) ?? 0) + 1);
+    }
+    return map;
+  }, [allOptions]);
 
   const visibleProducts = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase("fr-TN");
@@ -374,8 +385,8 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
         editingProduct
           ? "Produit mis à jour avec succès."
           : editorType === "courses"
-          ? "Article ajouté au catalogue Courses REDGO !"
-          : "Plat ajouté au restaurant !"
+            ? "Article ajouté au catalogue Courses REDGO !"
+            : "Plat ajouté au restaurant !"
       );
       setIsEditorOpen(false);
     } catch (cause) {
@@ -510,27 +521,24 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
           <button
             type="button"
             onClick={() => setModeFilter("all")}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-              modeFilter === "all" ? "bg-[#27272A] text-white" : "text-[#A1A1AA] hover:text-white"
-            }`}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${modeFilter === "all" ? "bg-[#27272A] text-white" : "text-[#A1A1AA] hover:text-white"
+              }`}
           >
             Tout afficher ({products.length})
           </button>
           <button
             type="button"
             onClick={() => setModeFilter("courses")}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-              modeFilter === "courses" ? "bg-amber-950 text-amber-200 border border-amber-800/80" : "text-[#A1A1AA] hover:text-white"
-            }`}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${modeFilter === "courses" ? "bg-amber-950 text-amber-200 border border-amber-800/80" : "text-[#A1A1AA] hover:text-white"
+              }`}
           >
             🛒 Courses REDGO ({coursesProductsCount})
           </button>
           <button
             type="button"
             onClick={() => setModeFilter("restaurant")}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-              modeFilter === "restaurant" ? "bg-[#351C20] text-[#FF8590] border border-[#5A272D]" : "text-[#A1A1AA] hover:text-white"
-            }`}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${modeFilter === "restaurant" ? "bg-[#351C20] text-[#FF8590] border border-[#5A272D]" : "text-[#A1A1AA] hover:text-white"
+              }`}
           >
             🍕 Restaurants ({restaurantProductsCount})
           </button>
@@ -628,21 +636,25 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="truncate font-semibold text-base">{product.name}</h3>
                         <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                            isCourses ? "bg-amber-950 text-amber-300" : "bg-sky-950 text-sky-300"
-                          }`}
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${isCourses ? "bg-amber-950 text-amber-300" : "bg-sky-950 text-sky-300"
+                            }`}
                         >
                           {isCourses ? "🛒 COURSES" : "🍕 RESTO"}
                         </span>
                         <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                            product.is_available
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${product.is_available
                               ? "bg-emerald-950 text-emerald-300"
                               : "bg-zinc-800 text-zinc-400"
-                          }`}
+                            }`}
                         >
                           {product.is_available ? "PUBLIÉ" : "MASQUÉ"}
                         </span>
+                        {optionsCountByProductId.get(product.id) ? (
+                          <span className="rounded-full bg-purple-950/80 border border-purple-800/50 px-2 py-0.5 text-[10px] font-bold text-purple-300">
+                            ✨ {optionsCountByProductId.get(product.id)} option
+                            {(optionsCountByProductId.get(product.id) ?? 0) > 1 ? "s" : ""}
+                          </span>
+                        ) : null}
                       </div>
 
                       <p className="mt-1 truncate text-xs text-[#A1A1AA]">
@@ -706,8 +718,8 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                     {editingProduct
                       ? "Modifier le produit"
                       : editorType === "courses"
-                      ? "🛒 Ajouter un article Courses (Direct REDGO)"
-                      : "🍕 Ajouter un plat de restaurant"}
+                        ? "🛒 Ajouter un article Courses (Direct REDGO)"
+                        : "🍕 Ajouter un plat de restaurant"}
                   </h2>
                 </div>
                 <p className="mt-1 text-xs text-[#A1A1AA]">
@@ -823,11 +835,10 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                           key={cat}
                           type="button"
                           onClick={() => setDraft((curr) => ({ ...curr, category: cat }))}
-                          className={`rounded-md px-2 py-1 text-[11px] font-semibold transition ${
-                            draft.category === cat
+                          className={`rounded-md px-2 py-1 text-[11px] font-semibold transition ${draft.category === cat
                               ? "bg-amber-600 text-white"
                               : "bg-[#27272A] text-[#A1A1AA] hover:text-white"
-                          }`}
+                            }`}
                         >
                           {cat}
                         </button>
@@ -923,13 +934,16 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                   </span>
                 </label>
 
-                {/* Options / Suppléments (surtout pour restaurants) */}
+                {/* Options / Suppléments */}
                 <div className="sm:col-span-2 border-t border-[#27272A] pt-4">
                   <div className="mb-2 flex items-center justify-between">
                     <div>
-                      <h3 className="text-sm font-bold">Options & Suppléments (facultatif)</h3>
+                      <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+                        <span>✨ Options & Suppléments</span>
+                        <span className="text-[11px] font-normal text-[#A1A1AA]">(Facultatif)</span>
+                      </h3>
                       <p className="text-xs text-[#A1A1AA]">
-                        Pour les tailles, sauces, suppléments fromage, etc.
+                        Disponibles pour Courses (tailles, formats, réfrigéré) et Restaurant (fromage, sauces, cuisson).
                       </p>
                     </div>
                     <button
@@ -937,9 +951,9 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                       onClick={() =>
                         setOptions((current) => [...current, { name: "", price: "0.000", is_available: true }])
                       }
-                      className="rounded-lg border border-[#3F3F46] px-3 py-1.5 text-xs font-semibold hover:border-[#FF2638]"
+                      className="rounded-lg border border-[#3F3F46] bg-[#27272A] px-3 py-1.5 text-xs font-semibold text-white hover:border-[#FF2638] hover:bg-[#32171A]"
                     >
-                      + Ajouter une option
+                      + Ajouter une option / supplément
                     </button>
                   </div>
 
@@ -1121,15 +1135,17 @@ function errorMessage(error: unknown) {
 }
 
 async function fetchCatalog(client: SupabaseClient<Database>) {
-  const [businessResult, productResult] = await Promise.all([
+  const [businessResult, productResult, optionsResult] = await Promise.all([
     client.from("businesses").select("*").order("name"),
     client.from("products").select("*").order("sort_order").order("name"),
+    client.from("product_options").select("id, product_id, name, price_millimes, is_available"),
   ]);
   if (businessResult.error) throw businessResult.error;
   if (productResult.error) throw productResult.error;
   return {
     businesses: businessResult.data ?? [],
     products: productResult.data ?? [],
+    allOptions: optionsResult.data ?? [],
   };
 }
 

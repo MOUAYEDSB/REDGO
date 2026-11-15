@@ -9,7 +9,14 @@ import { Screen } from '../../../components/Screen';
 import { colors } from '../../../constants/theme';
 import { useCart } from '../../../context/CartContext';
 import { formatMillimes } from '../../../services/cart';
-import { CatalogProduct, fetchProductById } from '../../../services/catalog';
+import {
+  CatalogProduct,
+  fetchCoursesProducts,
+  fetchProductById,
+  fetchProductOptions,
+  ProductOption,
+} from '../../../services/catalog';
+import { SelectedCartOption } from '../../../types/cart';
 
 type ProductDisplay = {
   id: string;
@@ -51,12 +58,57 @@ const FALLBACK_DETAILS: Record<string, ProductDisplay> = {
   },
 };
 
+const FALLBACK_OPTIONS: Record<string, ProductOption[]> = {
+  'eau-minerale-pack': [
+    {
+      id: 'opt_eau_refrigere',
+      productId: 'eau-minerale-pack',
+      name: 'Pack fraîchement réfrigéré',
+      priceMillimes: 500,
+      isAvailable: true,
+      sortOrder: 0,
+    },
+    {
+      id: 'opt_eau_glacons',
+      productId: 'eau-minerale-pack',
+      name: 'Poche de glaçons d\'accompagnement',
+      priceMillimes: 1200,
+      isAvailable: true,
+      sortOrder: 1,
+    },
+  ],
+  'huile-olive-bio': [
+    {
+      id: 'opt_huile_emballage',
+      productId: 'huile-olive-bio',
+      name: 'Emballage isotherme protecteur anti-choc',
+      priceMillimes: 1000,
+      isAvailable: true,
+      sortOrder: 0,
+    },
+  ],
+};
+
+function getCategoryIcon(cat: string): keyof typeof Ionicons.glyphMap {
+  const lower = cat.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (lower.includes('boisson') || lower.includes('eau')) return 'water-outline';
+  if (lower.includes('epicerie') || lower.includes('course')) return 'basket-outline';
+  if (lower.includes('pharmac') || lower.includes('sante')) return 'medkit-outline';
+  if (lower.includes('hygiene') || lower.includes('beaute')) return 'sparkles-outline';
+  if (lower.includes('local') || lower.includes('terroir')) return 'leaf-outline';
+  return 'pricetag-outline';
+}
+
 export default function MarketProductScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const [quantity, setQuantity] = useState(1);
   const [dbProduct, setDbProduct] = useState<CatalogProduct | null>(null);
+  const [options, setOptions] = useState<ProductOption[]>([]);
+  const [selectedOptions, setSelectedOptions] = useState<SelectedCartOption[]>([]);
+  const [similarProducts, setSimilarProducts] = useState<CatalogProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { addProduct } = useCart();
+  const [justAdded, setJustAdded] = useState(false);
+  const { addProduct, totalItemsCount } = useCart();
 
   useEffect(() => {
     let active = true;
@@ -66,16 +118,48 @@ export default function MarketProductScreen() {
     }
 
     setIsLoading(true);
-    fetchProductById(id)
+
+    // 1. Charger les détails du produit
+    const loadProd = fetchProductById(id)
       .then((prod) => {
-        if (active) {
-          setDbProduct(prod);
-          setIsLoading(false);
+        if (!active) return null;
+        setDbProduct(prod);
+
+        // Charger des produits similaires de la même catégorie
+        if (prod?.category) {
+          fetchCoursesProducts().then((all) => {
+            if (!active) return;
+            const related = all
+              .filter((item) => item.id !== prod.id && item.category === prod.category)
+              .slice(0, 3);
+            setSimilarProducts(related);
+          });
+        }
+        return prod;
+      })
+      .catch(() => null);
+
+    // 2. Charger les suppléments / options du produit depuis Supabase
+    const loadOpts = fetchProductOptions(id)
+      .then((opts) => {
+        if (!active) return;
+        if (opts.length > 0) {
+          setOptions(opts);
+        } else if (FALLBACK_OPTIONS[id]) {
+          setOptions(FALLBACK_OPTIONS[id]);
+        } else {
+          setOptions([]);
         }
       })
       .catch(() => {
-        if (active) setIsLoading(false);
+        if (active && FALLBACK_OPTIONS[id]) {
+          setOptions(FALLBACK_OPTIONS[id]);
+        }
       });
+
+    Promise.all([loadProd, loadOpts]).finally(() => {
+      if (active) setIsLoading(false);
+    });
 
     return () => {
       active = false;
@@ -84,17 +168,19 @@ export default function MarketProductScreen() {
 
   const product: ProductDisplay = dbProduct
     ? {
-        id: dbProduct.id,
-        name: dbProduct.name,
-        category: dbProduct.category || 'Courses',
-        priceMillimes: dbProduct.priceMillimes,
-        image: dbProduct.imageUrl || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=900',
-        description: dbProduct.description || 'Produit direct REDGO sans intermédiaire, livré chez vous à M\'Saken et Messaadine.',
-        maxQuantity: dbProduct.maxQuantity || 30,
-      }
+      id: dbProduct.id,
+      name: dbProduct.name,
+      category: dbProduct.category || 'Courses',
+      priceMillimes: dbProduct.priceMillimes,
+      image: dbProduct.imageUrl || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=900',
+      description:
+        dbProduct.description ||
+      'Produit direct REDGO sans intermédiaire, stocké au Hub Central et livré chez vous en express.',
+      maxQuantity: dbProduct.maxQuantity || 30,
+    }
     : id && FALLBACK_DETAILS[id]
-    ? FALLBACK_DETAILS[id]
-    : {
+      ? FALLBACK_DETAILS[id]
+      : {
         id: id || 'courses_item',
         name: 'Produit Essentiel REDGO',
         category: 'Courses',
@@ -104,7 +190,26 @@ export default function MarketProductScreen() {
         maxQuantity: 30,
       };
 
-  const lineTotalMillimes = product.priceMillimes * quantity;
+  const toggleOption = (option: ProductOption) => {
+    setSelectedOptions((current) => {
+      const exists = current.some((o) => o.id === option.id);
+      if (exists) {
+        return current.filter((o) => o.id !== option.id);
+      }
+      return [
+        ...current,
+        {
+          id: option.id,
+          name: option.name,
+          priceMillimes: option.priceMillimes,
+        },
+      ];
+    });
+  };
+
+  const optionsTotalMillimes = selectedOptions.reduce((acc, opt) => acc + opt.priceMillimes, 0);
+  const unitTotalMillimes = product.priceMillimes + optionsTotalMillimes;
+  const lineTotalMillimes = unitTotalMillimes * quantity;
 
   const handleAddToCart = () => {
     addProduct({
@@ -115,15 +220,23 @@ export default function MarketProductScreen() {
       productName: product.name,
       productImage: product.image,
       unitPriceMillimes: product.priceMillimes,
+      selectedOptions,
       quantity,
       maxQuantity: product.maxQuantity,
     });
+
+    setJustAdded(true);
+    setTimeout(() => {
+      setJustAdded(false);
+    }, 2000);
   };
 
   return (
     <Screen scroll>
+      {/* Hero Media & Navigation flotante */}
       <View style={styles.imageWrapper}>
         <Image source={{ uri: product.image }} style={styles.image} contentFit="cover" />
+        <View style={styles.imageOverlay} />
         <View style={styles.topNav}>
           <Pressable
             style={({ pressed }) => [styles.navCircle, pressed && { opacity: 0.8 }]}
@@ -141,183 +254,589 @@ export default function MarketProductScreen() {
         {isLoading ? (
           <View style={styles.loadingRow}>
             <ActivityIndicator size="small" color={colors.primary} />
-            <Text style={styles.loadingText}>Synchronisation avec Supabase…</Text>
+            <Text style={styles.loadingText}>Synchronisation des détails et options…</Text>
           </View>
         ) : null}
 
-        <View style={styles.categoryBadge}>
-          <Ionicons name="shield-checkmark" size={13} color={colors.success} />
-          <Text style={styles.categoryBadgeText}>{product.category} · Direct REDGO</Text>
-        </View>
-
-        <Text style={styles.name}>{product.name}</Text>
-        <Text style={styles.description}>{product.description}</Text>
-
-        <View style={styles.priceRow}>
-          <Text style={styles.price}>{formatMillimes(product.priceMillimes)}</Text>
-          <View style={styles.zoneNotice}>
-            <Ionicons name="location" size={14} color={colors.primary} />
-            <Text style={styles.zoneText}>Disponible à M'Saken & Messaadine</Text>
+          {/* Badges d'en-tête : Catégorie & Origine Hub */}
+          <View style={styles.badgeRow}>
+            <View style={styles.categoryBadge}>
+              <Ionicons name={getCategoryIcon(product.category)} size={13} color={colors.primary} />
+              <Text style={styles.categoryBadgeText}>{product.category}</Text>
+            </View>
+            <View style={styles.directHubBadge}>
+              <Ionicons name="shield-checkmark" size={12} color={colors.success} />
+              <Text style={styles.directHubText}>Direct Hub Central</Text>
+            </View>
           </View>
-        </View>
 
-        {/* Quantity Stepper Section */}
-        <View style={styles.quantitySection}>
-          <Text style={styles.quantityLabel}>Quantité</Text>
-          <QuantityStepper
-            value={quantity}
-            min={1}
-            max={product.maxQuantity}
-            onChange={setQuantity}
-            size="large"
-          />
-        </View>
+          {/* Titre et description */}
+          <Text style={styles.name}>{product.name}</Text>
+          <Text style={styles.description}>{product.description}</Text>
 
-        {/* Add to Cart CTA */}
-        <Pressable
-          style={({ pressed }) => [styles.submitButton, pressed && { opacity: 0.9 }]}
-          onPress={handleAddToCart}
-        >
-          <Ionicons name="cart" size={20} color="#FFFFFF" />
-          <Text style={styles.submitButtonText}>
-            Ajouter au panier · {formatMillimes(lineTotalMillimes)}
-          </Text>
-        </Pressable>
-      </View>
-    </Screen>
-  );
+            {/* Bloc Tarif & Zone de desserte */}
+            <View style={styles.priceSection}>
+              <View>
+                <Text style={styles.priceLabel}>Prix unitaire de base</Text>
+                <Text style={styles.price}>{formatMillimes(product.priceMillimes)}</Text>
+              </View>
+              <View style={styles.zoneNotice}>
+                <View style={styles.zoneDot} />
+                <Text style={styles.zoneText}>M'Saken & Messaadine</Text>
+              </View>
+            </View>
+
+            {/* Garanties Express REDGO */}
+            <View style={styles.guaranteeBox}>
+              <View style={styles.guaranteeItem}>
+                <Ionicons name="flash" size={14} color="#FF9800" />
+                <Text style={styles.guaranteeText}>20–30 min</Text>
+              </View>
+              <View style={styles.guaranteeDivider} />
+              <View style={styles.guaranteeItem}>
+                <Ionicons name="cash" size={14} color={colors.success} />
+                <Text style={styles.guaranteeText}>Espèces</Text>
+              </View>
+              <View style={styles.guaranteeDivider} />
+              <View style={styles.guaranteeItem}>
+                <Ionicons name="shield-checkmark" size={14} color="#42A5F5" />
+                <Text style={styles.guaranteeText}>Prix Garanti</Text>
+              </View>
+            </View>
+
+            {/* SECTION SUPPLÉMENTS & OPTIONS (En direct de l'admin Supabase) */}
+            {options.length > 0 ? (
+              <View style={styles.optionsSection}>
+                <View style={styles.optionsHeader}>
+                  <View style={styles.optionsHeaderTitleRow}>
+                    <Ionicons name="sparkles" size={16} color={colors.primary} />
+                    <Text style={styles.optionsTitle}>Options & Suppléments</Text>
+                  </View>
+                  <Text style={styles.optionsSubtitle}>
+                    Personnalisez cet article selon vos préférences
+                  </Text>
+                </View>
+
+                <View style={styles.optionsList}>
+                  {options.map((option) => {
+                    const isSelected = selectedOptions.some((o) => o.id === option.id);
+                    return (
+                      <Pressable
+                        key={option.id}
+                        style={({ pressed }) => [
+                          styles.optionCard,
+                          isSelected && styles.optionCardSelected,
+                          pressed && { opacity: 0.85 },
+                        ]}
+                        onPress={() => toggleOption(option)}
+                      >
+                        <View style={styles.optionLeft}>
+                          <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+                            {isSelected ? (
+                              <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                            ) : null}
+                          </View>
+                          <Text
+                            style={[styles.optionName, isSelected && styles.optionNameSelected]}
+                            numberOfLines={2}
+                          >
+                            {option.name}
+                          </Text>
+                        </View>
+
+                        <View
+                          style={[
+                            styles.optionPriceBadge,
+                            isSelected && styles.optionPriceBadgeSelected,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.optionPriceText,
+                              isSelected && styles.optionPriceTextSelected,
+                            ]}
+                          >
+                            {option.priceMillimes > 0
+                              ? `+${formatMillimes(option.priceMillimes)}`
+                              : 'Inclus'}
+                          </Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            {/* Sélecteur de Quantité */}
+            <View style={styles.quantitySection}>
+              <View>
+                <Text style={styles.quantityLabel}>Quantité</Text>
+                <Text style={styles.quantitySub}>Max. {product.maxQuantity} par commande</Text>
+              </View>
+              <QuantityStepper
+                value={quantity}
+                min={1}
+                max={product.maxQuantity}
+                onChange={setQuantity}
+                size="large"
+              />
+            </View>
+
+            {/* Récapitulatif Suppléments si sélectionnés */}
+            {selectedOptions.length > 0 ? (
+              <View style={styles.summaryBreakdown}>
+                <Text style={styles.summaryBreakdownText}>
+                  Base : {formatMillimes(product.priceMillimes)} + Suppléments ({selectedOptions.length}) :{' '}
+                  {formatMillimes(optionsTotalMillimes)} ={' '}
+                  <Text style={styles.summaryBreakdownBold}>{formatMillimes(unitTotalMillimes)}/u</Text>
+                </Text>
+              </View>
+            ) : null}
+
+            {/* Bouton CTA d'Ajout */}
+            <Pressable
+              style={({ pressed }) => [
+                styles.submitButton,
+                justAdded && styles.submitButtonSuccess,
+                pressed && { opacity: 0.9 },
+              ]}
+              onPress={handleAddToCart}
+            >
+              <Ionicons
+                name={justAdded ? 'checkmark-circle' : 'cart'}
+                size={20}
+                color="#FFFFFF"
+              />
+              <Text style={styles.submitButtonText}>
+                {justAdded
+                    ? 'Ajouté au panier !'
+                    : `Ajouter au panier · ${formatMillimes(lineTotalMillimes)}`}
+              </Text>
+            </Pressable>
+
+            {/* Accès rapide au Panier si des articles y sont déjà */}
+            {totalItemsCount > 0 ? (
+              <Pressable
+                style={({ pressed }) => [styles.viewCartButton, pressed && { opacity: 0.8 }]}
+                onPress={() => router.push('/cart')}
+              >
+                <Text style={styles.viewCartButtonText}>
+                  Voir mon panier ({totalItemsCount} article{totalItemsCount > 1 ? 's' : ''})
+                </Text>
+                <Ionicons name="arrow-forward" size={16} color={colors.textSecondary} />
+              </Pressable>
+            ) : null}
+
+            {/* Produits Similaires / Même Catégorie */}
+            {similarProducts.length > 0 ? (
+              <View style={styles.similarSection}>
+                <Text style={styles.similarSectionTitle}>Dans la même catégorie</Text>
+                <View style={styles.similarGrid}>
+                  {similarProducts.map((item) => (
+                    <Pressable
+                      key={item.id}
+                      style={({ pressed }) => [styles.similarCard, pressed && { opacity: 0.85 }]}
+                      onPress={() => router.push(`/market/product/${item.id}`)}
+                    >
+                      <Image
+                        source={{
+                          uri: item.imageUrl || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500',
+                        }}
+                        style={styles.similarImage}
+                        contentFit="cover"
+                      />
+                      <Text style={styles.similarName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.similarPrice}>{formatMillimes(item.priceMillimes)}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+          </View>
+        </Screen>
+        );
 }
 
-const styles = StyleSheet.create({
-  imageWrapper: {
-    position: 'relative',
-    width: '100%',
-    height: 290,
+        const styles = StyleSheet.create({
+          imageWrapper: {
+          position: 'relative',
+        width: '100%',
+        height: 290,
+        backgroundColor: colors.secondary,
   },
-  image: {
-    width: '100%',
-    height: '100%',
+        image: {
+          width: '100%',
+        height: '100%',
   },
-  topNav: {
-    position: 'absolute',
-    top: 48,
-    left: 16,
-    right: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+        imageOverlay: {
+          ...StyleSheet.absoluteFill,
+          backgroundColor: 'rgba(0, 0, 0, 0.25)',
   },
-  navCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(18, 18, 24, 0.75)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+        topNav: {
+          position: 'absolute',
+        top: 48,
+        left: 16,
+        right: 16,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
   },
-  body: {
-    padding: 20,
-    paddingBottom: 40,
+        navCircle: {
+          width: 42,
+        height: 42,
+        borderRadius: 21,
+        backgroundColor: 'rgba(9, 9, 9, 0.75)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.15)',
   },
-  loadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
+        body: {
+          padding: 20,
+        paddingBottom: 40,
   },
-  loadingText: {
-    fontSize: 12,
-    color: '#9E9E9E',
+        loadingRow: {
+          flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 12,
   },
-  categoryBadge: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(34, 197, 94, 0.1)',
-    borderRadius: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.25)',
-    marginBottom: 10,
+        loadingText: {
+          fontSize: 12,
+        color: colors.textSecondary,
   },
-  categoryBadgeText: {
-    color: colors.success,
-    fontSize: 12,
-    fontWeight: '800',
+        badgeRow: {
+          flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 12,
   },
-  name: {
-    color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: '900',
+        categoryBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        backgroundColor: '#261214',
+        borderRadius: 12,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderWidth: 1,
+        borderColor: '#4A1D22',
   },
-  description: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 8,
+        categoryBadgeText: {
+          color: colors.primary,
+        fontSize: 11,
+        fontWeight: '800',
   },
-  priceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 18,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#252533',
+        directHubBadge: {
+          flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: 'rgba(34, 197, 94, 0.1)',
+        borderRadius: 12,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderWidth: 1,
+        borderColor: 'rgba(34, 197, 94, 0.25)',
   },
-  price: {
-    color: colors.primary,
-    fontSize: 24,
-    fontWeight: '900',
+          directHubText: {
+          color: colors.success,
+        fontSize: 11,
+        fontWeight: '700',
   },
-  zoneNotice: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+        name: {
+          color: colors.text,
+        fontSize: 22,
+        fontWeight: '900',
+        letterSpacing: -0.3,
+        lineHeight: 28,
   },
-  zoneText: {
-    color: colors.textSecondary,
-    fontSize: 11,
-    fontWeight: '600',
+        description: {
+          color: colors.textSecondary,
+        fontSize: 13,
+        lineHeight: 20,
+        marginTop: 8,
   },
-  quantitySection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#181822',
-    borderRadius: 18,
-    padding: 16,
-    marginTop: 22,
-    borderWidth: 1,
-    borderColor: '#2A2A38',
+          priceSection: {
+          flexDirection: 'row',
+        alignItems: 'flex-end',
+        justifyContent: 'space-between',
+        marginTop: 18,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
   },
-  quantityLabel: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
+        priceLabel: {
+          fontSize: 11,
+        fontWeight: '600',
+        color: colors.textSecondary,
+        marginBottom: 2,
   },
-  submitButton: {
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: colors.primary,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    marginTop: 24,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 4,
+        price: {
+          color: colors.primary,
+        fontSize: 26,
+        fontWeight: '900',
+        letterSpacing: -0.5,
   },
-  submitButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '900',
+        zoneNotice: {
+          flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: colors.card,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: colors.border,
+  },
+        zoneDot: {
+          width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: colors.primary,
+  },
+        zoneText: {
+          color: colors.textSecondary,
+        fontSize: 11,
+        fontWeight: '600',
+  },
+        guaranteeBox: {
+          flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: colors.card,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: colors.border,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        marginTop: 16,
+  },
+        guaranteeItem: {
+          flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+  },
+        guaranteeDivider: {
+          width: 1,
+        height: 18,
+        backgroundColor: colors.border,
+  },
+        guaranteeText: {
+          fontSize: 11,
+        fontWeight: '700',
+        color: colors.text,
+  },
+        /* OPTIONS & SUPPLÉMENTS */
+        optionsSection: {
+          marginTop: 22,
+  },
+        optionsHeader: {
+          marginBottom: 12,
+  },
+        optionsHeaderTitleRow: {
+          flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+  },
+        optionsTitle: {
+          fontSize: 15,
+        fontWeight: '800',
+        color: colors.text,
+        letterSpacing: -0.2,
+  },
+        optionsSubtitle: {
+          fontSize: 11,
+        color: colors.textSecondary,
+        marginTop: 2,
+  },
+        optionsList: {
+          gap: 8,
+  },
+        optionCard: {
+          flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 14,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+  },
+        optionCardSelected: {
+          borderColor: colors.primary,
+        backgroundColor: '#1E1214',
+  },
+        optionLeft: {
+          flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        flex: 1,
+        paddingRight: 10,
+  },
+        checkbox: {
+          width: 20,
+        height: 20,
+        borderRadius: 6,
+        borderWidth: 1.5,
+        borderColor: colors.border,
+        backgroundColor: '#121212',
+        alignItems: 'center',
+        justifyContent: 'center',
+  },
+        checkboxSelected: {
+          borderColor: colors.primary,
+        backgroundColor: colors.primary,
+  },
+        optionName: {
+          fontSize: 13,
+        fontWeight: '600',
+        color: colors.text,
+        flex: 1,
+  },
+        optionNameSelected: {
+          color: '#FFFFFF',
+        fontWeight: '700',
+  },
+        optionPriceBadge: {
+          paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 8,
+        backgroundColor: '#27272A',
+  },
+        optionPriceBadgeSelected: {
+          backgroundColor: '#351619',
+        borderWidth: 1,
+        borderColor: '#542026',
+  },
+        optionPriceText: {
+          fontSize: 11,
+        fontWeight: '700',
+        color: colors.textSecondary,
+  },
+        optionPriceTextSelected: {
+          color: colors.primary,
+        fontWeight: '800',
+  },
+        /* QUANTITÉ */
+        quantitySection: {
+          flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: colors.card,
+        borderRadius: 16,
+        padding: 16,
+        marginTop: 18,
+        borderWidth: 1,
+        borderColor: colors.border,
+  },
+        quantityLabel: {
+          color: colors.text,
+        fontSize: 15,
+        fontWeight: '800',
+  },
+        quantitySub: {
+          color: colors.textSecondary,
+        fontSize: 11,
+        marginTop: 2,
+  },
+        summaryBreakdown: {
+          marginTop: 12,
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        backgroundColor: '#161618',
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: colors.border,
+  },
+        summaryBreakdownText: {
+          fontSize: 11,
+        color: colors.textSecondary,
+        textAlign: 'center',
+  },
+        summaryBreakdownBold: {
+          color: colors.text,
+        fontWeight: '800',
+  },
+        /* CTA */
+        submitButton: {
+          height: 54,
+        borderRadius: 16,
+        backgroundColor: colors.primary,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        marginTop: 20,
+        shadowColor: colors.primary,
+        shadowOffset: {width: 0, height: 4 },
+        shadowOpacity: 0.35,
+        shadowRadius: 10,
+        elevation: 4,
+  },
+        submitButtonSuccess: {
+          backgroundColor: colors.success,
+        shadowColor: colors.success,
+  },
+        submitButtonText: {
+          color: '#FFFFFF',
+        fontSize: 15,
+        fontWeight: '900',
+  },
+        viewCartButton: {
+          flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        marginTop: 12,
+        paddingVertical: 10,
+  },
+        viewCartButtonText: {
+          color: colors.textSecondary,
+        fontSize: 13,
+        fontWeight: '600',
+  },
+        /* SIMILAIRES */
+        similarSection: {
+          marginTop: 28,
+  },
+        similarSectionTitle: {
+          fontSize: 15,
+        fontWeight: '800',
+        color: colors.text,
+        marginBottom: 12,
+  },
+        similarGrid: {
+          flexDirection: 'row',
+        gap: 10,
+  },
+        similarCard: {
+          flex: 1,
+        backgroundColor: colors.card,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: colors.border,
+        padding: 8,
+  },
+        similarImage: {
+          width: '100%',
+        height: 70,
+        borderRadius: 8,
+        backgroundColor: colors.secondary,
+        marginBottom: 6,
+  },
+        similarName: {
+          fontSize: 11,
+        fontWeight: '700',
+        color: colors.text,
+  },
+        similarPrice: {
+          fontSize: 12,
+        fontWeight: '800',
+        color: colors.primary,
+        marginTop: 4,
   },
 });
