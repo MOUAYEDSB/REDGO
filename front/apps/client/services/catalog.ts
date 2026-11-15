@@ -242,3 +242,57 @@ export async function fetchProductOptions(productId: string): Promise<ProductOpt
   }
 }
 
+export type HomeFeaturedProduct = {
+  id: string;
+  type: 'courses' | 'food';
+  businessId: string;
+  businessName: string;
+  name: string;
+  priceMillimes: number;
+  shop: string;
+  image: string;
+};
+
+/**
+ * Récupère une sélection d'articles populaires (Courses & Plats) pour l'accueil client.
+ */
+export async function fetchPopularHomeItems(): Promise<HomeFeaturedProduct[]> {
+  try {
+    const client = requireSupabase();
+    const { data, error } = await client
+      .from('products')
+      .select('*, businesses!inner(id, name, kind, is_active)')
+      .eq('is_available', true)
+      .eq('businesses.is_active', true)
+      .order('sort_order', { ascending: true })
+      .limit(8);
+
+    if (error) {
+      console.warn('Erreur fetchPopularHomeItems Supabase :', error.message);
+      return [];
+    }
+    if (!data) return [];
+
+    return (data as any[]).map((p) => {
+      const isCourses = p.businesses?.kind === 'courses';
+      return {
+        id: p.id,
+        type: isCourses ? ('courses' as const) : ('food' as const),
+        businessId: p.business_id,
+        businessName: isCourses ? 'Courses REDGO' : p.businesses?.name || 'Restaurant',
+        name: p.name,
+        priceMillimes: p.price_millimes,
+        shop: isCourses ? 'Courses REDGO · Prix fixe' : p.businesses?.name || 'Restaurant',
+        image:
+          p.image_url ||
+          (isCourses
+            ? 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500'
+            : 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500'),
+      };
+    });
+  } catch (err) {
+    console.warn('fetchPopularHomeItems catch :', err);
+    return [];
+  }
+}
+
