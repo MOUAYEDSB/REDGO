@@ -23,6 +23,11 @@ import {
   fetchRestaurants,
   HomeFeaturedProduct,
 } from '../../services/catalog';
+import {
+  FALLBACK_PROMOS,
+  fetchPromoAnnouncements,
+  PromoAnnouncement,
+} from '../../services/promos';
 
 const primaryServices = [
   {
@@ -102,6 +107,7 @@ export default function Home() {
 
   const [dbProducts, setDbProducts] = useState<HomeFeaturedProduct[]>([]);
   const [dbRestaurants, setDbRestaurants] = useState<CatalogBusiness[]>([]);
+  const [promos, setPromos] = useState<PromoAnnouncement[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -128,12 +134,14 @@ export default function Home() {
 
   // Chargement des données réelles depuis Supabase
   const loadHomeData = useCallback(async () => {
-    const [productsData, restaurantsData] = await Promise.all([
+    const [productsData, restaurantsData, promosData] = await Promise.all([
       fetchPopularHomeItems(),
       fetchRestaurants(),
+      fetchPromoAnnouncements(),
     ]);
     setDbProducts(productsData);
     setDbRestaurants(restaurantsData);
+    setPromos(promosData.length > 0 ? promosData : FALLBACK_PROMOS);
     setIsLoading(false);
     setRefreshing(false);
   }, []);
@@ -219,35 +227,60 @@ export default function Home() {
         <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
       </Pressable>
 
-      {/* Banner */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.bannerTrack}
-      >
-        <View style={styles.banner}>
-          <Image
-            source={{
-              uri: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=900',
-            }}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
-          />
-          <View style={styles.bannerOverlay} />
-          <View style={styles.bannerCopy}>
-            <Text style={styles.bannerLabel}>REDGO SAHEL</Text>
-            <Text style={styles.bannerTitle}>
-              Courses, Food & Scooter Taxi{'\n'}au même endroit.
-            </Text>
+      {/* Annonces Promotionnelles */}
+      {promos.length > 0 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.bannerTrack}
+        >
+          {promos.map((promo) => (
             <Pressable
-              style={styles.bannerCta}
-              onPress={() => router.push('/(tabs)/explore')}
+              key={promo.id}
+              style={({ pressed }) => [styles.banner, pressed && { opacity: 0.88 }]}
+              onPress={() => router.push(promo.targetRoute as any)}
             >
-              <Text style={styles.bannerCtaText}>Découvrir</Text>
+              <Image
+                source={{ uri: promo.imageUrl }}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+              />
+              <View style={styles.bannerOverlay} />
+              <View style={styles.bannerCopy}>
+                {promo.badgeText ? (
+                  <Text style={styles.bannerLabel}>{promo.badgeText}</Text>
+                ) : null}
+                <Text
+                  style={[
+                    styles.bannerTitle,
+                    promo.titleAr ? { textAlign: 'right' } : undefined,
+                  ]}
+                >
+                  {promo.titleAr ?? promo.title}
+                </Text>
+                {(promo.subtitleAr ?? promo.subtitle) ? (
+                  <Text
+                    style={[
+                      styles.bannerSubtitle,
+                      promo.subtitleAr ? { textAlign: 'right' } : undefined,
+                    ]}
+                  >
+                    {promo.subtitleAr ?? promo.subtitle}
+                  </Text>
+                ) : null}
+                <Pressable
+                  style={styles.bannerCta}
+                  onPress={() => router.push(promo.targetRoute as any)}
+                >
+                  <Text style={styles.bannerCtaText}>
+                    {promo.ctaTextAr ?? promo.ctaText ?? 'Découvrir'}
+                  </Text>
+                </Pressable>
+              </View>
             </Pressable>
-          </View>
-        </View>
-      </ScrollView>
+          ))}
+        </ScrollView>
+      ) : null}
 
       {/* 3 Core Services */}
       <Text style={styles.sectionTitle}>Nos 3 Services Dédiés</Text>
@@ -588,6 +621,12 @@ const styles = StyleSheet.create({
     lineHeight: 28,
     fontWeight: '900',
     marginTop: 6,
+  },
+  bannerSubtitle: {
+    color: '#D4D4D8',
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 4,
   },
   bannerCta: {
     alignSelf: 'flex-start',

@@ -5,12 +5,13 @@ import type { AdminCashPaymentRow, Database, DriverApplicationStatus } from "@re
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import ProductCatalog from "./product-catalog";
 import BusinessManager from "./business-manager";
+import PromoManager from "./promo-manager";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-type AdminSection = "overview" | "businesses" | "catalog" | "drivers" | "payments";
+type AdminSection = "overview" | "businesses" | "catalog" | "promotions" | "drivers" | "payments";
 
 type DriverApplicationAdminRow = {
   user_id: string;
@@ -38,6 +39,7 @@ const sectionDetails: Record<AdminSection, { label: string; description: string;
   overview: { label: "Vue générale", description: "Aperçu global de l'activité REDGO.", icon: "📊" },
   businesses: { label: "Restaurants & Commerces", description: "Gestion des restaurants partenaires et commerces.", icon: "🍽️" },
   catalog: { label: "Produits & Menus", description: "Gestion des plats, menus, prix et suppléments.", icon: "📦" },
+  promotions: { label: "Annonces & Promos", description: "Gestion des bannières promotionnelles et annonces (Arabe/Français).", icon: "📢" },
   drivers: { label: "Chauffeurs", description: "Gestion des chauffeurs, approbation et suspension.", icon: "🛵" },
   payments: { label: "Paiements", description: "Suivi des encaissements et des missions.", icon: "💰" },
 };
@@ -401,6 +403,7 @@ export default function Home() {
     { id: "overview", label: "Vue générale", icon: "📊", count: null },
     { id: "businesses", label: "Restaurants", icon: "🍽️", count: null },
     { id: "catalog", label: "Produits & Menus", icon: "📦", count: null },
+    { id: "promotions", label: "Annonces & Promos", icon: "📢", count: null },
     { id: "drivers", label: "Chauffeurs", icon: "🛵", count: driversByStatus.pending > 0 ? driversByStatus.pending : null },
     { id: "payments", label: "Paiements", icon: "💰", count: payments.length > 0 ? payments.length : null },
   ];
@@ -793,6 +796,10 @@ export default function Home() {
             /* ========== BUSINESSES ========== */
           ) : activeSection === "businesses" ? (
             <BusinessManager client={supabase} />
+
+            /* ========== PROMOTIONS ========== */
+          ) : activeSection === "promotions" ? (
+            <PromoManager client={supabase} />
 
             /* ========== CATALOG ========== */
           ) : <ProductCatalog client={supabase} />}

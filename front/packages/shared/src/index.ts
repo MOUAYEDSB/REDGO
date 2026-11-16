@@ -72,6 +72,25 @@ export type ProductOptionRow = {
   created_at: string;
 };
 
+export type PromoAnnouncementRow = {
+  id: string;
+  title: string;
+  title_ar: string | null;
+  subtitle: string;
+  subtitle_ar: string | null;
+  badge_text: string;
+  image_url: string;
+  target_route: string;
+  cta_text: string;
+  cta_text_ar: string | null;
+  is_active: boolean;
+  sort_order: number;
+  starts_at: string;
+  ends_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type UserRoleRow = {
   user_id: string;
   role: AppRole;
@@ -346,6 +365,12 @@ export type Database = {
         Row: ProductOptionRow;
         Insert: Pick<ProductOptionRow, 'id' | 'product_id' | 'name'> & Partial<Omit<ProductOptionRow, 'id' | 'product_id' | 'name'>>;
         Update: Partial<Omit<ProductOptionRow, 'id' | 'product_id' | 'created_at'>>;
+        Relationships: [];
+      };
+      promo_announcements: {
+        Row: PromoAnnouncementRow;
+        Insert: Pick<PromoAnnouncementRow, 'id' | 'title' | 'subtitle' | 'image_url'> & Partial<Omit<PromoAnnouncementRow, 'id' | 'title' | 'subtitle' | 'image_url'>>;
+        Update: Partial<Omit<PromoAnnouncementRow, 'id' | 'created_at'>>;
         Relationships: [];
       };
       profiles: {
