@@ -17,6 +17,7 @@ import { formatMillimes } from '../../services/cart';
 import {
   DriverEarningsSummary,
   fetchDriverEarningsSummary,
+  subscribeDriverUpdates,
 } from '../../services/driverMissions';
 
 export default function DriverEarningsScreen() {
@@ -49,6 +50,10 @@ export default function DriverEarningsScreen() {
   useFocusEffect(
     useCallback(() => {
       void loadData();
+      const unsubscribe = subscribeDriverUpdates(() => {
+        void loadData();
+      });
+      return () => unsubscribe();
     }, [loadData]),
   );
 

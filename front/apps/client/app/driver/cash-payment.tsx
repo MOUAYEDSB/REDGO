@@ -7,6 +7,7 @@ import { Screen } from '../../components/Screen';
 import { colors } from '../../constants/theme';
 import { confirmCashPayment, validateCashPaymentQr } from '../../services/cashPayment';
 import { formatMillimes } from '../../services/cart';
+import { recordCompletedMission } from '../../services/driverMissions';
 import type { CashPaymentReceiptRow, CashPaymentValidationRow } from '@redgo/shared';
 
 export default function DriverCashPaymentScreen() {
@@ -42,6 +43,20 @@ export default function DriverCashPaymentScreen() {
     try {
       const result = await confirmCashPayment(token);
       setReceipt(result);
+
+      // Enregistrement dynamique immédiat dans l'historique et les gains du chauffeur
+      void recordCompletedMission({
+        id: result.mission_id || `cash-${Date.now()}`,
+        reference: validation.reference || 'CMD-CASH',
+        missionType: result.mission_type || 'delivery',
+        pickupAddress: "Commerce partenaire M'Saken",
+        destinationAddress: "Client M'Saken / Messaadine",
+        amountMillimes: result.amount_millimes,
+        driverEarningsMillimes: 3500,
+        status: 'completed',
+        completedAt: result.paid_at || new Date().toISOString(),
+      });
+
       setValidation(null);
       setToken(null);
     } catch (cause) {

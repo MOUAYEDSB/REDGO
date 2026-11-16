@@ -14,12 +14,14 @@ import type { ActiveDriverMissionRow, OpenDriverMissionRow } from '@redgo/shared
 import { Screen } from '../../components/Screen';
 import { colors } from '../../constants/theme';
 import { useRedgoAuth } from '../../context/RedgoAuthContext';
+import { DriverMissionMap } from '../../components/DriverMissionMap';
 import {
   acceptDriverMission,
   FALLBACK_OPEN_MISSIONS,
   getMyActiveDriverMission,
   listOpenDriverMissions,
   openNavigationApp,
+  subscribeDriverUpdates,
 } from '../../services/driverMissions';
 
 export default function DriverMissionsScreen() {
@@ -30,6 +32,7 @@ export default function DriverMissionsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [selectedMapMissionId, setSelectedMapMissionId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -51,6 +54,10 @@ export default function DriverMissionsScreen() {
   useFocusEffect(
     useCallback(() => {
       void loadData();
+      const unsubscribe = subscribeDriverUpdates(() => {
+        void loadData();
+      });
+      return () => unsubscribe();
     }, [loadData]),
   );
 
@@ -190,8 +197,30 @@ export default function DriverMissionsScreen() {
                   </View>
                 </View>
 
+                {/* Carte dépliable de la mission */}
+                {selectedMapMissionId === m.mission_id ? (
+                  <View style={{ marginTop: 10 }}>
+                    <DriverMissionMap
+                      pickupAddress={m.pickup_address}
+                      destinationAddress={m.destination_address}
+                      height={180}
+                      showExpandButton={false}
+                    />
+                  </View>
+                ) : null}
+
                 {/* Actions */}
                 <View style={styles.actionsRow}>
+                  <Pressable
+                    onPress={() => setSelectedMapMissionId(selectedMapMissionId === m.mission_id ? null : m.mission_id)}
+                    style={[styles.navBtn, selectedMapMissionId === m.mission_id && { backgroundColor: '#2E2E3E' }]}
+                  >
+                    <Ionicons name="map-outline" size={16} color={selectedMapMissionId === m.mission_id ? colors.primary : '#A1A1AA'} />
+                    <Text style={[styles.navBtnText, selectedMapMissionId === m.mission_id && { color: colors.primary }]}>
+                      {selectedMapMissionId === m.mission_id ? 'Masquer' : 'Carte'}
+                    </Text>
+                  </Pressable>
+
                   <Pressable
                     onPress={() => openNavigationApp(m.pickup_address)}
                     style={styles.navBtn}

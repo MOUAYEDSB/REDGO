@@ -19,6 +19,7 @@ import {
   FALLBACK_DRIVER_HISTORY,
   fetchDriverHistory,
   openNavigationApp,
+  subscribeDriverUpdates,
 } from '../../services/driverMissions';
 
 export default function DriverHistoryScreen() {
@@ -44,6 +45,10 @@ export default function DriverHistoryScreen() {
   useFocusEffect(
     useCallback(() => {
       void loadData();
+      const unsubscribe = subscribeDriverUpdates(() => {
+        void loadData();
+      });
+      return () => unsubscribe();
     }, [loadData]),
   );
 

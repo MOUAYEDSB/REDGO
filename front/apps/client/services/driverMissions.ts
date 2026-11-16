@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Linking, Platform } from 'react-native';
 import type {
   ActiveDriverMissionRow,
@@ -29,6 +30,23 @@ export type DriverEarningsSummary = {
   rating: number;
   vehicleModel: string;
 };
+
+const STORAGE_KEY = '@redgo_driver_history_v1';
+const LISTENERS: Array<() => void> = [];
+
+export function subscribeDriverUpdates(listener: () => void) {
+  LISTENERS.push(listener);
+  return () => {
+    const idx = LISTENERS.indexOf(listener);
+    if (idx >= 0) LISTENERS.splice(idx, 1);
+  };
+}
+
+export function notifyDriverUpdates() {
+  LISTENERS.forEach((cb) => {
+    try { cb(); } catch (e) { console.warn(e); }
+  });
+}
 
 export const FALLBACK_OPEN_MISSIONS: OpenDriverMissionRow[] = [
   {
@@ -116,7 +134,6 @@ export function openNavigationApp(address: string, lat?: number | null, lng?: nu
   }
 
   void Linking.openURL(url).catch(() => {
-    // Fallback navigateur web Google Maps
     const webUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
     void Linking.openURL(webUrl);
   });
@@ -178,6 +195,7 @@ export async function acceptDriverMission(missionId: string): Promise<void> {
     target_mission_id: missionId,
   });
   if (error) throw error;
+  notifyDriverUpdates();
 }
 
 export async function updateDriverMissionStatus(
@@ -189,44 +207,111 @@ export async function updateDriverMissionStatus(
     next_status: nextStatus,
   });
   if (error) throw error;
+  notifyDriverUpdates();
+}
+
+export async function recordCompletedMission(mission: DriverHistoryMission): Promise<void> {
+  try {
+    const stored = await AsyncStorage.getItem(STORAGE_KEY);
+    const list: DriverHistoryMission[] = stored ? JSON.parse(stored) : [...FALLBACK_DRIVER_HISTORY];
+    const exists = list.some((m) => m.id === mission.id || (m.reference === mission.reference && m.completedAt === mission.completedAt));
+    const updated = exists ? list : [mission, ...list];
+
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    notifyDriverUpdates();
+  } catch (err) {
+    console.warn('recordCompletedMission error :', err);
+  }
+}
+
+export async function finalizeMissionAndRecord(
+  mission: ActiveDriverMissionRow,
+  customAmountMillimes?: number
+): Promise<DriverHistoryMission> {
+  const isDelivery = mission.mission_type === 'delivery';
+  const amount = customAmountMillimes ?? mission.amount_millimes;
+  const driverEarnings = isDelivery ? 3500 : Math.round(amount * 0.85);
+
+  const completedItem: DriverHistoryMission = {
+    id: mission.mission_id || `hist-${Date.now()}`,
+    reference: mission.reference,
+    missionType: mission.mission_type,
+    pickupAddress: mission.pickup_address || "M'Saken",
+    destinationAddress: mission.destination_address || "M'Saken",
+    amountMillimes: amount,
+    driverEarningsMillimes: driverEarnings,
+    status: 'completed',
+    completedAt: new Date().toISOString(),
+  };
+
+  // Mise à jour serveur Supabase
+  try {
+    const client = requireSupabase();
+    await (client as any)
+      .from('driver_missions')
+      .update({ status: 'completed', completed_at: new Date().toISOString() })
+      .eq('id', mission.mission_id);
+  } catch (cause) {
+    console.warn('Supabase driver_mission completed error :', cause);
+  }
+
+  // Enregistrement persistant local
+  await recordCompletedMission(completedItem);
+  return completedItem;
 }
 
 export async function fetchDriverHistory(userId?: string): Promise<DriverHistoryMission[]> {
   try {
-    if (!userId) return FALLBACK_DRIVER_HISTORY;
-    const client = requireSupabase();
-    const { data, error } = await (client as any)
-      .from('driver_missions')
-      .select('id, mission_type, status, created_at, completed_at, delivery_orders(order_reference, total_amount_millimes, delivery_fee_millimes, delivery_address), scooter_rides(ride_reference, total_fare_millimes, pickup_address, destination_address)')
-      .eq('driver_id', userId)
-      .eq('status', 'completed')
-      .order('completed_at', { ascending: false })
-      .limit(20);
+    // 1. Lire le cache dynamique local d'abord
+    const stored = await AsyncStorage.getItem(STORAGE_KEY);
+    let localList: DriverHistoryMission[] = stored ? JSON.parse(stored) : [];
 
-    if (error || !data || data.length === 0) {
-      return FALLBACK_DRIVER_HISTORY;
+    // 2. Interroger Supabase si connecté
+    if (userId) {
+      const client = requireSupabase();
+      const { data, error } = await (client as any)
+        .from('driver_missions')
+        .select('id, mission_type, status, created_at, completed_at, delivery_orders(order_reference, total_amount_millimes, delivery_fee_millimes, delivery_address), scooter_rides(ride_reference, total_fare_millimes, pickup_address, destination_address)')
+        .eq('driver_id', userId)
+        .eq('status', 'completed')
+        .order('completed_at', { ascending: false })
+        .limit(20);
+
+      if (!error && data && data.length > 0) {
+        const dbItems: DriverHistoryMission[] = (data as any[]).map((row) => {
+          const isDelivery = row.mission_type === 'delivery';
+          const order = row.delivery_orders;
+          const ride = row.scooter_rides;
+          const ref = isDelivery ? (order?.order_reference || 'CMD') : (ride?.ride_reference || 'TAX');
+          const totalAmount = isDelivery ? (order?.total_amount_millimes || 0) : (ride?.total_fare_millimes || 0);
+          const earnings = isDelivery ? (order?.delivery_fee_millimes || 3500) : Math.round(totalAmount * 0.85);
+
+          return {
+            id: row.id,
+            reference: ref,
+            missionType: row.mission_type,
+            pickupAddress: isDelivery ? 'Commerce partenaire' : (ride?.pickup_address || "M'Saken"),
+            destinationAddress: isDelivery ? (order?.delivery_address || "M'Saken") : (ride?.destination_address || "M'Saken"),
+            amountMillimes: totalAmount,
+            driverEarningsMillimes: earnings,
+            status: row.status,
+            completedAt: row.completed_at || row.created_at,
+          };
+        });
+
+        // Fusionner dbItems et localList sans doublons
+        const combined = [...dbItems];
+        localList.forEach((local) => {
+          if (!combined.some((item) => item.id === local.id || item.reference === local.reference)) {
+            combined.push(local);
+          }
+        });
+        return combined;
+      }
     }
 
-    return (data as any[]).map((row) => {
-      const isDelivery = row.mission_type === 'delivery';
-      const order = row.delivery_orders;
-      const ride = row.scooter_rides;
-      const ref = isDelivery ? (order?.order_reference || 'CMD') : (ride?.ride_reference || 'TAX');
-      const totalAmount = isDelivery ? (order?.total_amount_millimes || 0) : (ride?.total_fare_millimes || 0);
-      const earnings = isDelivery ? (order?.delivery_fee_millimes || 3000) : Math.round(totalAmount * 0.85);
-
-      return {
-        id: row.id,
-        reference: ref,
-        missionType: row.mission_type,
-        pickupAddress: isDelivery ? 'Commerce partenaire' : (ride?.pickup_address || "M'Saken"),
-        destinationAddress: isDelivery ? (order?.delivery_address || "M'Saken") : (ride?.destination_address || "M'Saken"),
-        amountMillimes: totalAmount,
-        driverEarningsMillimes: earnings,
-        status: row.status,
-        completedAt: row.completed_at || row.created_at,
-      };
-    });
+    if (localList.length > 0) return localList;
+    return FALLBACK_DRIVER_HISTORY;
   } catch (err) {
     console.warn('fetchDriverHistory catch :', err);
     return FALLBACK_DRIVER_HISTORY;
@@ -235,16 +320,34 @@ export async function fetchDriverHistory(userId?: string): Promise<DriverHistory
 
 export async function fetchDriverEarningsSummary(userId?: string): Promise<DriverEarningsSummary> {
   const history = await fetchDriverHistory(userId);
-  const todayCount = history.length;
-  const todayMillimes = history.reduce((acc, h) => acc + h.driverEarningsMillimes, 0);
-  const cashCollected = history.reduce((acc, h) => acc + h.amountMillimes, 0);
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime();
+
+  // Filtrer les missions d'aujourd'hui
+  const todayMissions = history.filter((h) => {
+    const d = new Date(h.completedAt).getTime();
+    return d >= startOfDay;
+  });
+
+  // Filtrer les missions de la semaine
+  const weekMissions = history.filter((h) => {
+    const d = new Date(h.completedAt).getTime();
+    return d >= startOfWeek;
+  });
+
+  const todayCount = todayMissions.length;
+  const todayEarnings = todayMissions.reduce((acc, h) => acc + h.driverEarningsMillimes, 0);
+  const weekCount = weekMissions.length;
+  const weekEarnings = weekMissions.reduce((acc, h) => acc + h.driverEarningsMillimes, 0);
+  const cashCollected = todayMissions.reduce((acc, h) => acc + h.amountMillimes, 0);
 
   return {
-    todayMillimes: todayMillimes || 10300,
-    todayCount: todayCount || 3,
-    weekMillimes: (todayMillimes * 4) || 41200,
-    weekCount: (todayCount * 4) || 12,
-    cashCollectedMillimes: cashCollected || 47000,
+    todayMillimes: todayEarnings || history.reduce((acc, h) => acc + h.driverEarningsMillimes, 0),
+    todayCount: todayCount || history.length,
+    weekMillimes: weekEarnings || (todayEarnings ? todayEarnings * 3.5 : 41200),
+    weekCount: weekCount || (todayCount ? todayCount * 3 : 12),
+    cashCollectedMillimes: cashCollected || history.reduce((acc, h) => acc + h.amountMillimes, 0),
     rating: 4.95,
     vehicleModel: 'Peugeot Tweet 125',
   };
