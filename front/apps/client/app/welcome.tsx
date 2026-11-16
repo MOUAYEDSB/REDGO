@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../components/Screen';
@@ -8,7 +9,11 @@ export default function Welcome() {
   return (
     <Screen style={styles.screen}>
       <View style={styles.brand}>
-        <View style={styles.logo}><Text style={styles.logoText}>R</Text></View>
+        <Image
+          source={require('../assets/logo.png')}
+          style={styles.logoImage}
+          contentFit="contain"
+        />
         <Text style={styles.brandName}>REDGO</Text>
       </View>
       <View style={styles.hero}>
@@ -36,6 +41,7 @@ export default function Welcome() {
 const styles = StyleSheet.create({
   screen: { paddingHorizontal: 26, paddingTop: 24, paddingBottom: 28 },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  logoImage: { width: 48, height: 48, borderRadius: 14, backgroundColor: '#000' },
   logo: { width: 48, height: 48, borderRadius: 16, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   logoText: { color: colors.text, fontSize: 28, fontWeight: '900' },
   brandName: { color: colors.text, fontSize: 20, fontWeight: '900', letterSpacing: 3 },

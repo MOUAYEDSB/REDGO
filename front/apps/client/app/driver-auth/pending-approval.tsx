@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -22,7 +23,11 @@ export default function PendingApproval() {
 
   return (
     <Screen style={styles.screen}>
-      <View style={styles.logo}><Text style={styles.logoText}>R</Text></View>
+      <Image
+        source={require('../../assets/logo.png')}
+        style={styles.logoImage}
+        contentFit="contain"
+      />
       <View style={styles.statusIcon}><Ionicons name="time-outline" size={38} color={colors.warning} /></View>
       <Text style={styles.title}>Candidature en cours d’examen</Text>
       <Text style={styles.subtitle}>
@@ -55,6 +60,7 @@ export default function PendingApproval() {
 
 const styles = StyleSheet.create({
   screen: { paddingHorizontal: 24, paddingTop: 32, alignItems: 'center', justifyContent: 'center' },
+  logoImage: { width: 52, height: 52, borderRadius: 16, backgroundColor: '#000', alignSelf: 'flex-start' },
   logo: { width: 48, height: 48, borderRadius: 16, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start' },
   logoText: { color: colors.text, fontSize: 28, fontWeight: '900' },
   statusIcon: { width: 78, height: 78, borderRadius: 26, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center', marginTop: 42 },

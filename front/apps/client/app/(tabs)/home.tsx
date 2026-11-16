@@ -188,9 +188,11 @@ export default function Home() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.identity}>
-          <View style={styles.logo}>
-            <Text style={styles.logoText}>R</Text>
-          </View>
+          <Image
+            source={require('../../assets/logo.png')}
+            style={styles.logoImage}
+            contentFit="cover"
+          />
           <View>
             <Text style={styles.brand}>REDGO</Text>
             <Text style={styles.greeting}>{userGreeting}</Text>
@@ -497,6 +499,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  logoImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    backgroundColor: '#000',
   },
   logo: {
     width: 42,

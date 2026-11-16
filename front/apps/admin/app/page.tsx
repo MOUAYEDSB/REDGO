@@ -343,7 +343,11 @@ export default function Home() {
     return (
       <main className="min-h-screen bg-[#101112] text-white">
         <header className="flex items-center gap-3 border-b border-[#292A2D] px-5 py-4 sm:px-8">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-[#FF2638] text-xl font-black shadow-[0_0_18px_#FF263866]">R</div>
+          <img
+            src="/logo.png"
+            alt="REDGO Logo"
+            className="size-10 rounded-xl object-contain shadow-[0_0_18px_rgba(255,38,56,0.3)]"
+          />
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#FF6672]">REDGO</p>
             <p className="text-sm font-semibold">Console d&apos;administration</p>
@@ -420,7 +424,11 @@ export default function Home() {
       {/* ---- SIDEBAR ---- */}
       <aside className="border-b border-[#292A2D] bg-[#151617] lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:flex lg:w-[264px] lg:flex-col lg:border-b-0 lg:border-r">
         <div className="flex items-center gap-3 px-5 py-4 lg:px-6 lg:py-6">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#FF2638] text-xl font-black shadow-[0_0_18px_#FF263866]">R</div>
+          <img
+            src="/logo.png"
+            alt="REDGO Logo"
+            className="size-10 shrink-0 rounded-xl object-contain shadow-[0_0_18px_rgba(255,38,56,0.3)]"
+          />
           <div className="min-w-0">
             <p className="text-xs font-black uppercase tracking-[0.16em] text-white">REDGO</p>
             <p className="mt-0.5 truncate text-xs text-[#8F9196]">Administration</p>

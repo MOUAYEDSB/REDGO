@@ -1,3 +1,4 @@
+import { Image } from 'expo-image';
 import { Link, router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -37,7 +38,11 @@ export default function Login() {
 
   return (
     <Screen scroll style={styles.screen}>
-      <View style={styles.logo}><Text style={styles.logoText}>R</Text></View>
+      <Image
+        source={require('../../assets/logo.png')}
+        style={styles.logoImage}
+        contentFit="contain"
+      />
       <Text style={styles.title}>Connexion</Text>
       <Text style={styles.subtitle}>
         {requestedRole === 'driver' ? 'Connectez-vous à votre espace chauffeur.' : 'Connectez-vous à votre espace client.'}
@@ -95,6 +100,7 @@ export default function Login() {
 
 const styles = StyleSheet.create({
   screen: { paddingHorizontal: 24, paddingTop: 32, paddingBottom: 28 },
+  logoImage: { width: 68, height: 68, borderRadius: 18, backgroundColor: '#000' },
   logo: { width: 56, height: 56, borderRadius: 17, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   logoText: { color: '#fff', fontSize: 32, fontWeight: '900' },
   title: { color: colors.text, fontSize: 32, fontWeight: '900', marginTop: 24 },

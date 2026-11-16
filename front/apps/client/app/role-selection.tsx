@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import type { AppRole } from '@redgo/shared';
 import { router } from 'expo-router';
 import { useState } from 'react';
@@ -66,7 +67,11 @@ export default function RoleSelection() {
   return (
     <Screen scroll style={styles.screen}>
       <View style={styles.brand}>
-        <View style={styles.logo}><Text style={styles.logoText}>R</Text></View>
+        <Image
+          source={require('../assets/logo.png')}
+          style={styles.logoImage}
+          contentFit="contain"
+        />
         <Text style={styles.brandName}>REDGO</Text>
       </View>
       <Text style={styles.title}>{user ? 'Choisissez votre espace' : 'Comment souhaitez-vous utiliser REDGO ?'}</Text>
@@ -191,6 +196,7 @@ function RoleCard({
 const styles = StyleSheet.create({
   screen: { paddingHorizontal: 22, paddingTop: 22, paddingBottom: 28 },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  logoImage: { width: 44, height: 44, borderRadius: 13, backgroundColor: '#000' },
   logo: { width: 42, height: 42, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   logoText: { color: colors.text, fontSize: 25, fontWeight: '900' },
   brandName: { color: colors.text, fontSize: 18, fontWeight: '900', letterSpacing: 2.5 },
