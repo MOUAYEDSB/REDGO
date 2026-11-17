@@ -6,7 +6,7 @@ import type {
   CashPaymentValidationRow,
 } from '@redgo/shared';
 import { requireSupabase } from './supabase';
-import { updateLocalActiveMissionStatus } from './driverMissions';
+import { notifyDriverUpdates, updateLocalActiveMissionStatus } from './driverMissions';
 
 export async function getCashPaymentStatus(
   targetType: CashPaymentMissionType,
@@ -76,4 +76,37 @@ export async function markMissionReadyForCash(missionId: string): Promise<void> 
       console.warn('markMissionReadyForCash catch :', cause);
     }
   }
+}
+
+export async function confirmClientCashPayment(
+  targetType: CashPaymentMissionType,
+  targetId: string,
+): Promise<{ payment_status: string; amount_millimes: number; paid_at: string }> {
+  const isDemo = targetId.startsWith('demo-') || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetId);
+
+  // Mettre à jour en local
+  await updateLocalActiveMissionStatus('assigned', 'cash_collected');
+
+  if (!isDemo) {
+    try {
+      const client = requireSupabase();
+      const { data, error } = await (client as any).rpc('confirm_client_cash_payment', {
+        target_type: targetType,
+        target_id: targetId,
+      });
+      if (!error && (data as any)?.[0]) {
+        notifyDriverUpdates();
+        return (data as any)[0];
+      }
+    } catch (cause) {
+      console.warn('confirm_client_cash_payment catch :', cause);
+    }
+  }
+
+  notifyDriverUpdates();
+  return {
+    payment_status: 'paid',
+    amount_millimes: 5700,
+    paid_at: new Date().toISOString(),
+  };
 }

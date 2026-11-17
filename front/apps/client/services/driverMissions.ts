@@ -33,7 +33,31 @@ export type DriverEarningsSummary = {
 
 const STORAGE_KEY = '@redgo_driver_history_v1';
 const ACTIVE_STORAGE_KEY = '@redgo_driver_active_mission_v1';
+const COMPLETED_IDS_KEY = '@redgo_completed_mission_ids_v1';
 const LISTENERS: Array<() => void> = [];
+
+export async function isMissionIdCompleted(id: string): Promise<boolean> {
+  try {
+    const raw = await AsyncStorage.getItem(COMPLETED_IDS_KEY);
+    const ids: string[] = raw ? JSON.parse(raw) : [];
+    return ids.includes(id);
+  } catch {
+    return false;
+  }
+}
+
+export async function markMissionIdCompleted(id: string): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(COMPLETED_IDS_KEY);
+    const ids: string[] = raw ? JSON.parse(raw) : [];
+    if (!ids.includes(id)) {
+      ids.push(id);
+      await AsyncStorage.setItem(COMPLETED_IDS_KEY, JSON.stringify(ids));
+    }
+  } catch (err) {
+    console.warn('markMissionIdCompleted error :', err);
+  }
+}
 
 export async function getLocalActiveMission(): Promise<ActiveDriverMissionRow | null> {
   try {
@@ -226,16 +250,35 @@ export async function getMyActiveDriverMission(): Promise<ActiveDriverMissionRow
   try {
     const { data, error } = await requireSupabase().rpc('get_my_active_driver_mission');
     if (!error && data && data.length > 0) {
-      return data[0];
+      const active = data[0];
+      const isDone = await isMissionIdCompleted(active.mission_id);
+      if (!isDone) {
+        return active;
+      }
     }
   } catch (cause) {
     console.warn('getMyActiveDriverMission rpc catch :', cause);
   }
   // Secours persistant local (pour tests ou aperçu)
-  return getLocalActiveMission();
+  const local = await getLocalActiveMission();
+  if (local) {
+    const isDone = await isMissionIdCompleted(local.mission_id);
+    if (!isDone) return local;
+  }
+  return null;
 }
 
 export async function acceptDriverMission(missionId: string): Promise<void> {
+  // Réinitialiser si précédemment marquée
+  try {
+    const raw = await AsyncStorage.getItem(COMPLETED_IDS_KEY);
+    const ids: string[] = raw ? JSON.parse(raw) : [];
+    if (ids.includes(missionId)) {
+      const filtered = ids.filter((id) => id !== missionId);
+      await AsyncStorage.setItem(COMPLETED_IDS_KEY, JSON.stringify(filtered));
+    }
+  } catch {}
+
   const isDemo = missionId.startsWith('demo-') || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(missionId);
 
   if (isDemo) {
@@ -397,11 +440,15 @@ export async function finalizeMissionAndRecord(
     }
   }
 
+  // Marquer la mission comme définitivement complétée
+  await markMissionIdCompleted(mission.mission_id);
+
   // Nettoyer la mission active locale
   await setLocalActiveMission(null);
 
   // Enregistrement persistant local et mise à jour
   await recordCompletedMission(completedItem);
+  notifyDriverUpdates();
   return completedItem;
 }
 
