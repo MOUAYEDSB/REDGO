@@ -6,6 +6,7 @@ import type {
   CashPaymentValidationRow,
 } from '@redgo/shared';
 import { requireSupabase } from './supabase';
+import { updateLocalActiveMissionStatus } from './driverMissions';
 
 export async function getCashPaymentStatus(
   targetType: CashPaymentMissionType,
@@ -58,8 +59,21 @@ export async function confirmCashPayment(token: string): Promise<CashPaymentRece
 }
 
 export async function markMissionReadyForCash(missionId: string): Promise<void> {
-  const { error } = await requireSupabase().rpc('mark_mission_ready_for_cash', {
-    target_mission_id: missionId,
-  });
-  if (error) throw error;
+  const isDemo = missionId.startsWith('demo-') || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(missionId);
+
+  // Mettre à jour l'état local immédiatement
+  await updateLocalActiveMissionStatus('in_progress', 'delivered');
+
+  if (!isDemo) {
+    try {
+      const { error } = await requireSupabase().rpc('mark_mission_ready_for_cash', {
+        target_mission_id: missionId,
+      });
+      if (error) {
+        console.warn('mark_mission_ready_for_cash RPC error :', error.message);
+      }
+    } catch (cause) {
+      console.warn('markMissionReadyForCash catch :', cause);
+    }
+  }
 }

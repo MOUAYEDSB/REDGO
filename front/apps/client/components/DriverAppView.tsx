@@ -158,11 +158,15 @@ export default function DriverAppView({
   const performActiveMissionStep = () => {
     if (!activeMission) return;
     if (activeMission.mission_status === 'assigned') {
-      void perform(() => acceptDriverMission(activeMission.mission_id));
+      void perform(() => updateDriverMissionStatus(activeMission.mission_id, 'accepted'));
     } else if (activeMission.mission_status === 'accepted') {
       void perform(() => updateDriverMissionStatus(activeMission.mission_id, 'in_progress'));
-    } else {
-      void perform(() => markMissionReadyForCash(activeMission.mission_id));
+    } else if (activeMission.mission_status === 'in_progress') {
+      if (isReady) {
+        void handleDirectCashComplete();
+      } else {
+        void perform(() => markMissionReadyForCash(activeMission.mission_id));
+      }
     }
   };
 
@@ -345,17 +349,17 @@ export default function DriverAppView({
             </View>
             <View style={styles.stepLineActive} />
             <View style={styles.stepItem}>
-              <View style={[styles.stepCircle, activeMission.mission_status === 'in_progress' ? styles.stepCircleDone : styles.stepCircleCurrent]}>
-                <Ionicons name="arrow-forward" size={14} color="#fff" />
+              <View style={[styles.stepCircle, activeMission.mission_status === 'in_progress' || isReady ? styles.stepCircleDone : styles.stepCircleCurrent]}>
+                <Ionicons name={activeMission.mission_status === 'in_progress' || isReady ? "checkmark" : "arrow-forward"} size={14} color="#fff" />
               </View>
               <Text style={styles.stepLabelActive}>Retrait</Text>
             </View>
-            <View style={activeMission.mission_status === 'in_progress' ? styles.stepLineActive : styles.stepLineInactive} />
+            <View style={activeMission.mission_status === 'in_progress' || isReady ? styles.stepLineActive : styles.stepLineInactive} />
             <View style={styles.stepItem}>
-              <View style={[styles.stepCircle, isReady ? styles.stepCircleDone : styles.stepCircleInactive]}>
-                <Ionicons name="flag-outline" size={14} color={isReady ? '#fff' : '#71717A'} />
+              <View style={[styles.stepCircle, isReady ? styles.stepCircleDone : (activeMission.mission_status === 'in_progress' ? styles.stepCircleCurrent : styles.stepCircleInactive)]}>
+                <Ionicons name={isReady ? "checkmark" : "flag-outline"} size={14} color={isReady || activeMission.mission_status === 'in_progress' ? '#fff' : '#71717A'} />
               </View>
-              <Text style={isReady ? styles.stepLabelActive : styles.stepLabelInactive}>Livraison</Text>
+              <Text style={isReady || activeMission.mission_status === 'in_progress' ? styles.stepLabelActive : styles.stepLabelInactive}>Livraison</Text>
             </View>
           </View>
 
@@ -623,12 +627,15 @@ export default function DriverAppView({
 }
 
 function isReadyForCash(mission: ActiveDriverMissionRow) {
-  return mission.mission_status === 'in_progress'
-    && (mission.service_status === 'delivered' || mission.service_status === 'ride_completed');
+  return (
+    mission.service_status === 'delivered' ||
+    mission.service_status === 'ride_completed' ||
+    mission.service_status === 'cash_collected'
+  );
 }
 
 function activeMissionAction(mission: ActiveDriverMissionRow, isReady: boolean) {
-  if (mission.mission_status === 'assigned') return 'Confirmer & accepter';
+  if (mission.mission_status === 'assigned') return 'Confirmer prise en charge';
   if (mission.mission_status === 'accepted') return 'Démarrer le trajet vers le point de retrait';
   return isReady ? 'Confirmer encaissement espèces' : 'Arrivé chez le client · Demander paiement';
 }

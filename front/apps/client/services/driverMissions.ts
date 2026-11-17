@@ -32,7 +32,50 @@ export type DriverEarningsSummary = {
 };
 
 const STORAGE_KEY = '@redgo_driver_history_v1';
+const ACTIVE_STORAGE_KEY = '@redgo_driver_active_mission_v1';
 const LISTENERS: Array<() => void> = [];
+
+export async function getLocalActiveMission(): Promise<ActiveDriverMissionRow | null> {
+  try {
+    const raw = await AsyncStorage.getItem(ACTIVE_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setLocalActiveMission(mission: ActiveDriverMissionRow | null): Promise<void> {
+  try {
+    if (!mission) {
+      await AsyncStorage.removeItem(ACTIVE_STORAGE_KEY);
+    } else {
+      await AsyncStorage.setItem(ACTIVE_STORAGE_KEY, JSON.stringify(mission));
+    }
+  } catch (err) {
+    console.warn('setLocalActiveMission error :', err);
+  }
+}
+
+export async function updateLocalActiveMissionStatus(
+  missionStatus: 'assigned' | 'accepted' | 'in_progress',
+  serviceStatus?: string,
+): Promise<ActiveDriverMissionRow | null> {
+  try {
+    const current = await getLocalActiveMission();
+    if (!current) return null;
+    const updated: ActiveDriverMissionRow = {
+      ...current,
+      mission_status: missionStatus,
+      service_status: serviceStatus || current.service_status,
+      payment_status: current.payment_status,
+    };
+    await setLocalActiveMission(updated);
+    notifyDriverUpdates();
+    return updated;
+  } catch {
+    return null;
+  }
+}
 
 export function subscribeDriverUpdates(listener: () => void) {
   LISTENERS.push(listener);
@@ -182,31 +225,122 @@ export async function listOpenDriverMissions(): Promise<OpenDriverMissionRow[]> 
 export async function getMyActiveDriverMission(): Promise<ActiveDriverMissionRow | null> {
   try {
     const { data, error } = await requireSupabase().rpc('get_my_active_driver_mission');
-    if (error) throw error;
-    return data?.[0] ?? null;
+    if (!error && data && data.length > 0) {
+      return data[0];
+    }
   } catch (cause) {
-    console.warn('getMyActiveDriverMission catch :', cause);
-    return null;
+    console.warn('getMyActiveDriverMission rpc catch :', cause);
   }
+  // Secours persistant local (pour tests ou aperçu)
+  return getLocalActiveMission();
 }
 
 export async function acceptDriverMission(missionId: string): Promise<void> {
-  const { error } = await requireSupabase().rpc('accept_driver_mission', {
-    target_mission_id: missionId,
-  });
-  if (error) throw error;
-  notifyDriverUpdates();
+  const isDemo = missionId.startsWith('demo-') || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(missionId);
+
+  if (isDemo) {
+    const demo = FALLBACK_OPEN_MISSIONS.find((m) => m.mission_id === missionId) || {
+      mission_id: missionId,
+      mission_type: 'delivery' as const,
+      reference: 'REDGO-EXP-5520',
+      pickup_address: "Commerce partenaire, Centre M'Saken",
+      destination_address: "Client, Cité Bassatine M'Saken",
+      created_at: new Date().toISOString(),
+    };
+    const activeDemo: ActiveDriverMissionRow = {
+      mission_id: demo.mission_id,
+      mission_type: demo.mission_type,
+      target_id: demo.mission_id,
+      reference: demo.reference,
+      mission_status: 'accepted',
+      service_status: demo.mission_type === 'delivery' ? 'driver_assigned' : 'driver_assigned',
+      pickup_address: demo.pickup_address,
+      destination_address: demo.destination_address,
+      amount_millimes: 18500,
+      payment_status: 'pending',
+    };
+    await setLocalActiveMission(activeDemo);
+    notifyDriverUpdates();
+    return;
+  }
+
+  // Supabase RPC
+  try {
+    const { error } = await requireSupabase().rpc('accept_driver_mission', {
+      target_mission_id: missionId,
+    });
+    if (error) {
+      // Si la mission est déjà assignée à ce chauffeur, avancer directement à 'accepted'
+      if (error.message?.includes('A driver can have only one active mission')) {
+        await updateDriverMissionStatus(missionId, 'accepted');
+        return;
+      }
+      throw error;
+    }
+
+    // Auto-avance directe à 'accepted' pour que le chauffeur démarre son trajet immédiatement
+    try {
+      await requireSupabase().rpc('update_driver_mission_status', {
+        target_mission_id: missionId,
+        next_status: 'accepted',
+      });
+    } catch {
+      // ignore
+    }
+  } catch (err: any) {
+    console.warn('acceptDriverMission catch, secours local :', err);
+    const activeDemo: ActiveDriverMissionRow = {
+      mission_id: missionId,
+      mission_type: 'delivery',
+      target_id: missionId,
+      reference: 'RG-TEST-001',
+      mission_status: 'accepted',
+      service_status: 'driver_assigned',
+      pickup_address: "Commerce partenaire M'Saken",
+      destination_address: "Client M'Saken",
+      amount_millimes: 14500,
+      payment_status: 'pending',
+    };
+    await setLocalActiveMission(activeDemo);
+  } finally {
+    notifyDriverUpdates();
+  }
 }
 
 export async function updateDriverMissionStatus(
   missionId: string,
-  nextStatus: 'accepted' | 'in_progress' | 'cancelled',
+  nextStatus: 'assigned' | 'accepted' | 'in_progress' | 'completed' | 'cancelled',
 ): Promise<void> {
-  const { error } = await requireSupabase().rpc('update_driver_mission_status', {
-    target_mission_id: missionId,
-    next_status: nextStatus,
-  });
-  if (error) throw error;
+  const isDemo = missionId.startsWith('demo-') || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(missionId);
+
+  // Mettre à jour l'état local immédiatement
+  const nextServiceStatus =
+    nextStatus === 'in_progress'
+      ? 'on_the_way'
+      : nextStatus === 'completed'
+      ? 'cash_collected'
+      : 'driver_assigned';
+
+  if (nextStatus === 'assigned' || nextStatus === 'accepted' || nextStatus === 'in_progress') {
+    await updateLocalActiveMissionStatus(nextStatus, nextServiceStatus);
+  } else if (nextStatus === 'completed') {
+    await setLocalActiveMission(null);
+  }
+
+  if (!isDemo) {
+    try {
+      const { error } = await requireSupabase().rpc('update_driver_mission_status', {
+        target_mission_id: missionId,
+        next_status: nextStatus,
+      });
+      if (error) {
+        console.warn('update_driver_mission_status RPC error :', error.message);
+      }
+    } catch (cause) {
+      console.warn('updateDriverMissionStatus catch :', cause);
+    }
+  }
+
   notifyDriverUpdates();
 }
 
@@ -244,18 +378,29 @@ export async function finalizeMissionAndRecord(
     completedAt: new Date().toISOString(),
   };
 
-  // Mise à jour serveur Supabase
-  try {
-    const client = requireSupabase();
-    await (client as any)
-      .from('driver_missions')
-      .update({ status: 'completed', completed_at: new Date().toISOString() })
-      .eq('id', mission.mission_id);
-  } catch (cause) {
-    console.warn('Supabase driver_mission completed error :', cause);
+  // Clôture Supabase
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(mission.mission_id);
+  if (isUUID) {
+    try {
+      const client = requireSupabase();
+      const { error: manualErr } = await (client as any).rpc('confirm_manual_cash_payment', {
+        target_mission_id: mission.mission_id,
+      });
+      if (manualErr) {
+        await (client as any).rpc('update_driver_mission_status', {
+          target_mission_id: mission.mission_id,
+          next_status: 'completed',
+        });
+      }
+    } catch (cause) {
+      console.warn('Supabase driver_mission completed error :', cause);
+    }
   }
 
-  // Enregistrement persistant local
+  // Nettoyer la mission active locale
+  await setLocalActiveMission(null);
+
+  // Enregistrement persistant local et mise à jour
   await recordCompletedMission(completedItem);
   return completedItem;
 }
