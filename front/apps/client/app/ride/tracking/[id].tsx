@@ -10,6 +10,7 @@ import { colors } from '../../../constants/theme';
 import { formatMillimes } from '../../../services/cart';
 import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../../services/delivery';
 import { subscribeToDriverLocation, LocationConnectionState } from '../../../services/driverLocation';
+import { requireSupabase } from '../../../services/supabase';
 import { RideStage, ScooterTaxiOrder } from '../../../types/ride';
 
 export default function RideTrackingScreen() {
@@ -64,11 +65,58 @@ export default function RideTrackingScreen() {
   const [trackingMessage, setTrackingMessage] = useState('Connexion au suivi GPS…');
 
   useEffect(() => {
+    if (!id || id === 'ride_101') return;
+
+    let isMounted = true;
+    const fetchRideStatus = async () => {
+      try {
+        const client = requireSupabase();
+        const { data: row } = await (client as any)
+          .from('scooter_rides')
+          .select('*, driver_profiles(*)')
+          .or(`id.eq.${id},ride_reference.eq.${id}`)
+          .single();
+
+        if (row && isMounted) {
+          setRide((current) => ({
+            ...current,
+            status: row.status as RideStage,
+          }));
+        }
+      } catch (err) {
+        console.warn('fetchRideStatus error :', err);
+      }
+    };
+
+    void fetchRideStatus();
+    const interval = setInterval(() => {
+      void fetchRideStatus();
+    }, 2500);
+
+    const client = requireSupabase();
+    const channel = client
+      .channel(`ride-status-${id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'scooter_rides', filter: `id=eq.${id}` },
+        () => {
+          if (isMounted) void fetchRideStatus();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      void client.removeChannel(channel);
+    };
+  }, [id]);
+
+  useEffect(() => {
     return subscribeToDriverLocation(
       String(id),
       (location) => {
         setDriverLocation(location);
-        setRide((current) => ({ ...current, status: 'driver_assigned' }));
         setTrackingState('live');
         setTrackingMessage('Position GPS reçue en direct.');
       },

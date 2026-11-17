@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 import { colors } from '../constants/theme';
 import { fetchRoadRoute } from '../services/routing';
-import { openNavigationApp } from '../services/driverMissions';
 
 // Coordonnées de base pour M'Saken et Messaadine
 const MSAKEN_CENTER = { latitude: 35.7273, longitude: 10.5815 };
@@ -133,14 +132,6 @@ export function DriverMissionMap({
 
         {/* Barre de contrôle */}
         <View style={styles.controlsOverlay}>
-          <Pressable
-            onPress={() => openNavigationApp(destinationAddress || pickupAddress || "M'Saken")}
-            style={styles.navButton}
-          >
-            <Ionicons name="navigate" size={15} color="#fff" />
-            <Text style={styles.navButtonText}>Ouvrir GPS</Text>
-          </Pressable>
-
           {showExpandButton ? (
             <Pressable
               onPress={() => setIsExpanded(!isExpanded)}
@@ -232,16 +223,8 @@ export function DriverMissionMap({
         ) : null}
       </MapViewComponent>
 
-      {/* Overlay de contrôle GPS et agrandissement */}
+      {/* Overlay de contrôle de la carte */}
       <View style={styles.controlsOverlay}>
-        <Pressable
-          onPress={() => openNavigationApp(destinationAddress || pickupAddress || "M'Saken")}
-          style={styles.navButton}
-        >
-          <Ionicons name="navigate" size={15} color="#fff" />
-          <Text style={styles.navButtonText}>Ouvrir GPS</Text>
-        </Pressable>
-
         {showExpandButton ? (
           <Pressable
             onPress={() => setIsExpanded(!isExpanded)}

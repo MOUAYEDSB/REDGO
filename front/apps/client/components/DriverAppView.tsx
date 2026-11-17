@@ -370,13 +370,6 @@ export default function DriverAppView({
                   <Text style={styles.addressRoleLabel}>POINT DE RETRAIT (DÉPART)</Text>
                   <Text style={styles.addressValueText}>{activeMission.pickup_address}</Text>
                 </View>
-                <Pressable
-                  onPress={() => openNavigationApp(activeMission.pickup_address || "M'Saken")}
-                  style={styles.gpsSmallBtn}
-                >
-                  <Ionicons name="navigate-outline" size={14} color="#fff" />
-                  <Text style={styles.gpsSmallBtnText}>GPS</Text>
-                </Pressable>
               </View>
             ) : null}
 
@@ -388,13 +381,6 @@ export default function DriverAppView({
                 <Text style={styles.addressRoleLabel}>DESTINATION (CLIENT)</Text>
                 <Text style={styles.addressValueText}>{activeMission.destination_address}</Text>
               </View>
-              <Pressable
-                onPress={() => openNavigationApp(activeMission.destination_address)}
-                style={styles.gpsSmallBtn}
-              >
-                <Ionicons name="navigate-outline" size={14} color="#fff" />
-                <Text style={styles.gpsSmallBtnText}>GPS</Text>
-              </Pressable>
             </View>
           </View>
 
@@ -547,14 +533,6 @@ export default function DriverAppView({
                   </View>
 
                   <View style={styles.feedActions}>
-                    <Pressable
-                      onPress={() => openNavigationApp(mission.pickup_address)}
-                      style={styles.feedNavBtn}
-                    >
-                      <Ionicons name="navigate-outline" size={16} color={colors.textSecondary} />
-                      <Text style={styles.feedNavBtnText}>Voir itinéraire</Text>
-                    </Pressable>
-
                     <Pressable
                       accessibilityRole="button"
                       disabled={isSubmitting}

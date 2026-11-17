@@ -14,6 +14,8 @@ import { LocationConnectionState, subscribeToDriverLocation } from '../../servic
 import { fetchCustomerOrderById } from '../../services/ordersHistory';
 import { DeliveryOrder } from '../../types/delivery';
 
+import { requireSupabase } from '../../services/supabase';
+
 export default function LiveDeliveryTrackingScreen() {
   const {
     id = 'order_default',
@@ -38,27 +40,27 @@ export default function LiveDeliveryTrackingScreen() {
     stops: [
       ...(hasCourses === '1'
         ? [
-            {
-              id: 'stop_courses',
-              businessName: 'Courses REDGO (Hub Central)',
-              type: 'courses' as const,
-              address: 'Route Messaadine, M\'Saken',
-              location: { latitude: 35.7335, longitude: 10.5842 },
-              status: 'pending' as const,
-            },
-          ]
+          {
+            id: 'stop_courses',
+            businessName: 'Courses REDGO (Hub Central)',
+            type: 'courses' as const,
+            address: 'Route Messaadine, M\'Saken',
+            location: { latitude: 35.7335, longitude: 10.5842 },
+            status: 'pending' as const,
+          },
+        ]
         : []),
       ...(hasFood === '1'
         ? [
-            {
-              id: 'stop_food',
-              businessName: 'Restaurant Karma Kitchen',
-              type: 'restaurant' as const,
-              address: 'Avenue Habib Bourguiba, M\'Saken',
-              location: { latitude: 35.7302, longitude: 10.582 },
-              status: 'pending' as const,
-            },
-          ]
+          {
+            id: 'stop_food',
+            businessName: 'Restaurant Karma Kitchen',
+            type: 'restaurant' as const,
+            address: 'Avenue Habib Bourguiba, M\'Saken',
+            location: { latitude: 35.7302, longitude: 10.582 },
+            status: 'pending' as const,
+          },
+        ]
         : []),
     ],
     destination: {
@@ -84,84 +86,116 @@ export default function LiveDeliveryTrackingScreen() {
 
   useEffect(() => {
     if (!id || id === 'order_default') return;
-    fetchCustomerOrderById(String(id)).then((realOrder) => {
-      if (realOrder) {
-        setOrder(realOrder);
+
+        let isMounted = true;
+        const fetchStatus = async () => {
+          try {
+            const realOrder = await fetchCustomerOrderById(String(id));
+            if (realOrder && isMounted) {
+              setOrder(realOrder);
+            }
+          } catch (err) {
+            console.warn('fetchStatus error :', err);
+          }
+  };
+
+  void fetchStatus();
+
+  // Polling toutes les 2.5 secondes tant que la commande est active
+  const interval = setInterval(() => {
+    void fetchStatus();
+  }, 2500);
+
+  // Écoute Supabase Realtime
+  const client = requireSupabase();
+  const channel = client
+    .channel(`order-status-${id}`)
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'delivery_orders', filter: `id=eq.${id}` },
+      () => {
+        if (isMounted) void fetchStatus();
       }
-    });
-  }, [id]);
+    )
+    .subscribe();
 
-  useEffect(() => {
-    return subscribeToDriverLocation(
-      String(id),
-      (location) => {
-        setDriverLocation(location);
-        setOrder((current) => ({ ...current, status: 'driver_assigned' }));
-        setTrackingState('live');
-      },
-      (state) => setTrackingState(state),
-    );
-  }, [id]);
+  return () => {
+    isMounted = false;
+    clearInterval(interval);
+    void client.removeChannel(channel);
+  };
+}, [id]);
 
-  return (
-    <Screen scroll style={styles.screen}>
-      {/* Top Bar */}
-      <View style={styles.header}>
-        <Pressable
-          style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.7 }]}
-          onPress={() => router.replace('/(tabs)/home')}
-          hitSlop={8}
-        >
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-        </Pressable>
-        <Text style={styles.title}>Suivi en Direct</Text>
-        <View style={[styles.liveIndicator, trackingState !== 'live' && styles.waitingIndicator]}>
-          <View style={[styles.liveDot, trackingState !== 'live' && styles.waitingDot]} />
-          <Text style={[styles.liveText, trackingState !== 'live' && styles.waitingText]}>{trackingState === 'live' ? 'LIVE' : 'EN ATTENTE'}</Text>
-        </View>
-      </View>
-
-      {/* Live Map */}
-      <LiveTrackingMap
-        customerLocation={order.destination.location}
-        customerAddress={order.destination.address}
-        driver={order.driver}
-        driverLocation={driverLocation}
-        pickupStops={order.stops}
-        height={260}
-      />
-
-      {/* Status Card */}
-      <DeliveryStatusCard order={order} />
-
-      {/* Driver Card */}
-      <DriverInfoCard
-        driver={order.driver}
-        roleDescription="Livreur REDGO"
-        isAssigned={trackingState === 'live'}
-      />
-
-      {/* Timeline with only relevant stages */}
-      <OrderStatusTimeline
-        currentStage={order.status}
-        hasCourses={order.hasCourses}
-        hasFood={order.hasFood}
-      />
-
-      {id !== 'order_default' ? (
-        <CashPaymentPanel targetType="delivery" targetId={String(id)} />
-      ) : null}
-
-      {/* Help & Support Button */}
-      <Pressable
-        style={styles.supportButton}
-        onPress={() => router.push('/(tabs)/profile')}
-      >
-        <Ionicons name="help-buoy-outline" size={18} color={colors.textSecondary} />
-        <Text style={styles.supportButtonText}>Besoin d'aide avec cette commande ?</Text>
-      </Pressable>
-    </Screen>
+useEffect(() => {
+  return subscribeToDriverLocation(
+    String(id),
+    (location) => {
+      setDriverLocation(location);
+      setTrackingState('live');
+    },
+    (state) => setTrackingState(state),
   );
+}, [id]);
+
+return (
+  <Screen scroll style={styles.screen}>
+    {/* Top Bar */}
+    <View style={styles.header}>
+      <Pressable
+        style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.7 }]}
+        onPress={() => router.replace('/(tabs)/home')}
+        hitSlop={8}
+      >
+        <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+      </Pressable>
+      <Text style={styles.title}>Suivi en Direct</Text>
+      <View style={[styles.liveIndicator, trackingState !== 'live' && styles.waitingIndicator]}>
+        <View style={[styles.liveDot, trackingState !== 'live' && styles.waitingDot]} />
+        <Text style={[styles.liveText, trackingState !== 'live' && styles.waitingText]}>{trackingState === 'live' ? 'LIVE' : 'EN ATTENTE'}</Text>
+      </View>
+    </View>
+
+    {/* Live Map */}
+    <LiveTrackingMap
+      customerLocation={order.destination.location}
+      customerAddress={order.destination.address}
+      driver={order.driver}
+      driverLocation={driverLocation}
+      pickupStops={order.stops}
+      height={260}
+    />
+
+    {/* Status Card */}
+    <DeliveryStatusCard order={order} />
+
+    {/* Driver Card */}
+    <DriverInfoCard
+      driver={order.driver}
+      roleDescription="Livreur REDGO"
+      isAssigned={trackingState === 'live'}
+    />
+
+    {/* Timeline with only relevant stages */}
+    <OrderStatusTimeline
+      currentStage={order.status}
+      hasCourses={order.hasCourses}
+      hasFood={order.hasFood}
+    />
+
+    {id !== 'order_default' ? (
+      <CashPaymentPanel targetType="delivery" targetId={String(id)} />
+    ) : null}
+
+    {/* Help & Support Button */}
+    <Pressable
+      style={styles.supportButton}
+      onPress={() => router.push('/(tabs)/profile')}
+    >
+      <Ionicons name="help-buoy-outline" size={18} color={colors.textSecondary} />
+      <Text style={styles.supportButtonText}>Besoin d'aide avec cette commande ?</Text>
+    </Pressable>
+  </Screen>
+);
 }
 
 const styles = StyleSheet.create({

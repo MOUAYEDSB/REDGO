@@ -177,14 +177,6 @@ export default function DriverHistoryScreen() {
                     <Ionicons name="checkmark-circle" size={13} color="#10B981" />
                     <Text style={styles.statusPillText}>Terminée & Encaissée</Text>
                   </View>
-
-                  <Pressable
-                    onPress={() => openNavigationApp(item.destinationAddress)}
-                    style={styles.reopenNavBtn}
-                  >
-                    <Ionicons name="navigate-outline" size={13} color={colors.textSecondary} />
-                    <Text style={styles.reopenNavText}>Plan</Text>
-                  </Pressable>
                 </View>
               </View>
             );

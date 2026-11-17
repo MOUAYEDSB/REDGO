@@ -217,16 +217,8 @@ export default function DriverMissionsScreen() {
                   >
                     <Ionicons name="map-outline" size={16} color={selectedMapMissionId === m.mission_id ? colors.primary : '#A1A1AA'} />
                     <Text style={[styles.navBtnText, selectedMapMissionId === m.mission_id && { color: colors.primary }]}>
-                      {selectedMapMissionId === m.mission_id ? 'Masquer' : 'Carte'}
+                      {selectedMapMissionId === m.mission_id ? 'Masquer la carte' : 'Voir sur la carte'}
                     </Text>
-                  </Pressable>
-
-                  <Pressable
-                    onPress={() => openNavigationApp(m.pickup_address)}
-                    style={styles.navBtn}
-                  >
-                    <Ionicons name="navigate-outline" size={16} color="#A1A1AA" />
-                    <Text style={styles.navBtnText}>GPS</Text>
                   </Pressable>
 
                   <Pressable
