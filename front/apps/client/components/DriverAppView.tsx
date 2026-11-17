@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -11,6 +11,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ActiveDriverMissionRow, DriverProfileRow, OpenDriverMissionRow } from '@redgo/shared';
 import { colors } from '../constants/theme';
 import { useRedgoAuth } from '../context/RedgoAuthContext';
@@ -19,12 +20,16 @@ import { DriverMissionMap } from './DriverMissionMap';
 import {
   acceptDriverMission,
   callCustomer,
-  FALLBACK_OPEN_MISSIONS,
+  DriverOrderItem,
   fetchDriverEarningsSummary,
+  fetchMissionLocationDetails,
+  fetchMissionOrderItems,
   finalizeMissionAndRecord,
   getDriverProfile,
   getMyActiveDriverMission,
   listOpenDriverMissions,
+  MissionLocationDetails,
+  openGoogleMapsTurnByTurn,
   openNavigationApp,
   setDriverOnline,
   subscribeDriverUpdates,
@@ -50,6 +55,7 @@ export default function DriverAppView({
   canSwitchSpace,
   onSwitchSpace,
 }: DriverAppViewProps) {
+  const insets = useSafeAreaInsets();
   const [profile, setProfile] = useState<DriverProfileRow | null>(null);
   const [activeMission, setActiveMission] = useState<ActiveDriverMissionRow | null>(null);
   const [openMissions, setOpenMissions] = useState<OpenDriverMissionRow[]>([]);
@@ -59,6 +65,32 @@ export default function DriverAppView({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [missionItems, setMissionItems] = useState<DriverOrderItem[]>([]);
+  const [isLoadingItems, setIsLoadingItems] = useState(false);
+  const [missionLocations, setMissionLocations] = useState<MissionLocationDetails | null>(null);
+
+  // Charger les articles et coordonnées réelles dès qu'une mission est active
+  useEffect(() => {
+    if (!activeMission) {
+      setMissionItems([]);
+      setMissionLocations(null);
+      return;
+    }
+    if (activeMission.target_id) {
+      setIsLoadingItems(true);
+      fetchMissionOrderItems(activeMission.target_id)
+        .then(setMissionItems)
+        .catch(() => setMissionItems([]))
+        .finally(() => setIsLoadingItems(false));
+
+      fetchMissionLocationDetails(activeMission.target_id)
+        .then(setMissionLocations)
+        .catch(() => setMissionLocations(null));
+    } else {
+      setMissionItems([]);
+      setMissionLocations(null);
+    }
+  }, [activeMission?.target_id, activeMission?.mission_type]);
 
   const { user, profile: authProfile, signOut } = useRedgoAuth();
   const name = authProfile?.full_name || (user?.user_metadata?.full_name as string) || 'Chauffeur REDGO';
@@ -68,7 +100,7 @@ export default function DriverAppView({
     if (isPreview || !userId) {
       const summary = await fetchDriverEarningsSummary();
       setTodayEarnings(summary);
-      setOpenMissions(FALLBACK_OPEN_MISSIONS);
+      setOpenMissions([]);
       return;
     }
     setError(null);
@@ -93,7 +125,7 @@ export default function DriverAppView({
       }
     } catch (cause) {
       setError(errorMessage(cause));
-      setOpenMissions(FALLBACK_OPEN_MISSIONS);
+      setOpenMissions([]);
     } finally {
       setIsLoadingMissions(false);
       setIsRefreshing(false);
@@ -193,7 +225,13 @@ export default function DriverAppView({
   return (
     <ScrollView
       style={styles.screen}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[
+        styles.content,
+        {
+          paddingTop: Math.max(insets.top, 16),
+          paddingBottom: Math.max(insets.bottom, 24) + 60,
+        },
+      ]}
       refreshControl={
         <RefreshControl
           refreshing={isRefreshing}
@@ -331,12 +369,21 @@ export default function DriverAppView({
             </View>
           </View>
 
-          {/* CARTE INTERACTIVE DE LA MISSION */}
+          {/* CARTE INTERACTIVE DE LA MISSION (Guidage 100% In-App sur la carte REDGO) */}
           <DriverMissionMap
             pickupAddress={activeMission.pickup_address}
             destinationAddress={activeMission.destination_address}
-            height={190}
+            pickupCoords={missionLocations?.pickupCoords}
+            destinationCoords={missionLocations?.destinationCoords}
+            restaurantName={missionLocations?.restaurantName}
+            businessId={missionLocations?.businessId}
+            height={230}
             showExpandButton
+            activeStep={
+              activeMission.mission_status === 'assigned' || activeMission.mission_status === 'accepted'
+                ? 'pickup'
+                : 'delivery'
+            }
           />
 
           {/* Stepper de progression */}
@@ -368,12 +415,25 @@ export default function DriverAppView({
             {activeMission.pickup_address ? (
               <View style={styles.addressBlock}>
                 <View style={styles.addressIconWrapStart}>
-                  <Ionicons name="location" size={16} color="#34D399" />
+                  <Ionicons name="storefront" size={16} color="#34D399" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.addressRoleLabel}>POINT DE RETRAIT (DÉPART)</Text>
+                  <Text style={styles.addressRoleLabel}>
+                    {missionLocations?.restaurantName
+                      ? `POINT DE RETRAIT · ${missionLocations.restaurantName.toUpperCase()}`
+                      : 'POINT DE RETRAIT (COMMERCE)'}
+                  </Text>
                   <Text style={styles.addressValueText}>{activeMission.pickup_address}</Text>
                 </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Naviguer vers point de retrait"
+                  onPress={() => void openGoogleMapsTurnByTurn(activeMission.pickup_address, missionLocations?.pickupCoords?.latitude, missionLocations?.pickupCoords?.longitude)}
+                  style={styles.addressGpsBtnGreen}
+                >
+                  <Ionicons name="navigate" size={13} color="#10B981" />
+                  <Text style={styles.addressGpsBtnTextGreen}>GPS</Text>
+                </Pressable>
               </View>
             ) : null}
 
@@ -385,8 +445,101 @@ export default function DriverAppView({
                 <Text style={styles.addressRoleLabel}>DESTINATION (CLIENT)</Text>
                 <Text style={styles.addressValueText}>{activeMission.destination_address}</Text>
               </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Naviguer vers client"
+                onPress={() => void openGoogleMapsTurnByTurn(activeMission.destination_address, missionLocations?.destinationCoords?.latitude, missionLocations?.destinationCoords?.longitude)}
+                style={styles.addressGpsBtnRed}
+              >
+                <Ionicons name="navigate" size={13} color={colors.primary} />
+                <Text style={styles.addressGpsBtnTextRed}>GPS</Text>
+              </Pressable>
             </View>
           </View>
+
+          {/* LISTE DÉTAILLÉE DES ARTICLES RÉELS DU CLIENT AVEC PHOTOS */}
+          {activeMission.mission_type === 'delivery' ? (
+            <View style={styles.orderItemsBox}>
+              <View style={styles.orderItemsHeader}>
+                <View style={styles.orderItemsHeaderLeft}>
+                  <Ionicons name="basket" size={17} color={colors.primary} />
+                  <Text style={styles.orderItemsTitle}>
+                    Articles de la commande ({missionItems.length > 0 ? missionItems.length : '1'})
+                  </Text>
+                </View>
+                <View style={styles.verifyBadge}>
+                  <Ionicons name="checkbox-outline" size={13} color="#10B981" />
+                  <Text style={styles.verifyBadgeText}>À vérifier au retrait</Text>
+                </View>
+              </View>
+
+              {isLoadingItems ? (
+                <View style={{ paddingVertical: 14, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                </View>
+              ) : missionItems.length > 0 ? (
+                <View style={styles.orderItemsList}>
+                  {missionItems.map((item, idx) => (
+                    <View key={item.id || idx} style={styles.orderItemRow}>
+                      {item.imageUrl ? (
+                        <Image
+                          source={{ uri: item.imageUrl }}
+                          style={styles.itemThumb}
+                          contentFit="cover"
+                          transition={200}
+                        />
+                      ) : (
+                        <View style={styles.itemThumbPlaceholder}>
+                          <Ionicons name="fast-food-outline" size={20} color="#71717A" />
+                        </View>
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <View style={styles.itemQtyBadge}>
+                            <Text style={styles.itemQtyText}>{item.quantity}x</Text>
+                          </View>
+                          <Text style={styles.itemProductName} numberOfLines={1}>{item.productName}</Text>
+                        </View>
+                        <Text style={styles.itemBusinessName}>{item.businessName}</Text>
+                        {item.selectedOptions && item.selectedOptions.length > 0 ? (
+                          <View style={styles.itemOptionsWrap}>
+                            {item.selectedOptions.map((opt: any, oIdx: number) => {
+                              const label = typeof opt === 'string' ? opt : opt?.name || '';
+                              return label ? (
+                                <Text key={oIdx} style={styles.itemOptionBadge}>
+                                  + {label}
+                                </Text>
+                              ) : null;
+                            })}
+                          </View>
+                        ) : null}
+                        {item.notes ? (
+                          <Text style={styles.itemNotesText}>Note client : {item.notes}</Text>
+                        ) : null}
+                      </View>
+                      <Text style={styles.itemPriceText}>
+                        {formatMillimes(item.unitPriceMillimes * item.quantity)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.orderItemsFallback}>
+                  <Ionicons name="receipt-outline" size={18} color="#9CA3AF" />
+                  <Text style={styles.orderItemsFallbackText}>
+                    1 commande express à récupérer au commerce partenaire
+                  </Text>
+                </View>
+              )}
+            </View>
+          ) : (
+            <View style={styles.scooterMissionInfoBox}>
+              <Ionicons name="shield-checkmark" size={17} color="#60A5FA" />
+              <Text style={styles.scooterMissionInfoText}>
+                Course Scooter Taxi REDGO · 1 passager · Prévoir le casque de sécurité
+              </Text>
+            </View>
+          )}
 
           {/* Contact client & Montant à encaisser */}
           <View style={styles.activeFooter}>
@@ -858,6 +1011,38 @@ const styles = StyleSheet.create({
   },
   addressRoleLabel: { color: '#71717A', fontSize: 9, fontWeight: '800' },
   addressValueText: { color: '#fff', fontSize: 12, fontWeight: '700', marginTop: 2 },
+  addressGpsBtnGreen: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.4)',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  addressGpsBtnTextGreen: {
+    color: '#34D399',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  addressGpsBtnRed: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255, 32, 42, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 32, 42, 0.4)',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  addressGpsBtnTextRed: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: '800',
+  },
   gpsSmallBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -868,6 +1053,156 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   gpsSmallBtnText: { color: '#fff', fontSize: 11, fontWeight: '900' },
+
+  // Order Items for Driver
+  orderItemsBox: {
+    backgroundColor: '#121217',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#262633',
+    padding: 12,
+    marginBottom: 14,
+  },
+  itemThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: '#1E1E26',
+    borderWidth: 1,
+    borderColor: '#2F2F3D',
+  },
+  itemThumbPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: '#1E1E26',
+    borderWidth: 1,
+    borderColor: '#2F2F3D',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  orderItemsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#20202A',
+    paddingBottom: 8,
+  },
+  orderItemsHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  orderItemsTitle: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  verifyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  verifyBadgeText: {
+    color: '#34D399',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  orderItemsList: {
+    gap: 9,
+  },
+  orderItemRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#16161E',
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#23232E',
+  },
+  itemQtyBadge: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  itemQtyText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  itemProductName: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  itemBusinessName: {
+    color: '#9CA3AF',
+    fontSize: 11,
+    marginTop: 1,
+  },
+  itemOptionsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 4,
+  },
+  itemOptionBadge: {
+    backgroundColor: '#262635',
+    color: '#60A5FA',
+    fontSize: 10,
+    fontWeight: '700',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+  },
+  itemNotesText: {
+    color: '#FCD34D',
+    fontSize: 11,
+    fontStyle: 'italic',
+    marginTop: 3,
+  },
+  itemPriceText: {
+    color: '#34D399',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  orderItemsFallback: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 6,
+  },
+  orderItemsFallbackText: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    flex: 1,
+  },
+  scooterMissionInfoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(37, 99, 235, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(37, 99, 235, 0.3)',
+    borderRadius: 12,
+    padding: 11,
+    marginBottom: 14,
+  },
+  scooterMissionInfoText: {
+    color: '#93C5FD',
+    fontSize: 12,
+    fontWeight: '600',
+    flex: 1,
+  },
 
   // Footer & Steps
   activeFooter: {

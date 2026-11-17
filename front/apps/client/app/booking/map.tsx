@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View }
 import MapView, { Circle, Marker, Polyline, Region, UrlTile } from 'react-native-maps';
 import { Button } from '../../components/ui';
 import { colors } from '../../constants/theme';
+import { formatHumanReadableAddress } from '../../services/geocoding';
 
 const MSaken = { latitude: 35.7273, longitude: 10.5815 };
 const Messaadine = { latitude: 35.7551, longitude: 10.5921 };
@@ -169,7 +170,7 @@ export default function BookingMap() {
         );
         return;
       }
-      const deliveryAddress = `${isCurrentPositionSelected ? 'Ma position actuelle' : 'Point de livraison'} (${destinationPoint.latitude.toFixed(5)}, ${destinationPoint.longitude.toFixed(5)})`;
+      const deliveryAddress = formatHumanReadableAddress(null, destinationPoint.latitude, destinationPoint.longitude);
       router.navigate({
         pathname: '/checkout',
         params: {
@@ -378,7 +379,7 @@ export default function BookingMap() {
         <Text style={styles.address}>
           {mode === 'delivery'
             ? hasSelectedDelivery
-              ? `${isCurrentPositionSelected ? 'Ma position actuelle' : 'Point choisi sur la carte'}\n${destinationPoint.latitude.toFixed(5)}, ${destinationPoint.longitude.toFixed(5)}`
+              ? formatHumanReadableAddress(null, destinationPoint.latitude, destinationPoint.longitude)
               : 'Touchez la carte pour choisir votre adresse de livraison.'
             : mode === 'itinerary'
             ? `Départ : ${pickupPoint.latitude.toFixed(5)}, ${pickupPoint.longitude.toFixed(5)}\nArrivée : ${destinationPoint.latitude.toFixed(5)}, ${destinationPoint.longitude.toFixed(5)}`

@@ -3,6 +3,7 @@
 import type { BusinessRow, Database } from "@redgo/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { AdminMapPicker } from "../components/admin-map-picker";
 
 type BusinessManagerProps = {
   client: SupabaseClient<Database>;
@@ -534,6 +535,30 @@ export default function BusinessManager({ client, onBusinessesUpdated }: Busines
                     className={inputClass}
                   />
                 </label>
+
+                {/* Carte interactive pour pointer l'emplacement du restaurant */}
+                <div className="sm:col-span-2 pt-2">
+                  <AdminMapPicker
+                    latitude={draft.latitude}
+                    longitude={draft.longitude}
+                    existingBusinesses={businesses
+                      .filter((b) => b.id !== draft.id)
+                      .map((b) => ({
+                        id: b.id,
+                        name: b.name,
+                        latitude: b.latitude,
+                        longitude: b.longitude,
+                      }))}
+                    onSelectLocation={(lat, lng, suggestedAddress) => {
+                      setDraft((curr) => ({
+                        ...curr,
+                        latitude: String(lat),
+                        longitude: String(lng),
+                        address: suggestedAddress || curr.address || "M'Saken, Tunisie",
+                      }));
+                    }}
+                  />
+                </div>
 
                 <label>
                   <span className={labelClass}>Adresse complète</span>

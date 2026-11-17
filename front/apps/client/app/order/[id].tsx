@@ -13,7 +13,7 @@ import { MSAKEN_CENTER } from '../../services/delivery';
 import { LocationConnectionState, subscribeToDriverLocation } from '../../services/driverLocation';
 import { fetchCustomerOrderById } from '../../services/ordersHistory';
 import { DeliveryOrder } from '../../types/delivery';
-
+import { subscribeDriverUpdates } from '../../services/driverMissions';
 import { requireSupabase } from '../../services/supabase';
 
 export default function LiveDeliveryTrackingScreen() {
@@ -106,6 +106,11 @@ export default function LiveDeliveryTrackingScreen() {
     void fetchStatus();
   }, 2500);
 
+  // Écoute immédiate des mises à jour chauffeur (ex: acceptation de mission)
+  const unsubscribeDriver = subscribeDriverUpdates(() => {
+    if (isMounted) void fetchStatus();
+  });
+
   // Écoute Supabase Realtime
   const client = requireSupabase();
   const channel = client
@@ -117,11 +122,19 @@ export default function LiveDeliveryTrackingScreen() {
         if (isMounted) void fetchStatus();
       }
     )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'driver_missions', filter: `delivery_order_id=eq.${id}` },
+      () => {
+        if (isMounted) void fetchStatus();
+      }
+    )
     .subscribe();
 
   return () => {
     isMounted = false;
     clearInterval(interval);
+    unsubscribeDriver();
     void client.removeChannel(channel);
   };
 }, [id]);
@@ -172,7 +185,7 @@ return (
     <DriverInfoCard
       driver={order.driver}
       roleDescription="Livreur REDGO"
-      isAssigned={trackingState === 'live'}
+      isAssigned={Boolean(order.driver)}
     />
 
     {/* Timeline with only relevant stages */}

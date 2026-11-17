@@ -17,7 +17,6 @@ import { useRedgoAuth } from '../../context/RedgoAuthContext';
 import { DriverMissionMap } from '../../components/DriverMissionMap';
 import {
   acceptDriverMission,
-  FALLBACK_OPEN_MISSIONS,
   getMyActiveDriverMission,
   listOpenDriverMissions,
   openNavigationApp,
@@ -39,12 +38,12 @@ export default function DriverMissionsScreen() {
     try {
       const [nextActive, nextOpen] = await Promise.all([
         getMyActiveDriverMission().catch(() => null),
-        listOpenDriverMissions().catch(() => FALLBACK_OPEN_MISSIONS),
+        listOpenDriverMissions().catch(() => []),
       ]);
       setActiveMission(nextActive);
-      setMissions(nextOpen && nextOpen.length > 0 ? nextOpen : FALLBACK_OPEN_MISSIONS);
+      setMissions(nextOpen || []);
     } catch {
-      setMissions(FALLBACK_OPEN_MISSIONS);
+      setMissions([]);
     } finally {
       setIsLoading(false);
       setRefreshing(false);

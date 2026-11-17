@@ -14,7 +14,7 @@ import { colors } from '../../constants/theme';
 import { formatMillimes } from '../../services/cart';
 import {
   CustomerOrder,
-  FALLBACK_DEMO_ORDERS,
+  CustomerOrderItem,
   fetchCustomerOrders,
   formatOrderDate,
   getOrderStatusMeta,
@@ -81,16 +81,7 @@ import {
       return orders;
     }, [orders, activeTab]);
 
-    const displayedOrders = useMemo(() => {
-      if (filteredOrders.length > 0) return filteredOrders;
-      // Si la base est encore vide pour ce compte, afficher la commande de démonstration
-      if (orders.length === 0 && !isLoading) {
-        if (activeTab === 'all' || activeTab === 'active') {
-          return FALLBACK_DEMO_ORDERS;
-        }
-      }
-      return [];
-    }, [filteredOrders, orders.length, isLoading, activeTab]);
+    const displayedOrders = filteredOrders;
 
     return (
           <Screen
@@ -180,7 +171,7 @@ import {
 
       {/* Orders List */}
       <View style={styles.ordersList}>
-        {displayedOrders.map((order) => {
+        {displayedOrders.map((order: CustomerOrder) => {
           const meta = getOrderStatusMeta(order.status);
           const isOngoing =
             order.status !== 'delivered' &&
@@ -252,7 +243,7 @@ import {
                   </Text>
                   <Text style={styles.itemsSummaryText} numberOfLines={1}>
                     {order.items.length > 0
-                      ? order.items.map((i) => `${i.quantity}x ${i.productName}`).join(' · ')
+                      ? order.items.map((i: CustomerOrderItem) => `${i.quantity}x ${i.productName}`).join(' · ')
                       : 'Articles divers commandés'}
                   </Text>
                 </View>

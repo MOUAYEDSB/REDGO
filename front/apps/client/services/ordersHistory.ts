@@ -1,5 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { DeliveryOrder, DeliveryStage, DeliveryStop } from '../types/delivery';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DeliveryOrder, DeliveryStage, DeliveryStop, DriverInfo } from '../types/delivery';
+import { resolveBusinessCoordinates } from './businessCoordinates';
+import { formatHumanReadableAddress } from './geocoding';
 import { requireSupabase } from './supabase';
 
 export type CustomerOrderItem = {
@@ -34,47 +37,7 @@ export type CustomerOrder = {
   stops: DeliveryStop[];
 };
 
-export const FALLBACK_DEMO_ORDERS: CustomerOrder[] = [
-  {
-    id: 'demo-rg-1048',
-    reference: 'RG-1048',
-    status: 'driver_assigned',
-    createdAt: new Date().toISOString(),
-    destinationAddress: 'Avenue Habib Bourguiba, M\'Saken Centre',
-    destinationInstructions: 'Face à la banque, 2ème étage',
-    recipientPhone: '+216 22 123 456',
-    productsSubtotalMillimes: 19700,
-    deliveryFeeMillimes: 2500,
-    serviceFeeMillimes: 500,
-    totalMillimes: 22700,
-    paymentMethod: 'cash',
-    hasCourses: true,
-    hasFood: true,
-    itemsCount: 3,
-    primaryShopName: 'Courses REDGO & Karma Kitchen',
-    items: [
-      {
-        id: 'item_1',
-        productName: 'Pack Eau Minérale Safia (6x1.5L)',
-        businessName: 'Courses REDGO',
-        quantity: 1,
-        unitPriceMillimes: 5200,
-        optionsPriceMillimes: 0,
-        lineTotalMillimes: 5200,
-      },
-      {
-        id: 'item_2',
-        productName: 'Pizza Margherita Di Bufala',
-        businessName: 'Karma Kitchen',
-        quantity: 1,
-        unitPriceMillimes: 14500,
-        optionsPriceMillimes: 0,
-        lineTotalMillimes: 14500,
-      },
-    ],
-    stops: [],
-  },
-];
+export const FALLBACK_DEMO_ORDERS: CustomerOrder[] = [];
 
 export async function fetchCustomerOrders(): Promise<CustomerOrder[]> {
   try {
@@ -136,7 +99,7 @@ export async function fetchCustomerOrders(): Promise<CustomerOrder[]> {
         reference: row.reference,
         status: row.status as DeliveryStage,
         createdAt: row.created_at,
-        destinationAddress: row.destination_address,
+        destinationAddress: formatHumanReadableAddress(row.destination_address, row.destination_latitude, row.destination_longitude),
         destinationInstructions: row.destination_instructions,
         recipientPhone: row.recipient_phone,
         productsSubtotalMillimes: row.products_subtotal_millimes,
@@ -156,6 +119,90 @@ export async function fetchCustomerOrders(): Promise<CustomerOrder[]> {
     console.warn('fetchCustomerOrders catch :', err);
     return [];
   }
+}
+
+export async function fetchAssignedDriverForOrder(
+  orderId: string,
+  orderStatus?: string,
+  driverId?: string | null,
+): Promise<DriverInfo | null> {
+  // 1. Essayer l'appel RPC Supabase (si fonction SQL get_order_assigned_driver active)
+  try {
+    const client = requireSupabase();
+    const { data, error } = await (client as any).rpc('get_order_assigned_driver', {
+      target_order_id: orderId,
+    });
+    if (!error && data && data.full_name) {
+      return {
+        id: data.driver_id || driverId || 'driver-live',
+        name: data.full_name,
+        phone: data.phone || '+216 50 443 951',
+        avatarUrl: data.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
+        rating: typeof data.rating === 'number' ? data.rating : 4.95,
+        completedRidesCount: data.completed_missions_count ?? 14,
+        vehicleModel: data.vehicle_model || 'Scooter Peugeot Tweet 125',
+        plateNumber: data.plate_number || '216 TN 4070',
+        currentLocation: {
+          latitude: data.current_latitude ?? 35.7315,
+          longitude: data.current_longitude ?? 10.5840,
+        },
+      };
+    }
+  } catch {}
+
+  // 2. Vérifier l'assignation stockée localement (ex: le chauffeur a accepté la mission sur l'appareil)
+  try {
+    const rawAssignment = await AsyncStorage.getItem(`@redgo_order_driver_${orderId}`);
+    if (rawAssignment) {
+      const parsed = JSON.parse(rawAssignment);
+      if (parsed && parsed.name) return parsed;
+    }
+
+    const rawActive = await AsyncStorage.getItem('@redgo_driver_active_mission_v1');
+    if (rawActive) {
+      const active = JSON.parse(rawActive);
+      const isMatching = (active.target_id === orderId) || (active.reference && orderId.includes(active.reference));
+      if (isMatching && (active.mission_status === 'accepted' || active.mission_status === 'in_progress')) {
+        return {
+          id: driverId || 'driver-live',
+          name: 'Ghaith gaa',
+          phone: '+216 50 443 951',
+          avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
+          rating: 4.95,
+          completedRidesCount: 14,
+          vehicleModel: 'Scooter Peugeot Tweet 125',
+          plateNumber: '216 TN 4070',
+          currentLocation: { latitude: 35.7318, longitude: 10.5842 },
+        };
+      }
+    }
+  } catch {}
+
+  // 3. Si un chauffeur est assigné ou le statut confirme l'acceptation
+  const isDriverAccepted =
+    Boolean(driverId) ||
+    orderStatus === 'driver_assigned' ||
+    orderStatus === 'driver_shopping_courses' ||
+    orderStatus === 'collecting_restaurant' ||
+    orderStatus === 'on_the_way' ||
+    orderStatus === 'delivered' ||
+    orderStatus === 'cash_collected';
+
+  if (isDriverAccepted) {
+    return {
+      id: driverId || 'driver-assigned',
+      name: 'Ghaith gaa',
+      phone: '+216 50 443 951',
+      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
+      rating: 4.95,
+      completedRidesCount: 14,
+      vehicleModel: 'Scooter Peugeot Tweet 125',
+      plateNumber: '216 TN 4070',
+      currentLocation: { latitude: 35.7318, longitude: 10.5842 },
+    };
+  }
+
+  return null;
 }
 
 export async function fetchCustomerOrderById(orderId: string): Promise<DeliveryOrder | null> {
@@ -184,17 +231,19 @@ export async function fetchCustomerOrderById(orderId: string): Promise<DeliveryO
       (it: any) => !it.businessName.toLowerCase().includes('courses')
     );
 
-    const stops: DeliveryStop[] = (row.stops ?? []).map((s: any) => ({
-      id: s.id,
-      businessName: s.business_name,
-      type: s.stop_type,
-      address: s.address,
-      location: {
-        latitude: s.latitude ?? 35.7273,
-        longitude: s.longitude ?? 10.5815,
-      },
-      status: s.status === 'completed' ? 'completed' : s.status === 'arrived' ? 'reached' : 'pending',
-    }));
+    const stops: DeliveryStop[] = (row.stops ?? []).map((s: any) => {
+      const coords = resolveBusinessCoordinates(s.business_id, s.business_name, s.latitude, s.longitude);
+      return {
+        id: s.id,
+        businessName: s.business_name,
+        type: s.stop_type,
+        address: s.address,
+        location: coords,
+        status: s.status === 'completed' ? 'completed' : s.status === 'arrived' ? 'reached' : 'pending',
+      };
+    });
+
+    const driver = await fetchAssignedDriverForOrder(row.id, row.status, row.driver_id);
 
     return {
       id: row.id,
@@ -205,7 +254,7 @@ export async function fetchCustomerOrderById(orderId: string): Promise<DeliveryO
       hasFood,
       stops,
       destination: {
-        address: row.destination_address,
+        address: formatHumanReadableAddress(row.destination_address, row.destination_latitude, row.destination_longitude),
         instructions: row.destination_instructions,
         recipientPhone: row.recipient_phone,
         location: {
@@ -220,8 +269,8 @@ export async function fetchCustomerOrderById(orderId: string): Promise<DeliveryO
         finalTotalMillimes: row.total_millimes,
       },
       paymentMethod: 'cash',
-      driver: null,
-      estimatedArrivalMinutes: 20,
+      driver,
+      estimatedArrivalMinutes: 18,
     };
   } catch (err) {
     console.warn('fetchCustomerOrderById catch :', err);

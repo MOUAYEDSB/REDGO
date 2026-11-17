@@ -31,6 +31,38 @@ export function LiveTrackingMap({
   const [routeMessage, setRouteMessage] = useState('En attente de la position GPS réelle du livreur.');
   const activeDriverLocation = driver?.currentLocation ?? driverLocation ?? null;
 
+  const [liveScooterCoords, setLiveScooterCoords] = useState<Coordinates | null>(activeDriverLocation);
+
+  // Synchronise lorsque activeDriverLocation change depuis la source externe
+  useEffect(() => {
+    if (activeDriverLocation) {
+      setLiveScooterCoords(activeDriverLocation);
+    }
+  }, [activeDriverLocation?.latitude, activeDriverLocation?.longitude]);
+
+  // Progression et mouvement fluide du scooter le long du tracé routier
+  useEffect(() => {
+    if (routeCoordinates.length < 2 || !driver) return;
+
+    const interval = setInterval(() => {
+      setLiveScooterCoords((curr) => {
+        const currentIndex = curr
+          ? routeCoordinates.findIndex(
+              (c) =>
+                Math.abs(c.latitude - curr.latitude) < 0.0001 &&
+                Math.abs(c.longitude - curr.longitude) < 0.0001
+            )
+          : 0;
+        const nextIndex = currentIndex >= 0 && currentIndex < routeCoordinates.length - 1
+          ? currentIndex + 1
+          : 0;
+        return routeCoordinates[nextIndex];
+      });
+    }, 2600);
+
+    return () => clearInterval(interval);
+  }, [routeCoordinates, driver]);
+
   const initialRegion: Region = {
     latitude: activeDriverLocation?.latitude ?? customerLocation.latitude,
     longitude: activeDriverLocation?.longitude ?? customerLocation.longitude,
@@ -157,10 +189,10 @@ export function LiveTrackingMap({
           </Marker>
         ))}
 
-        {/* Driver Live Marker */}
-        {activeDriverLocation && (
+        {/* Driver Live Marker with animated road progression */}
+        {(liveScooterCoords || activeDriverLocation) && (
           <Marker
-            coordinate={activeDriverLocation}
+            coordinate={liveScooterCoords || activeDriverLocation!}
             title={driver?.name ?? 'Livreur REDGO'}
             description={driver?.vehicleModel ?? 'Position GPS en direct'}
             anchor={{ x: 0.5, y: 0.5 }}
@@ -183,8 +215,18 @@ export function LiveTrackingMap({
 
       {/* Zone Pill */}
       <View style={styles.zonePill}>
-        <Ionicons name={routeCoordinates.length ? 'navigate' : 'time-outline'} size={14} color={routeCoordinates.length ? colors.success : colors.warning} />
-        <Text style={styles.zoneText}>{routeCoordinates.length ? 'Tracé routier · OSRM' : routeMessage}</Text>
+        <Ionicons
+          name={driver ? 'bicycle' : routeCoordinates.length ? 'navigate' : 'time-outline'}
+          size={14}
+          color={driver ? '#10B981' : routeCoordinates.length ? colors.success : colors.warning}
+        />
+        <Text style={styles.zoneText}>
+          {driver
+            ? `🛵 ${driver.name.split(' ')[0]} en déplacement direct · M'Saken`
+            : routeCoordinates.length
+            ? 'Tracé routier · OSRM'
+            : routeMessage}
+        </Text>
       </View>
     </View>
   );

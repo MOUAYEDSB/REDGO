@@ -5,6 +5,8 @@ import type {
   DriverProfileRow,
   OpenDriverMissionRow,
 } from '@redgo/shared';
+import { resolveBusinessCoordinates } from './businessCoordinates';
+import { formatHumanReadableAddress } from './geocoding';
 import { requireSupabase } from './supabase';
 
 export type DriverHistoryMission = {
@@ -29,6 +31,18 @@ export type DriverEarningsSummary = {
   cashCollectedMillimes: number;
   rating: number;
   vehicleModel: string;
+};
+
+export type DriverOrderItem = {
+  id: string;
+  productName: string;
+  businessName: string;
+  quantity: number;
+  unitPriceMillimes: number;
+  optionsPriceMillimes?: number;
+  selectedOptions?: Array<string | { name?: string; price_millimes?: number }>;
+  notes?: string;
+  imageUrl?: string | null;
 };
 
 const STORAGE_KEY = '@redgo_driver_history_v1';
@@ -115,95 +129,56 @@ export function notifyDriverUpdates() {
   });
 }
 
-export const FALLBACK_OPEN_MISSIONS: OpenDriverMissionRow[] = [
-  {
-    mission_id: 'demo-mission-food-1',
-    mission_type: 'delivery',
-    reference: 'REDGO-FOOD-4091',
-    pickup_address: 'El Sazon, Avenue Habib Bourguiba, M\'Saken',
-    destination_address: 'Cité El Bassatine, M\'Saken',
-    created_at: new Date(Date.now() - 4 * 60000).toISOString(),
-  },
-  {
-    mission_id: 'demo-mission-courses-2',
-    mission_type: 'delivery',
-    reference: 'REDGO-CRS-8812',
-    pickup_address: 'Hub Courses REDGO, Centre-ville M\'Saken',
-    destination_address: 'Route de Messaadine, Messaadine',
-    created_at: new Date(Date.now() - 12 * 60000).toISOString(),
-  },
-  {
-    mission_id: 'demo-mission-scooter-3',
-    mission_type: 'scooter_ride',
-    reference: 'REDGO-TAXI-1055',
-    pickup_address: 'Gare ferroviaire M\'Saken',
-    destination_address: 'Hôpital Régional M\'Saken',
-    created_at: new Date(Date.now() - 8 * 60000).toISOString(),
-  },
-];
+export const FALLBACK_OPEN_MISSIONS: OpenDriverMissionRow[] = [];
 
-export const FALLBACK_DRIVER_HISTORY: DriverHistoryMission[] = [
-  {
-    id: 'hist-1',
-    reference: 'REDGO-FOOD-3890',
-    missionType: 'delivery',
-    customerName: 'Karim Jaziri',
-    customerPhone: '+216 98 123 456',
-    pickupAddress: 'Fast Food Chkanna, M\'Saken',
-    destinationAddress: 'Rue Taieb Mhiri, M\'Saken',
-    amountMillimes: 18500,
-    driverEarningsMillimes: 3500,
-    status: 'completed',
-    completedAt: new Date(Date.now() - 45 * 60000).toISOString(),
-  },
-  {
-    id: 'hist-2',
-    reference: 'REDGO-TAXI-0994',
-    missionType: 'scooter_ride',
-    customerName: 'Sami Ben Salem',
-    customerPhone: '+216 22 456 789',
-    pickupAddress: 'Rond-point Messaadine',
-    destinationAddress: 'Marché Central, M\'Saken',
-    amountMillimes: 4500,
-    driverEarningsMillimes: 3800,
-    status: 'completed',
-    completedAt: new Date(Date.now() - 130 * 60000).toISOString(),
-  },
-  {
-    id: 'hist-3',
-    reference: 'REDGO-CRS-7731',
-    missionType: 'delivery',
-    customerName: 'Fatma Dridi',
-    customerPhone: '+216 55 789 012',
-    pickupAddress: 'Hub Courses REDGO, M\'Saken',
-    destinationAddress: 'Cité Ennour, M\'Saken',
-    amountMillimes: 24000,
-    driverEarningsMillimes: 3000,
-    status: 'completed',
-    completedAt: new Date(Date.now() - 240 * 60000).toISOString(),
-  },
-];
+export const FALLBACK_DRIVER_HISTORY: DriverHistoryMission[] = [];
 
-export function openNavigationApp(address: string, lat?: number | null, lng?: number | null) {
-  let url = '';
-  if (lat && lng) {
-    if (Platform.OS === 'ios') {
-      url = `maps://maps.apple.com/?daddr=${lat},${lng}&q=${encodeURIComponent(address)}`;
-    } else {
-      url = `google.navigation:q=${lat},${lng}`;
-    }
-  } else {
-    if (Platform.OS === 'ios') {
-      url = `maps://maps.apple.com/?daddr=${encodeURIComponent(address)}`;
-    } else {
-      url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
-    }
+export async function openGoogleMapsTurnByTurn(
+  address?: string | null,
+  lat?: number | null,
+  lng?: number | null,
+  originLat?: number | null,
+  originLng?: number | null,
+) {
+  const safeAddress = address || "Centre M'Saken";
+  const destParam = lat && lng ? `${lat},${lng}` : encodeURIComponent(safeAddress);
+  const originParam = originLat && originLng ? `&origin=${originLat},${originLng}` : '';
+
+  if (Platform.OS === 'android') {
+    const navUrl = lat && lng
+      ? `google.navigation:q=${lat},${lng}&mode=d`
+      : `google.navigation:q=${encodeURIComponent(safeAddress)}&mode=d`;
+    try {
+      const supported = await Linking.canOpenURL(navUrl);
+      if (supported) {
+        await Linking.openURL(navUrl);
+        return;
+      }
+    } catch {}
+  } else if (Platform.OS === 'ios') {
+    // Essayer l'application Google Maps iOS en mode conduite turn-by-turn
+    const googleMapsAppUrl = `comgooglemaps://?daddr=${destParam}&directionsmode=driving`;
+    try {
+      const supported = await Linking.canOpenURL(googleMapsAppUrl);
+      if (supported) {
+        await Linking.openURL(googleMapsAppUrl);
+        return;
+      }
+    } catch {}
   }
 
-  void Linking.openURL(url).catch(() => {
-    const webUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
-    void Linking.openURL(webUrl);
-  });
+  // Fallback universel Google Maps (ouvre l'application installée ou le navigateur en mode itinéraire)
+  const webDirectionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${destParam}${originParam}&travelmode=driving`;
+  try {
+    await Linking.openURL(webDirectionsUrl);
+  } catch {
+    const searchUrl = `https://www.google.com/maps/search/?api=1&query=${destParam}`;
+    void Linking.openURL(searchUrl);
+  }
+}
+
+export function openNavigationApp(address?: string | null, lat?: number | null, lng?: number | null) {
+  void openGoogleMapsTurnByTurn(address, lat, lng);
 }
 
 export function callCustomer(phone: string) {
@@ -223,6 +198,156 @@ export async function getDriverProfile(userId: string): Promise<DriverProfileRow
   return data;
 }
 
+export async function fetchMissionOrderItems(orderId: string): Promise<DriverOrderItem[]> {
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId);
+  if (!isUUID) {
+    if (orderId.includes('courses')) {
+      return [
+        {
+          id: 'item-1',
+          productName: 'Baguette',
+          businessName: 'Courses REDGO',
+          quantity: 2,
+          unitPriceMillimes: 200,
+          imageUrl: 'https://ojbmldgrvnllqbxbvzak.supabase.co/storage/v1/object/public/redgo-product-images/baguette/6b184953-3134-4860-930e-1cc054a9379f.jpg',
+        },
+        {
+          id: 'item-2',
+          productName: 'eau-safia-1-5l',
+          businessName: 'Courses REDGO',
+          quantity: 2,
+          unitPriceMillimes: 1000,
+          imageUrl: 'https://ojbmldgrvnllqbxbvzak.supabase.co/storage/v1/object/public/redgo-product-images/eau-safia-1-5l/e57bbd93-e7fe-4680-90d1-19508243d480.jpg',
+        },
+        {
+          id: 'item-3',
+          productName: 'Pain au chocolat',
+          businessName: 'Courses REDGO',
+          quantity: 1,
+          unitPriceMillimes: 1500,
+          imageUrl: 'https://ojbmldgrvnllqbxbvzak.supabase.co/storage/v1/object/public/redgo-product-images/pain-au-chocolat/41604da3-86a9-40ae-af0d-8b1001b691fb.jpg',
+        },
+      ];
+    }
+    return [
+      {
+        id: 'item-1',
+        productName: 'Mtabga Thon',
+        businessName: 'Chapati Baba Sanfour',
+        quantity: 1,
+        unitPriceMillimes: 5500,
+        selectedOptions: ['Piquant Harissa'],
+        imageUrl: 'https://ojbmldgrvnllqbxbvzak.supabase.co/storage/v1/object/public/redgo-product-images/mtabga-thon/5e57b390-c8b9-490a-b2a4-9ba5c05806c9.jpg',
+      },
+      {
+        id: 'item-2',
+        productName: 'Coca-Cola 1 L',
+        businessName: 'Chapati Baba Sanfour',
+        quantity: 2,
+        unitPriceMillimes: 2700,
+        imageUrl: 'https://ojbmldgrvnllqbxbvzak.supabase.co/storage/v1/object/public/redgo-product-images/coca-cola-1-l/ee967d1c-c7cd-4025-b221-bafd66dacbcc.jpg',
+      },
+    ];
+  }
+
+  try {
+    const client = requireSupabase();
+    const { data, error } = await (client as any)
+      .from('delivery_order_items')
+      .select('id, product_name, business_name, quantity, unit_price_millimes, options_price_millimes, selected_options, notes, product_id, products(id, name, image_url)')
+      .eq('order_id', orderId);
+
+    if (!error && data && data.length > 0) {
+      return (data as any[]).map((row) => ({
+        id: row.id,
+        productName: row.product_name,
+        businessName: row.business_name,
+        quantity: row.quantity,
+        unitPriceMillimes: row.unit_price_millimes,
+        optionsPriceMillimes: row.options_price_millimes,
+        selectedOptions: Array.isArray(row.selected_options) ? row.selected_options : [],
+        notes: row.notes,
+        imageUrl: row.products?.image_url || null,
+      }));
+    }
+  } catch (err) {
+    console.warn('fetchMissionOrderItems catch :', err);
+  }
+
+  return [];
+}
+
+export type MissionLocationDetails = {
+  pickupCoords: { latitude: number; longitude: number } | null;
+  destinationCoords: { latitude: number; longitude: number } | null;
+  restaurantName: string | null;
+  businessId: string | null;
+  stopsCount: number;
+};
+
+export async function fetchMissionLocationDetails(orderId: string): Promise<MissionLocationDetails> {
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId);
+  if (!isUUID) {
+    return {
+      pickupCoords: { latitude: 35.7289, longitude: 10.5810 },
+      destinationCoords: { latitude: 35.7360, longitude: 10.5870 },
+      restaurantName: 'Chapati Baba Sanfour',
+      businessId: 'chapati-baba-sanfour',
+      stopsCount: 1,
+    };
+  }
+
+  try {
+    const client = requireSupabase();
+    const [stopsRes, orderRes] = await Promise.all([
+      (client as any).from('delivery_order_stops').select('*').eq('order_id', orderId).order('sequence_number', { ascending: true }),
+      (client as any).from('delivery_orders').select('destination_address, destination_latitude, destination_longitude').eq('id', orderId).single(),
+    ]);
+
+    // Si non trouvé directement par order_id, tenter via driver_missions
+    if (!orderRes.data && (!stopsRes.data || stopsRes.data.length === 0)) {
+      const { data: mRow } = await (client as any)
+        .from('driver_missions')
+        .select('delivery_order_id, scooter_ride_id')
+        .eq('id', orderId)
+        .maybeSingle();
+      if (mRow?.delivery_order_id) {
+        return fetchMissionLocationDetails(mRow.delivery_order_id);
+      }
+    }
+
+    const firstStop = stopsRes.data?.[0];
+    const pickupCoords = firstStop
+      ? resolveBusinessCoordinates(firstStop.business_id, firstStop.business_name, firstStop.latitude, firstStop.longitude)
+      : null;
+
+    let destinationCoords: { latitude: number; longitude: number } | null = null;
+    if (orderRes.data && typeof orderRes.data.destination_latitude === 'number') {
+      destinationCoords = {
+        latitude: orderRes.data.destination_latitude,
+        longitude: orderRes.data.destination_longitude,
+      };
+    }
+
+    return {
+      pickupCoords,
+      destinationCoords,
+      restaurantName: firstStop?.business_name || null,
+      businessId: firstStop?.business_id || null,
+      stopsCount: stopsRes.data?.length ?? 1,
+    };
+  } catch (err) {
+    console.warn('fetchMissionLocationDetails error :', err);
+    return {
+      pickupCoords: null,
+      destinationCoords: null,
+      restaurantName: null,
+      businessId: null,
+      stopsCount: 1,
+    };
+  }
+}
+
 export async function setDriverOnline(userId: string, isOnline: boolean): Promise<DriverProfileRow> {
   const { data, error } = await requireSupabase()
     .from('driver_profiles')
@@ -237,12 +362,21 @@ export async function setDriverOnline(userId: string, isOnline: boolean): Promis
 export async function listOpenDriverMissions(): Promise<OpenDriverMissionRow[]> {
   try {
     const { data, error } = await requireSupabase().rpc('list_open_driver_missions');
-    if (error) throw error;
-    if (data && data.length > 0) return data;
-    return FALLBACK_OPEN_MISSIONS;
+    if (error) {
+      console.warn('list_open_driver_missions RPC info :', error.message);
+      return [];
+    }
+    if (data && data.length > 0) {
+      return (data as OpenDriverMissionRow[]).map((row) => ({
+        ...row,
+        pickup_address: formatHumanReadableAddress(row.pickup_address),
+        destination_address: formatHumanReadableAddress(row.destination_address),
+      }));
+    }
+    return [];
   } catch (cause) {
-    console.warn('listOpenDriverMissions fallback :', cause);
-    return FALLBACK_OPEN_MISSIONS;
+    console.warn('listOpenDriverMissions catch :', cause);
+    return [];
   }
 }
 
@@ -250,20 +384,30 @@ export async function getMyActiveDriverMission(): Promise<ActiveDriverMissionRow
   try {
     const { data, error } = await requireSupabase().rpc('get_my_active_driver_mission');
     if (!error && data && data.length > 0) {
-      const active = data[0];
+      const active = data[0] as ActiveDriverMissionRow;
       const isDone = await isMissionIdCompleted(active.mission_id);
       if (!isDone) {
-        return active;
+        return {
+          ...active,
+          pickup_address: formatHumanReadableAddress(active.pickup_address),
+          destination_address: formatHumanReadableAddress(active.destination_address),
+        };
       }
     }
   } catch (cause) {
     console.warn('getMyActiveDriverMission rpc catch :', cause);
   }
-  // Secours persistant local (pour tests ou aperçu)
+  // Secours persistant local (uniquement les vraies missions non-démo)
   const local = await getLocalActiveMission();
-  if (local) {
+  if (local && !local.mission_id.startsWith('demo-')) {
     const isDone = await isMissionIdCompleted(local.mission_id);
-    if (!isDone) return local;
+    if (!isDone) {
+      return {
+        ...local,
+        pickup_address: formatHumanReadableAddress(local.pickup_address),
+        destination_address: formatHumanReadableAddress(local.destination_address),
+      };
+    }
   }
   return null;
 }
@@ -365,7 +509,23 @@ export async function updateDriverMissionStatus(
       : 'driver_assigned';
 
   if (nextStatus === 'assigned' || nextStatus === 'accepted' || nextStatus === 'in_progress') {
-    await updateLocalActiveMissionStatus(nextStatus, nextServiceStatus);
+    const updated = await updateLocalActiveMissionStatus(nextStatus, nextServiceStatus);
+    if (updated?.target_id) {
+      void AsyncStorage.setItem(
+        `@redgo_order_driver_${updated.target_id}`,
+        JSON.stringify({
+          id: 'driver-live',
+          name: 'Ghaith gaa',
+          phone: '+216 50 443 951',
+          avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
+          rating: 4.95,
+          completedRidesCount: 14,
+          vehicleModel: 'Scooter Peugeot Tweet 125',
+          plateNumber: '216 TN 4070',
+          currentLocation: { latitude: 35.7318, longitude: 10.5842 },
+        }),
+      );
+    }
   } else if (nextStatus === 'completed') {
     await setLocalActiveMission(null);
   }
@@ -390,7 +550,7 @@ export async function updateDriverMissionStatus(
 export async function recordCompletedMission(mission: DriverHistoryMission): Promise<void> {
   try {
     const stored = await AsyncStorage.getItem(STORAGE_KEY);
-    const list: DriverHistoryMission[] = stored ? JSON.parse(stored) : [...FALLBACK_DRIVER_HISTORY];
+    const list: DriverHistoryMission[] = stored ? JSON.parse(stored) : [];
     const exists = list.some((m) => m.id === mission.id || (m.reference === mission.reference && m.completedAt === mission.completedAt));
     const updated = exists ? list : [mission, ...list];
 
@@ -503,10 +663,10 @@ export async function fetchDriverHistory(userId?: string): Promise<DriverHistory
     }
 
     if (localList.length > 0) return localList;
-    return FALLBACK_DRIVER_HISTORY;
+    return [];
   } catch (err) {
     console.warn('fetchDriverHistory catch :', err);
-    return FALLBACK_DRIVER_HISTORY;
+    return [];
   }
 }
 
@@ -535,11 +695,11 @@ export async function fetchDriverEarningsSummary(userId?: string): Promise<Drive
   const cashCollected = todayMissions.reduce((acc, h) => acc + h.amountMillimes, 0);
 
   return {
-    todayMillimes: todayEarnings || history.reduce((acc, h) => acc + h.driverEarningsMillimes, 0),
+    todayMillimes: todayEarnings || (history.length > 0 ? history.reduce((acc, h) => acc + h.driverEarningsMillimes, 0) : 0),
     todayCount: todayCount || history.length,
-    weekMillimes: weekEarnings || (todayEarnings ? todayEarnings * 3.5 : 41200),
-    weekCount: weekCount || (todayCount ? todayCount * 3 : 12),
-    cashCollectedMillimes: cashCollected || history.reduce((acc, h) => acc + h.amountMillimes, 0),
+    weekMillimes: weekEarnings || (todayEarnings ? Math.round(todayEarnings * 3.5) : 0),
+    weekCount: weekCount || (todayCount ? todayCount * 3 : 0),
+    cashCollectedMillimes: cashCollected || (history.length > 0 ? history.reduce((acc, h) => acc + h.amountMillimes, 0) : 0),
     rating: 4.95,
     vehicleModel: 'Peugeot Tweet 125',
   };

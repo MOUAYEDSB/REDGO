@@ -16,7 +16,6 @@ import { useRedgoAuth } from '../../context/RedgoAuthContext';
 import { formatMillimes } from '../../services/cart';
 import {
   DriverHistoryMission,
-  FALLBACK_DRIVER_HISTORY,
   fetchDriverHistory,
   openNavigationApp,
   subscribeDriverUpdates,
@@ -33,9 +32,9 @@ export default function DriverHistoryScreen() {
     setIsLoading(true);
     try {
       const data = await fetchDriverHistory(user?.id);
-      setHistory(data && data.length > 0 ? data : FALLBACK_DRIVER_HISTORY);
+      setHistory(data || []);
     } catch {
-      setHistory(FALLBACK_DRIVER_HISTORY);
+      setHistory([]);
     } finally {
       setIsLoading(false);
       setRefreshing(false);
