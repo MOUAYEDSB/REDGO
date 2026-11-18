@@ -14,7 +14,9 @@ import {
   fetchCoursesProducts,
   fetchProductById,
   fetchProductOptions,
+  fetchProductVariants,
   ProductOption,
+  ProductVariant,
 } from '../../../services/catalog';
 import { SelectedCartOption } from '../../../types/cart';
 
@@ -103,6 +105,8 @@ export default function MarketProductScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const [quantity, setQuantity] = useState(1);
   const [dbProduct, setDbProduct] = useState<CatalogProduct | null>(null);
+  const [variants, setVariants] = useState<ProductVariant[]>([]);
+  const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null);
   const [options, setOptions] = useState<ProductOption[]>([]);
   const [selectedOptions, setSelectedOptions] = useState<SelectedCartOption[]>([]);
   const [similarProducts, setSimilarProducts] = useState<CatalogProduct[]>([]);
@@ -762,7 +766,108 @@ export default function MarketProductScreen() {
         fontWeight: '800',
   },
         /* CTA */
-        submitButton: {
+        variantsSection: {
+    backgroundColor: '#161620',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2D2D3D',
+    padding: 16,
+    marginTop: 18,
+    gap: 10,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  variantsTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  requiredBadge: {
+    backgroundColor: '#3E1014',
+    color: '#FF6370',
+    fontSize: 10,
+    fontWeight: '800',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#7A1C24',
+  },
+  variantsSubtitle: {
+    color: colors.textSecondary,
+    fontSize: 12,
+  },
+  variantsList: {
+    gap: 8,
+    marginTop: 4,
+  },
+  variantCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#1D1D28',
+    borderWidth: 1,
+    borderColor: '#2F2F3F',
+    borderRadius: 12,
+    padding: 12,
+  },
+  variantCardSelected: {
+    borderColor: colors.primary,
+    backgroundColor: 'rgba(255, 38, 56, 0.08)',
+  },
+  radioCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#4E4E60',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioCircleSelected: {
+    borderColor: colors.primary,
+  },
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.primary,
+  },
+  variantInfo: {
+    flex: 1,
+  },
+  variantName: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  variantNameSelected: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  variantAvailable: {
+    color: colors.success,
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  variantPrice: {
+    color: '#D4D4D8',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  variantPriceSelected: {
+    color: colors.primary,
+    fontWeight: '900',
+  },
+  submitButtonDisabled: {
+    backgroundColor: '#3F3F46',
+    opacity: 0.7,
+  },
+  submitButton: {
           height: 54,
         borderRadius: 16,
         backgroundColor: colors.primary,

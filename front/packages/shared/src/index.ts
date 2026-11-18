@@ -57,6 +57,19 @@ export type ProductRow = {
   image_url: string | null;
   max_quantity: number;
   is_available: boolean;
+  has_variants?: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProductVariantRow = {
+  id: string;
+  product_id: string;
+  name: string;
+  price_millimes: number;
+  is_available: boolean;
+  max_quantity: number;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -65,6 +78,16 @@ export type ProductRow = {
 export type ProductOptionRow = {
   id: string;
   product_id: string;
+  name: string;
+  price_millimes: number;
+  is_available: boolean;
+  sort_order: number;
+  created_at: string;
+};
+
+export type BusinessSupplementRow = {
+  id: string;
+  business_id: string;
   name: string;
   price_millimes: number;
   is_available: boolean;
@@ -163,6 +186,8 @@ export type DeliveryOrderItemRow = {
   id: string;
   order_id: string;
   product_id: string | null;
+  variant_id?: string | null;
+  variant_name?: string | null;
   business_id: string;
   product_name: string;
   business_name: string;
@@ -361,10 +386,22 @@ export type Database = {
         Update: Partial<Omit<ProductRow, 'id' | 'created_at'>>;
         Relationships: [];
       };
+      product_variants: {
+        Row: ProductVariantRow;
+        Insert: Pick<ProductVariantRow, 'id' | 'product_id' | 'name' | 'price_millimes'> & Partial<Omit<ProductVariantRow, 'id' | 'product_id' | 'name' | 'price_millimes'>>;
+        Update: Partial<Omit<ProductVariantRow, 'id' | 'created_at'>>;
+        Relationships: [];
+      };
       product_options: {
         Row: ProductOptionRow;
         Insert: Pick<ProductOptionRow, 'id' | 'product_id' | 'name'> & Partial<Omit<ProductOptionRow, 'id' | 'product_id' | 'name'>>;
         Update: Partial<Omit<ProductOptionRow, 'id' | 'product_id' | 'created_at'>>;
+        Relationships: [];
+      };
+      business_supplements: {
+        Row: BusinessSupplementRow;
+        Insert: Pick<BusinessSupplementRow, 'id' | 'business_id' | 'name'> & Partial<Omit<BusinessSupplementRow, 'id' | 'business_id' | 'name'>>;
+        Update: Partial<Omit<BusinessSupplementRow, 'id' | 'business_id' | 'created_at'>>;
         Relationships: [];
       };
       promo_announcements: {

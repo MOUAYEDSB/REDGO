@@ -9,6 +9,8 @@ export type SelectedCartOption = {
 export type CartItem = {
   key: string;
   productId: string;
+  variantId?: string | null;
+  variantName?: string | null;
   productType: ProductType;
   businessId: string;
   businessName: string;

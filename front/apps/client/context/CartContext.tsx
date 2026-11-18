@@ -8,6 +8,8 @@ const STORAGE_KEY = '@redgo/cart_v2';
 
 export type AddCartProductInput = {
   productId: string;
+  variantId?: string | null;
+  variantName?: string | null;
   productType: ProductType;
   businessId: string;
   businessName: string;
@@ -77,10 +79,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
     const createItem = (product: AddCartProductInput): CartItem => {
       const selectedOptions = product.selectedOptions ?? [];
       const optionsPrice = selectedOptions.reduce((acc, opt) => acc + opt.priceMillimes, 0);
+      const variantId = product.variantId ?? null;
+      const variantName = product.variantName ?? null;
 
       return {
-        key: buildCartItemKey(product.productId, selectedOptions),
+        key: buildCartItemKey(product.productId, selectedOptions, variantId),
         productId: product.productId,
+        variantId,
+        variantName,
         productType: product.productType,
         businessId: product.businessId,
         businessName: product.businessName,

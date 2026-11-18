@@ -11,10 +11,11 @@ export const optionsTotal = (options: SelectedCartOption[]): number =>
 export const lineTotal = (item: CartItem): number =>
     (item.unitPriceMillimes + item.optionsPriceMillimes) * item.quantity;
 
-    export const buildCartItemKey = (
-      productId: string,
-    options: SelectedCartOption[] = [],
-): string => `${productId}:${options.map((option) => option.id).sort().join('|')}`;
+export const buildCartItemKey = (
+  productId: string,
+  options: SelectedCartOption[] = [],
+  variantId?: string | null,
+): string => `${productId}:${variantId ?? ''}:${options.map((option) => option.id).sort().join('|')}`;
 
 export const groupCartItems = (items: CartItem[]): CartGroup[] => {
   const groupsMap = new Map<string, CartGroup>();

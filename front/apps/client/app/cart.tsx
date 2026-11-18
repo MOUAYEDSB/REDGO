@@ -136,9 +136,17 @@ import { formatMillimes, lineTotal } from '../services/cart';
                                   {item.productName}
                                 </Text>
 
+                                {item.variantName ? (
+                                  <View style={styles.variantBadge}>
+                                    <Text style={styles.variantBadgeText}>
+                                      Variante : {item.variantName}
+                                    </Text>
+                                  </View>
+                                ) : null}
+
                                 {item.selectedOptions.length > 0 && (
                                   <Text style={styles.itemOptions} numberOfLines={1}>
-                                    {item.selectedOptions.map((o) => o.name).join(', ')}
+                                    + {item.selectedOptions.map((o) => o.name).join(', ')}
                                   </Text>
                                 )}
 
@@ -384,6 +392,21 @@ import { formatMillimes, lineTotal } from '../services/cart';
         fontWeight: '700',
         lineHeight: 18,
   },
+        variantBadge: {
+          backgroundColor: '#262634',
+          borderRadius: 6,
+          paddingHorizontal: 7,
+          paddingVertical: 2,
+          alignSelf: 'flex-start',
+          marginTop: 4,
+          borderWidth: 1,
+          borderColor: '#3F3F50',
+        },
+        variantBadgeText: {
+          color: colors.primary,
+          fontSize: 11,
+          fontWeight: '800',
+        },
         itemOptions: {
           color: colors.textSecondary,
         fontSize: 11,

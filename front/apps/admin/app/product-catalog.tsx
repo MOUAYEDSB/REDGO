@@ -1,6 +1,6 @@
 "use client";
 
-import type { BusinessRow, Database, ProductOptionRow, ProductRow } from "@redgo/shared";
+import type { BusinessRow, Database, ProductOptionRow, ProductRow, ProductVariantRow } from "@redgo/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 
@@ -15,6 +15,15 @@ type ProductOptionDraft = {
   is_available: boolean;
 };
 
+type ProductVariantDraft = {
+  id?: string;
+  name: string;
+  price: string;
+  is_available: boolean;
+  max_quantity: string;
+  sort_order: number;
+};
+
 type ProductDraft = {
   id: string;
   business_id: string;
@@ -26,6 +35,7 @@ type ProductDraft = {
   max_quantity: string;
   is_available: boolean;
   sort_order: string;
+  has_variants: boolean;
 };
 
 const REDGO_COURSES_ID = "courses_hub_msaken";
@@ -76,10 +86,12 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
   const [editorType, setEditorType] = useState<"courses" | "restaurant">("restaurant");
   const [editingProduct, setEditingProduct] = useState<ProductRow | null>(null);
   const [editingOptionIds, setEditingOptionIds] = useState<string[]>([]);
+  const [editingVariantIds, setEditingVariantIds] = useState<string[]>([]);
   const [idWasEdited, setIdWasEdited] = useState(false);
   const [draft, setDraft] = useState<ProductDraft>(createEmptyDraft());
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [options, setOptions] = useState<ProductOptionDraft[]>([]);
+  const [variants, setVariants] = useState<ProductVariantDraft[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -157,7 +169,6 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
 
   /* Open new Courses product (Direct REDGO, sans restaurant) */
   const openNewCoursesProduct = async () => {
-    // S'assurer que le hub courses_hub_msaken existe
     let coursesBiz = businesses.find((b) => b.id === REDGO_COURSES_ID);
     if (!coursesBiz) {
       try {
@@ -193,15 +204,18 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
 
     setEditingProduct(null);
     setEditingOptionIds([]);
+    setEditingVariantIds([]);
     setIdWasEdited(false);
     setEditorType("courses");
     setDraft({
       ...createEmptyDraft(),
       business_id: REDGO_COURSES_ID,
       category: "Épicerie salée",
+      has_variants: false,
     });
     setImageFile(null);
     setOptions([]);
+    setVariants([]);
     setError(null);
     setNotice(null);
     setIsEditorOpen(true);
@@ -212,15 +226,18 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
     const firstRestaurant = restaurantBusinesses.find((b) => b.is_active) ?? restaurantBusinesses[0];
     setEditingProduct(null);
     setEditingOptionIds([]);
+    setEditingVariantIds([]);
     setIdWasEdited(false);
     setEditorType("restaurant");
     setDraft({
       ...createEmptyDraft(),
       business_id: firstRestaurant?.id ?? "",
       category: "Pizzas",
+      has_variants: true,
     });
     setImageFile(null);
     setOptions([]);
+    setVariants([]);
     setError(null);
     setNotice(null);
     setIsEditorOpen(true);
@@ -230,21 +247,28 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
     setError(null);
     setNotice(null);
     setIsLoadingOptions(true);
-    const { data, error: optionsError } = await client
-      .from("product_options")
-      .select("*")
-      .eq("product_id", product.id)
-      .order("sort_order");
+    const [optionsRes, variantsRes] = await Promise.all([
+      client.from("product_options").select("*").eq("product_id", product.id).order("sort_order"),
+      client.from("product_variants").select("*").eq("product_id", product.id).order("sort_order"),
+    ]);
     setIsLoadingOptions(false);
-    if (optionsError) {
-      setError(errorMessage(optionsError));
-      return;
+
+    if (optionsError(optionsRes.error)) {
+      console.warn("Impossible de charger les options:", optionsRes.error);
     }
+    if (variantsRes.error) {
+      console.warn("Impossible de charger les variantes:", variantsRes.error);
+    }
+
+    const fetchedOptions = (optionsRes.data ?? []) as ProductOptionRow[];
+    const fetchedVariants = (variantsRes.data ?? []) as ProductVariantRow[];
+    const hasVariants = product.has_variants ?? (fetchedVariants.length > 0);
 
     const isCourses = product.business_id === REDGO_COURSES_ID;
     setEditorType(isCourses ? "courses" : "restaurant");
     setEditingProduct(product);
-    setEditingOptionIds((data ?? []).map((option) => option.id));
+    setEditingOptionIds(fetchedOptions.map((option) => option.id));
+    setEditingVariantIds(fetchedVariants.map((v) => v.id));
     setIdWasEdited(true);
     setImageFile(null);
     setDraft({
@@ -258,9 +282,22 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
       max_quantity: String(product.max_quantity),
       is_available: product.is_available,
       sort_order: String(product.sort_order),
+      has_variants: hasVariants,
     });
-    setOptions((data ?? []).map(optionToDraft));
+    setOptions(fetchedOptions.map(optionToDraft));
+    setVariants(fetchedVariants.map(variantToDraft));
     setIsEditorOpen(true);
+  };
+
+  const moveVariant = (index: number, direction: "up" | "down") => {
+    setVariants((current) => {
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= current.length) return current;
+      const next = [...current];
+      const [moved] = next.splice(index, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
   };
 
   const saveProduct = async (event: FormEvent<HTMLFormElement>) => {
@@ -269,7 +306,6 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
     setNotice(null);
 
     const productId = slugify(draft.id);
-    const priceMillimes = parseMillimes(draft.price, false);
     const maxQuantity = Number(draft.max_quantity);
     const sortOrder = Number(draft.sort_order);
 
@@ -281,6 +317,15 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
       setError("L’identifiant d’un produit existant ne peut pas être modifié.");
       return;
     }
+    if (!editingProduct) {
+      const existingProduct = products.find((p) => p.id === productId);
+      if (existingProduct) {
+        const b = businessesById.get(existingProduct.business_id);
+        const bName = b ? ` de « ${b.name} »` : "";
+        setError(`Un produit avec l’identifiant « ${productId} » existe déjà dans le catalogue${bName}. Veuillez modifier le champ « Identifiant catalogue (slug unique) » ci-dessus (par exemple : ${productId}-2).`);
+        return;
+      }
+    }
     if (!draft.business_id || !draft.name.trim()) {
       setError("Renseignez le nom du produit.");
       return;
@@ -289,10 +334,55 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
       setError("Veuillez choisir ou saisir une catégorie.");
       return;
     }
-    if (priceMillimes === null || priceMillimes <= 0) {
-      setError("Saisissez un prix supérieur à 0 DT, avec au maximum 3 décimales.");
-      return;
+
+    let finalPriceMillimes: number;
+
+    if (draft.has_variants) {
+      if (variants.length === 0) {
+        setError("Ajoutez au moins une variante pour un plat avec variantes.");
+        return;
+      }
+
+      const emptyNamed = variants.find((v) => !v.name.trim());
+      if (emptyNamed) {
+        setError("Chaque variante doit obligatoirement avoir un nom (ex: Moyenne, Large).");
+        return;
+      }
+
+      const invalidPrice = variants.find((v) => parseMillimes(v.price, false) === null || parseMillimes(v.price, false)! <= 0);
+      if (invalidPrice) {
+        setError(`Vérifiez le prix de la variante « ${invalidPrice.name.trim()} » (supérieur à 0 DT, 3 décimales max).`);
+        return;
+      }
+
+      const invalidQty = variants.find((v) => {
+        const q = Number(v.max_quantity);
+        return !Number.isInteger(q) || q < 1 || q > 100;
+      });
+      if (invalidQty) {
+        setError(`Vérifiez la quantité maximale de la variante « ${invalidQty.name.trim()} » (entre 1 et 100).`);
+        return;
+      }
+
+      // Au moins une variante active pour publier
+      if (draft.is_available && !variants.some((v) => v.is_available)) {
+        setError("Pour publier ce plat dans le catalogue client, au moins une variante doit être active.");
+        return;
+      }
+
+      const activeVariants = variants.filter((v) => v.is_available);
+      const pool = activeVariants.length > 0 ? activeVariants : variants;
+      // Toujours le premier prix du variant pour faciliter le shopping et l'affichage direct
+      finalPriceMillimes = parseMillimes(pool[0].price, false) ?? Math.min(...pool.map((v) => parseMillimes(v.price, false)!));
+    } else {
+      const priceMillimes = parseMillimes(draft.price, false);
+      if (priceMillimes === null || priceMillimes <= 0) {
+        setError("Saisissez un prix supérieur à 0 DT, avec au maximum 3 décimales.");
+        return;
+      }
+      finalPriceMillimes = priceMillimes;
     }
+
     if (!Number.isInteger(maxQuantity) || maxQuantity < 1 || maxQuantity > 100) {
       setError("La quantité maximale doit être comprise entre 1 et 100.");
       return;
@@ -345,11 +435,12 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
         name: draft.name.trim(),
         description: draft.description.trim(),
         category: draft.category.trim(),
-        price_millimes: priceMillimes,
+        price_millimes: finalPriceMillimes,
         image_url: imageUrl,
         max_quantity: maxQuantity,
         is_available: draft.is_available,
         sort_order: sortOrder,
+        has_variants: draft.has_variants,
       };
 
       const productResult = editingProduct
@@ -359,6 +450,36 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
       if (productResult.error) throw productResult.error;
       productWasSaved = true;
 
+      // Synchronisation des variantes
+      if (draft.has_variants) {
+        const nextVariants: Omit<ProductVariantRow, "created_at" | "updated_at">[] = variants.map((v, index) => ({
+          id: v.id ?? createVariantId(productId, v.name),
+          product_id: productId,
+          name: v.name.trim(),
+          price_millimes: parseMillimes(v.price, false)!,
+          is_available: v.is_available,
+          max_quantity: Number(v.max_quantity) || 30,
+          sort_order: index,
+        }));
+
+        if (nextVariants.length > 0) {
+          const { error: saveVariantsError } = await client.from("product_variants").upsert(nextVariants);
+          if (saveVariantsError) throw saveVariantsError;
+        }
+
+        const nextVariantIds = new Set(nextVariants.map((v) => v.id));
+        const removedVariantIds = editingVariantIds.filter((id) => !nextVariantIds.has(id));
+        if (removedVariantIds.length > 0) {
+          const { error: deleteVariantsError } = await client.from("product_variants").delete().in("id", removedVariantIds);
+          if (deleteVariantsError) throw deleteVariantsError;
+        }
+      } else {
+        if (editingVariantIds.length > 0) {
+          await client.from("product_variants").delete().eq("product_id", productId);
+        }
+      }
+
+      // Synchronisation des options
       const nextOptions: Omit<ProductOptionRow, "created_at">[] = namedOptions.map((option, index) => ({
         id: option.id ?? createOptionId(productId, option.name),
         product_id: productId,
@@ -383,16 +504,16 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
       await loadCatalog();
       setNotice(
         editingProduct
-          ? "Produit mis à jour avec succès."
+          ? "Produit et variantes mis à jour avec succès."
           : editorType === "courses"
             ? "Article ajouté au catalogue Courses REDGO !"
-            : "Plat ajouté au restaurant !"
+            : "Plat et variantes ajoutés au restaurant !"
       );
       setIsEditorOpen(false);
     } catch (cause) {
       setError(
         productWasSaved
-          ? `Le produit est enregistré, mais une erreur est survenue lors des options : ${errorMessage(cause)}`
+          ? `Le produit est enregistré, mais une erreur est survenue lors des options ou variantes : ${errorMessage(cause)}`
           : errorMessage(cause)
       );
       if (uploadedImagePath && !productWasSaved) {
@@ -448,204 +569,204 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
         <div className="rounded-xl border border-[#27272A] bg-[#18181B] px-4 py-4">
           <p className="text-xs font-semibold text-[#A1A1AA]">Total Catalogue</p>
           <div className="mt-2 flex items-end justify-between">
-            <p className="text-2xl font-black text-white">{products.length}</p>
-            <p className="text-[11px] text-[#71717A]">{allCategories.length} catégories</p>
+            <p className="text-2xl font-black text-white tabular-nums">{products.length}</p>
+            <p className="text-right text-[11px] text-[#71717A]">{allCategories.length} catégories</p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-amber-900/40 bg-[#18181B] px-4 py-4">
+          <p className="text-xs font-semibold text-amber-300">🛒 Courses REDGO Direct</p>
+          <div className="mt-2 flex items-end justify-between">
+            <p className="text-2xl font-black text-amber-200 tabular-nums">{coursesProductsCount}</p>
+            <p className="text-right text-[11px] text-amber-400/80">Stock central</p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-pink-900/40 bg-[#18181B] px-4 py-4">
+          <p className="text-xs font-semibold text-pink-300">🍕 Plats & Menus Resto</p>
+          <div className="mt-2 flex items-end justify-between">
+            <p className="text-2xl font-black text-pink-200 tabular-nums">{restaurantProductsCount}</p>
+            <p className="text-right text-[11px] text-pink-400/80">{restaurantBusinesses.length} restos actifs</p>
           </div>
         </div>
 
         <div className="rounded-xl border border-[#27272A] bg-[#18181B] px-4 py-4">
-          <p className="text-xs font-semibold text-[#A1A1AA]">🛒 Courses REDGO (Direct)</p>
+          <p className="text-xs font-semibold text-emerald-300">Publiés (Visibles)</p>
           <div className="mt-2 flex items-end justify-between">
-            <p className="text-2xl font-black text-amber-300">{coursesProductsCount}</p>
-            <p className="text-[11px] text-[#71717A]">Sans établissement</p>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-[#27272A] bg-[#18181B] px-4 py-4">
-          <p className="text-xs font-semibold text-[#A1A1AA]">🍕 Plats Restaurants</p>
-          <div className="mt-2 flex items-end justify-between">
-            <p className="text-2xl font-black text-sky-300">{restaurantProductsCount}</p>
-            <p className="text-[11px] text-[#71717A]">{restaurantBusinesses.length} resto(s)</p>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-[#27272A] bg-[#18181B] px-4 py-4">
-          <p className="text-xs font-semibold text-[#A1A1AA]">Publiés côté client</p>
-          <div className="mt-2 flex items-end justify-between">
-            <p className="text-2xl font-black text-emerald-300">
+            <p className="text-2xl font-black text-emerald-400 tabular-nums">
               {products.filter((p) => p.is_available).length}
             </p>
-            <p className="text-[11px] text-[#71717A]">En vente active</p>
+            <p className="text-right text-[11px] text-[#71717A]">
+              {products.filter((p) => !p.is_available).length} masqués
+            </p>
           </div>
         </div>
       </div>
 
-      {/* Main Panel */}
+      {/* Main Container */}
       <div className="overflow-hidden rounded-xl border border-[#27272A] bg-[#18181B]">
+        {/* Header & Quick Action Buttons */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#27272A] px-4 py-4 sm:px-5">
           <div>
-            <h2 className="font-bold">Gestion des Produits & Articles</h2>
-            <p className="mt-1 text-xs text-[#A1A1AA]">
-              Ajoutez directement vos articles de courses par catégorie, ou les plats de vos restaurants partenaires.
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <span>Gestion du Catalogue REDGO</span>
+            </h2>
+            <p className="mt-0.5 text-xs text-[#A1A1AA]">
+              Gérez les plats de restaurant (formats/variantes), et les articles de courses directes.
             </p>
           </div>
+
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => void loadCatalog()}
+              onClick={() => {
+                void loadCatalog();
+              }}
               disabled={isLoading}
               className="rounded-lg border border-[#3F3F46] px-3 py-2 text-xs font-semibold text-[#E4E4E7] hover:bg-[#27272A] disabled:opacity-50"
             >
               {isLoading ? "Actualisation…" : "Actualiser"}
             </button>
-            <button
-              type="button"
-              onClick={() => void openNewCoursesProduct()}
-              className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-amber-500"
-            >
-              🛒 + Article Courses (Direct)
-            </button>
+
+            {/* BOUTON AJOUT PLAT RESTAURANT */}
             <button
               type="button"
               onClick={openNewRestaurantProduct}
-              disabled={restaurantBusinesses.length === 0}
-              className="rounded-lg bg-[#FF2638] px-3 py-2 text-xs font-bold text-white hover:bg-[#e31f30] disabled:opacity-50"
+              className="rounded-lg bg-[#FF2638] px-3.5 py-2 text-xs font-bold text-white hover:bg-[#e31f30] shadow-sm flex items-center gap-1.5"
             >
-              🍕 + Plat Restaurant
+              <span>🍕 + Ajouter un plat (Restaurant)</span>
+            </button>
+
+            {/* BOUTON AJOUT ARTICLE COURSES */}
+            <button
+              type="button"
+              onClick={() => void openNewCoursesProduct()}
+              className="rounded-lg border border-amber-500/60 bg-amber-500/20 px-3.5 py-2 text-xs font-bold text-amber-200 hover:bg-amber-500/30 shadow-sm flex items-center gap-1.5"
+            >
+              <span>🛒 + Ajouter un article (Courses)</span>
             </button>
           </div>
         </div>
 
-        {/* Tab-like Mode Filters */}
-        <div className="flex gap-2 border-b border-[#27272A] bg-[#141416] px-4 py-2">
-          <button
-            type="button"
-            onClick={() => setModeFilter("all")}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${modeFilter === "all" ? "bg-[#27272A] text-white" : "text-[#A1A1AA] hover:text-white"
-              }`}
-          >
-            Tout afficher ({products.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setModeFilter("courses")}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${modeFilter === "courses" ? "bg-amber-950 text-amber-200 border border-amber-800/80" : "text-[#A1A1AA] hover:text-white"
-              }`}
-          >
-            🛒 Courses REDGO ({coursesProductsCount})
-          </button>
-          <button
-            type="button"
-            onClick={() => setModeFilter("restaurant")}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${modeFilter === "restaurant" ? "bg-[#351C20] text-[#FF8590] border border-[#5A272D]" : "text-[#A1A1AA] hover:text-white"
-              }`}
-          >
-            🍕 Restaurants ({restaurantProductsCount})
-          </button>
-        </div>
+        {/* Filters */}
+        <div className="grid gap-3 border-b border-[#27272A] p-4 md:grid-cols-[1fr_160px_180px_160px_130px]">
+          <label>
+            <span className="sr-only">Rechercher</span>
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Rechercher nom, slug, catégorie, restaurant…"
+              className={inputClass}
+            />
+          </label>
 
-        {/* Search & Filter Bar */}
-        <div className="grid gap-3 border-b border-[#27272A] p-4 md:grid-cols-[1fr_200px_200px_160px]">
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Rechercher nom, catégorie, référence…"
-            className={inputClass}
-          />
+          <label>
+            <span className="sr-only">Filtre Type</span>
+            <select
+              value={modeFilter}
+              onChange={(e) => setModeFilter(e.target.value as typeof modeFilter)}
+              className={inputClass}
+            >
+              <option value="all">Tous les types</option>
+              <option value="restaurant">🍕 Plats Restaurant</option>
+              <option value="courses">🛒 Courses Direct</option>
+            </select>
+          </label>
 
-          <select
-            value={categoryFilter}
-            onChange={(event) => setCategoryFilter(event.target.value)}
-            className={inputClass}
-          >
-            <option value="all">Toutes les catégories</option>
-            {allCategories.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-
-          {modeFilter !== "courses" ? (
+          <label>
+            <span className="sr-only">Filtre Commerce</span>
             <select
               value={businessFilter}
               onChange={(event) => setBusinessFilter(event.target.value)}
               className={inputClass}
             >
-              <option value="all">Tous les commerces / resto</option>
-              {businesses.map((b) => (
+              <option value="all">Tous les commerces</option>
+              <option value={REDGO_COURSES_ID}>🛒 Courses REDGO (Direct)</option>
+              {restaurantBusinesses.map((b) => (
                 <option key={b.id} value={b.id}>
-                  {b.name}
+                  🍕 {b.name}
                 </option>
               ))}
             </select>
-          ) : (
-            <div className="flex items-center rounded-lg border border-[#3F3F46] bg-[#09090B] px-3 py-2 text-xs text-amber-300">
-              🛒 Direct REDGO (sans boutique)
-            </div>
-          )}
+          </label>
 
-          <select
-            value={visibilityFilter}
-            onChange={(event) => setVisibilityFilter(event.target.value as typeof visibilityFilter)}
-            className={inputClass}
-          >
-            <option value="all">Tous les statuts</option>
-            <option value="available">Publiés (actifs)</option>
-            <option value="hidden">Masqués</option>
-          </select>
+          <label>
+            <span className="sr-only">Filtre Catégorie</span>
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className={inputClass}
+            >
+              <option value="all">Toutes catégories</option>
+              {allCategories.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span className="sr-only">Filtre Statut</span>
+            <select
+              value={visibilityFilter}
+              onChange={(event) => setVisibilityFilter(event.target.value as typeof visibilityFilter)}
+              className={inputClass}
+            >
+              <option value="all">Tous statuts</option>
+              <option value="available">Publiés</option>
+              <option value="hidden">Masqués</option>
+            </select>
+          </label>
         </div>
 
-        {/* Product List */}
+        {/* List of Products */}
         {isLoading ? (
-          <p className="p-8 text-center text-sm text-[#A1A1AA]">Chargement du catalogue…</p>
+          <div className="p-8 text-center text-sm text-[#A1A1AA]">Chargement du catalogue…</div>
         ) : visibleProducts.length === 0 ? (
-          <div className="p-10 text-center">
-            <p className="text-3xl">🛒</p>
-            <h3 className="mt-3 font-semibold">Aucun produit ne correspond à ces critères</h3>
-            <p className="mx-auto mt-2 max-w-md text-sm text-[#A1A1AA]">
-              Ajoutez vos articles de courses d’un clic ou modifiez vos filtres de recherche.
+          <div className="p-8 text-center">
+            <h3 className="font-semibold text-white">Aucun produit trouvé</h3>
+            <p className="mt-1 text-sm text-[#A1A1AA]">
+              Modifiez vos filtres ou ajoutez un nouveau produit via les boutons en haut.
             </p>
-            <div className="mt-4 flex justify-center gap-3">
-              <button
-                type="button"
-                onClick={() => void openNewCoursesProduct()}
-                className="rounded-lg bg-amber-600 px-4 py-2 text-xs font-bold text-white hover:bg-amber-500"
-              >
-                + Ajouter un article Courses
-              </button>
-            </div>
           </div>
         ) : (
           <div className="divide-y divide-[#27272A]">
             {visibleProducts.map((product) => {
-              const isCourses =
-                product.business_id === REDGO_COURSES_ID ||
-                businessesById.get(product.business_id)?.kind === "courses";
               const business = businessesById.get(product.business_id);
+              const isCourses = product.business_id === REDGO_COURSES_ID || business?.kind === "courses";
               const isUpdating = savingAvailabilityId === product.id;
 
               return (
                 <article
                   key={product.id}
-                  className="grid gap-4 px-4 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:px-5"
+                  className="grid gap-4 px-4 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:px-5 hover:bg-[#1C1C22] transition"
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <ProductThumbnail imageUrl={product.image_url} name={product.name} />
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="truncate font-semibold text-base">{product.name}</h3>
                         <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${isCourses ? "bg-amber-950 text-amber-300" : "bg-sky-950 text-sky-300"
-                            }`}
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                            isCourses
+                              ? "bg-amber-950/80 text-amber-300 border border-amber-800/40"
+                              : "bg-pink-950/80 text-pink-300 border border-pink-800/40"
+                          }`}
                         >
-                          {isCourses ? "🛒 COURSES" : "🍕 RESTO"}
+                          {isCourses ? "COURSES" : "RESTO"}
                         </span>
+                        <h3 className="truncate font-semibold text-white text-sm">{product.name}</h3>
+                        {product.has_variants ? (
+                          <span className="rounded-full border border-[#FF2638]/40 bg-red-950/70 px-2 py-0.5 text-[10px] font-bold text-[#FF6572]">
+                            VARIANTES
+                          </span>
+                        ) : null}
                         <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${product.is_available
-                              ? "bg-emerald-950 text-emerald-300"
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                            product.is_available
+                              ? "bg-emerald-950 text-emerald-300 border border-emerald-800/40"
                               : "bg-zinc-800 text-zinc-400"
-                            }`}
+                          }`}
                         >
                           {product.is_available ? "PUBLIÉ" : "MASQUÉ"}
                         </span>
@@ -671,7 +792,10 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-3 md:justify-end">
-                    <p className="min-w-24 text-base font-bold tabular-nums text-white">
+                    <p className="min-w-28 text-base font-bold tabular-nums text-white">
+                      {product.has_variants ? (
+                        <span className="text-xs text-[#A1A1AA] font-normal">À partir de </span>
+                      ) : null}
                       {formatMillimes(product.price_millimes)}
                     </p>
                     <button
@@ -716,7 +840,7 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                 <div className="flex items-center gap-2">
                   <h2 className="text-lg font-bold">
                     {editingProduct
-                      ? "Modifier le produit"
+                      ? "Modifier le produit / plat"
                       : editorType === "courses"
                         ? "🛒 Ajouter un article Courses (Direct REDGO)"
                         : "🍕 Ajouter un plat de restaurant"}
@@ -725,7 +849,7 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                 <p className="mt-1 text-xs text-[#A1A1AA]">
                   {editorType === "courses"
                     ? "Produit géré directement par REDGO, classé par catégorie (Épicerie, Boissons, etc.)."
-                    : "Plat rattaché au menu d'un restaurant partenaire."}
+                    : "Plat rattaché au menu d'un restaurant partenaire avec options et variantes de taille/format."}
                 </p>
               </div>
               <button
@@ -747,9 +871,14 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                     <select
                       required
                       value={draft.business_id}
-                      onChange={(event) =>
-                        setDraft((current) => ({ ...current, business_id: event.target.value }))
-                      }
+                      onChange={(event) => {
+                        const newBusinessId = event.target.value;
+                        setDraft((current) => ({
+                          ...current,
+                          business_id: newBusinessId,
+                          id: idWasEdited || editingProduct ? current.id : generateProductSlug(current.name, newBusinessId, products),
+                        }));
+                      }}
                       className={inputClass}
                     >
                       <option value="" disabled>
@@ -774,6 +903,37 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                   </div>
                 )}
 
+                {/* SÉLECTEUR PLAT SIMPLE vs PLAT AVEC VARIANTES */}
+                <div className="sm:col-span-2">
+                  <span className={labelClass}>Type d’article / plat *</span>
+                  <div className="grid grid-cols-2 gap-2 rounded-xl border border-[#3F3F46] bg-[#09090B] p-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setDraft((curr) => ({ ...curr, has_variants: false }))}
+                      className={`flex items-center justify-center gap-2 rounded-lg py-2.5 text-xs font-bold transition ${
+                        !draft.has_variants
+                          ? "bg-[#27272A] text-white shadow"
+                          : "text-[#A1A1AA] hover:text-white"
+                      }`}
+                    >
+                      <span>Plat simple</span>
+                      <span className="text-[10px] font-normal text-[#A1A1AA]">(Prix unique)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDraft((curr) => ({ ...curr, has_variants: true }))}
+                      className={`flex items-center justify-center gap-2 rounded-lg py-2.5 text-xs font-bold transition ${
+                        draft.has_variants
+                          ? "bg-[#FF2638] text-white shadow"
+                          : "text-[#A1A1AA] hover:text-white"
+                      }`}
+                    >
+                      <span>Plat avec variantes</span>
+                      <span className="text-[10px] font-normal text-white/80">(Tailles, formats...)</span>
+                    </button>
+                  </div>
+                </div>
+
                 {/* Nom du produit */}
                 <label className="sm:col-span-2">
                   <span className={labelClass}>Nom de l’article / plat *</span>
@@ -786,14 +946,14 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                       setDraft((current) => ({
                         ...current,
                         name,
-                        id: idWasEdited ? current.id : slugify(name),
+                        id: idWasEdited || editingProduct ? current.id : generateProductSlug(name, current.business_id, products),
                       }));
                     }}
                     className={inputClass}
                     placeholder={
                       editorType === "courses"
                         ? "Ex. Pack Eau Minérale Safia 6x1.5L, Lait Vitalait 1L…"
-                        : "Ex. Pizza 4 Fromages, Smash Burger…"
+                        : "Ex. Pizza Margherita, Smash Burger, Sandwich Thon…"
                     }
                   />
                 </label>
@@ -812,7 +972,7 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                       setDraft((current) => ({ ...current, id: slugify(event.target.value) }));
                     }}
                     className={`${inputClass} font-mono text-xs read-only:text-[#71717A]`}
-                    placeholder="pack-eau-safia"
+                    placeholder="pizza-margherita"
                   />
                 </label>
 
@@ -835,10 +995,11 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                           key={cat}
                           type="button"
                           onClick={() => setDraft((curr) => ({ ...curr, category: cat }))}
-                          className={`rounded-md px-2 py-1 text-[11px] font-semibold transition ${draft.category === cat
-                              ? "bg-amber-600 text-white"
+                          className={`rounded-md px-2 py-1 text-[11px] font-semibold transition ${
+                            draft.category === cat
+                              ? "bg-[#FF2638] text-white"
                               : "bg-[#27272A] text-[#A1A1AA] hover:text-white"
-                            }`}
+                          }`}
                         >
                           {cat}
                         </button>
@@ -847,21 +1008,207 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                   </div>
                 </div>
 
-                {/* Prix */}
-                <label>
-                  <span className={labelClass}>Prix en Dinars (DT) *</span>
-                  <input
-                    required
-                    inputMode="decimal"
-                    value={draft.price}
-                    onChange={(event) => setDraft((current) => ({ ...current, price: event.target.value }))}
-                    className={inputClass}
-                    placeholder="1.450"
-                  />
-                  <span className="mt-1 block text-[10px] text-[#71717A]">
-                    Exemple : 1.450 DT pour 1450 millimes.
-                  </span>
-                </label>
+                {/* PRIX OU SECTION DES VARIANTES */}
+                {!draft.has_variants ? (
+                  <label className="sm:col-span-2">
+                    <span className={labelClass}>Prix de vente unique (DT) *</span>
+                    <input
+                      required
+                      inputMode="decimal"
+                      value={draft.price}
+                      onChange={(event) => setDraft((current) => ({ ...current, price: event.target.value }))}
+                      className={inputClass}
+                      placeholder="14.500"
+                    />
+                    <span className="mt-1 block text-[10px] text-[#71717A]">
+                      Exemple : 14.500 pour 14 DT 500.
+                    </span>
+                  </label>
+                ) : (
+                  <div className="rounded-xl border border-[#3F3F46] bg-[#111116] p-4 sm:col-span-2">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+                          <span>🍕 Variantes du plat (formats, tailles, etc.)</span>
+                        </h3>
+                        <p className="mt-0.5 text-xs text-[#A1A1AA]">
+                          Le client devra obligatoirement sélectionner une variante. Le prix minimum (« À partir de ») est calculé automatiquement.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setVariants((current) => [
+                            ...current,
+                            {
+                              name: "",
+                              price: "0.000",
+                              is_available: true,
+                              max_quantity: "30",
+                              sort_order: current.length,
+                            },
+                          ])
+                        }
+                        className="rounded-lg bg-[#FF2638] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#e31f30]"
+                      >
+                        + Ajouter une variante
+                      </button>
+                    </div>
+
+                    {/* Exemples rapides si liste vide */}
+                    {variants.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-[#3F3F46] p-4 text-center">
+                        <p className="text-xs text-[#A1A1AA]">
+                          Aucune variante configurée. Ajoutez vos tailles manuellement ou cliquez sur un modèle :
+                        </p>
+                        <div className="mt-3 flex flex-wrap justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setVariants([
+                                { name: "Moyenne", price: "9.000", is_available: true, max_quantity: "30", sort_order: 0 },
+                                { name: "Large", price: "12.000", is_available: true, max_quantity: "30", sort_order: 1 },
+                              ])
+                            }
+                            className="rounded-lg border border-[#3F3F46] bg-[#18181B] px-2.5 py-1 text-xs text-[#E4E4E7] hover:border-[#FF2638]"
+                          >
+                            Pizza (Moyenne 9 DT, Large 12 DT)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setVariants([
+                                { name: "Simple", price: "14.000", is_available: true, max_quantity: "30", sort_order: 0 },
+                                { name: "Double", price: "18.000", is_available: true, max_quantity: "30", sort_order: 1 },
+                              ])
+                            }
+                            className="rounded-lg border border-[#3F3F46] bg-[#18181B] px-2.5 py-1 text-xs text-[#E4E4E7] hover:border-[#FF2638]"
+                          >
+                            Burger (Simple 14 DT, Double 18 DT)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setVariants([
+                                { name: "Mlawi", price: "7.500", is_available: true, max_quantity: "30", sort_order: 0 },
+                                { name: "Makloub", price: "8.000", is_available: true, max_quantity: "30", sort_order: 1 },
+                                { name: "Baguette farcie", price: "9.000", is_available: true, max_quantity: "30", sort_order: 2 },
+                                { name: "Cornet", price: "10.000", is_available: true, max_quantity: "30", sort_order: 3 },
+                              ])
+                            }
+                            className="rounded-lg border border-[#3F3F46] bg-[#18181B] px-2.5 py-1 text-xs text-[#E4E4E7] hover:border-[#FF2638]"
+                          >
+                            Sandwich (Mlawi, Makloub, Baguette, Cornet)
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {variants.map((variant, index) => (
+                          <div
+                            key={variant.id ?? `v-${index}`}
+                            className="rounded-xl border border-[#2F2F3D] bg-[#181820] p-3 transition hover:border-[#3F3F4E]"
+                          >
+                            <div className="grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)_120px_90px_auto_auto] sm:items-end">
+                              {/* Ordonnancement */}
+                              <div className="flex flex-col gap-1">
+                                <button
+                                  type="button"
+                                  disabled={index === 0}
+                                  onClick={() => moveVariant(index, "up")}
+                                  className="rounded border border-[#3F3F46] px-1.5 py-0.5 text-[10px] text-zinc-300 hover:bg-[#27272A] disabled:opacity-30"
+                                  title="Monter"
+                                >
+                                  ▲
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={index === variants.length - 1}
+                                  onClick={() => moveVariant(index, "down")}
+                                  className="rounded border border-[#3F3F46] px-1.5 py-0.5 text-[10px] text-zinc-300 hover:bg-[#27272A] disabled:opacity-30"
+                                  title="Descendre"
+                                >
+                                  ▼
+                                </button>
+                              </div>
+
+                              <label>
+                                <span className={labelClass}>Nom de la variante *</span>
+                                <input
+                                  required
+                                  maxLength={120}
+                                  value={variant.name}
+                                  onChange={(e) =>
+                                    setVariants((curr) =>
+                                      curr.map((v, i) => (i === index ? { ...v, name: e.target.value } : v))
+                                    )
+                                  }
+                                  className={inputClass}
+                                  placeholder="Ex: Moyenne, Large, Makloub..."
+                                />
+                              </label>
+
+                              <label>
+                                <span className={labelClass}>Prix (DT) *</span>
+                                <input
+                                  required
+                                  inputMode="decimal"
+                                  value={variant.price}
+                                  onChange={(e) =>
+                                    setVariants((curr) =>
+                                      curr.map((v, i) => (i === index ? { ...v, price: e.target.value } : v))
+                                    )
+                                  }
+                                  className={inputClass}
+                                  placeholder="9.000"
+                                />
+                              </label>
+
+                              <label>
+                                <span className={labelClass}>Qté Max</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={100}
+                                  value={variant.max_quantity}
+                                  onChange={(e) =>
+                                    setVariants((curr) =>
+                                      curr.map((v, i) => (i === index ? { ...v, max_quantity: e.target.value } : v))
+                                    )
+                                  }
+                                  className={inputClass}
+                                />
+                              </label>
+
+                              <label className="flex h-10 cursor-pointer items-center gap-2 text-xs font-semibold text-[#D4D4D8]">
+                                <input
+                                  type="checkbox"
+                                  checked={variant.is_available}
+                                  onChange={(e) =>
+                                    setVariants((curr) =>
+                                      curr.map((v, i) => (i === index ? { ...v, is_available: e.target.checked } : v))
+                                    )
+                                  }
+                                  className="size-4 accent-[#FF2638]"
+                                />
+                                Active
+                              </label>
+
+                              <button
+                                type="button"
+                                onClick={() => setVariants((curr) => curr.filter((_, i) => i !== index))}
+                                aria-label={`Supprimer variante ${variant.name || index + 1}`}
+                                className="h-10 rounded-lg border border-[#552127] px-3 text-xs font-semibold text-red-300 hover:bg-red-950/40"
+                              >
+                                Retirer
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Quantité max */}
                 <label>
@@ -877,6 +1224,19 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                   />
                 </label>
 
+                {/* Ordre */}
+                <label>
+                  <span className={labelClass}>Ordre d'affichage</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={draft.sort_order}
+                    onChange={(event) => setDraft((current) => ({ ...current, sort_order: event.target.value }))}
+                    className={inputClass}
+                  />
+                </label>
+
                 {/* Description */}
                 <label className="sm:col-span-2">
                   <span className={labelClass}>Description / Contenance (optionnel)</span>
@@ -886,7 +1246,7 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                     value={draft.description}
                     onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
                     className={`${inputClass} resize-y`}
-                    placeholder="Détails utiles : format bouteille 1.5L, ingrédients, conservation…"
+                    placeholder="Détails utiles : ingrédients, sauce tomate San Marzano, mozzarella..."
                   />
                 </label>
 
@@ -936,14 +1296,19 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
 
                 {/* Options / Suppléments */}
                 <div className="sm:col-span-2 border-t border-[#27272A] pt-4">
+                  {editorType === "restaurant" ? (
+                    <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+                      ✨ <strong className="text-white">Suppléments du restaurant :</strong> Tous les suppléments configurés au niveau du restaurant (Fromage, Frites, Sauces...) sont <strong>automatiquement appliqués</strong> à ce plat côté client. Vous n&apos;avez besoin d&apos;ajouter des options ci-dessous que pour des extras spécifiques à ce plat.
+                    </div>
+                  ) : null}
                   <div className="mb-2 flex items-center justify-between">
                     <div>
                       <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-                        <span>✨ Options & Suppléments</span>
+                        <span>✨ Options spécifiques à ce plat</span>
                         <span className="text-[11px] font-normal text-[#A1A1AA]">(Facultatif)</span>
                       </h3>
                       <p className="text-xs text-[#A1A1AA]">
-                        Disponibles pour Courses (tailles, formats, réfrigéré) et Restaurant (fromage, sauces, cuisson).
+                        Extras réservés exclusivement à ce produit (ex. Taille spéciale, garniture sur-mesure).
                       </p>
                     </div>
                     <button
@@ -953,7 +1318,7 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                       }
                       className="rounded-lg border border-[#3F3F46] bg-[#27272A] px-3 py-1.5 text-xs font-semibold text-white hover:border-[#FF2638] hover:bg-[#32171A]"
                     >
-                      + Ajouter une option / supplément
+                      + Ajouter un supplément
                     </button>
                   </div>
 
@@ -965,7 +1330,7 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                           className="grid gap-2 rounded-lg border border-[#3F3F46] p-3 sm:grid-cols-[1fr_130px_auto_auto] sm:items-end"
                         >
                           <label>
-                            <span className={labelClass}>Nom</span>
+                            <span className={labelClass}>Nom du supplément</span>
                             <input
                               value={option.name}
                               onChange={(e) =>
@@ -974,11 +1339,11 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                                 )
                               }
                               className={inputClass}
-                              placeholder="Ex. Grand format"
+                              placeholder="Ex. Double Fromage"
                             />
                           </label>
                           <label>
-                            <span className={labelClass}>Supplément (DT)</span>
+                            <span className={labelClass}>Prix additif (DT)</span>
                             <input
                               value={option.price}
                               onChange={(e) =>
@@ -1044,6 +1409,10 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
   );
 }
 
+function optionsError(error: unknown) {
+  return error !== null && error !== undefined;
+}
+
 function ProductThumbnail({ imageUrl, name }: { imageUrl: string | null; name: string }) {
   return imageUrl ? (
     // eslint-disable-next-line @next/next/no-img-element
@@ -1071,6 +1440,7 @@ function createEmptyDraft(): ProductDraft {
     max_quantity: "30",
     is_available: true,
     sort_order: "0",
+    has_variants: false,
   };
 }
 
@@ -1081,6 +1451,23 @@ function optionToDraft(option: ProductOptionRow): ProductOptionDraft {
     price: millimesToInput(option.price_millimes),
     is_available: option.is_available,
   };
+}
+
+function variantToDraft(variant: ProductVariantRow): ProductVariantDraft {
+  return {
+    id: variant.id,
+    name: variant.name,
+    price: millimesToInput(variant.price_millimes),
+    is_available: variant.is_available,
+    max_quantity: String(variant.max_quantity ?? 30),
+    sort_order: variant.sort_order ?? 0,
+  };
+}
+
+function createVariantId(productId: string, name: string) {
+  const nameSlug = slugify(name).slice(0, 24) || "var";
+  const productSlug = productId.slice(0, 48);
+  return `${productSlug}_var_${nameSlug}_${crypto.randomUUID().slice(0, 8)}`;
 }
 
 function slugify(value: string) {
@@ -1130,7 +1517,44 @@ function formatMillimes(value: number) {
   return `${(value / 1000).toFixed(3)} DT`;
 }
 
+function generateProductSlug(name: string, businessId: string, existingProducts: ProductRow[]): string {
+  const base = slugify(name);
+  if (!base) return "";
+  const isTaken = (cand: string) => existingProducts.some((p) => p.id === cand);
+  if (!isTaken(base)) {
+    return base;
+  }
+  // If base is already taken, try prefixing with businessId if restaurant
+  if (businessId && businessId !== REDGO_COURSES_ID) {
+    const bSlug = slugify(businessId).slice(0, 16);
+    const withBiz = `${bSlug}-${base}`.slice(0, 95);
+    if (!isTaken(withBiz)) return withBiz;
+  }
+  // Otherwise append counter: e.g. "pizza-margherita-2"
+  let counter = 2;
+  while (isTaken(`${base}-${counter}`.slice(0, 95))) {
+    counter++;
+  }
+  return `${base}-${counter}`.slice(0, 95);
+}
+
 function errorMessage(error: unknown) {
+  if (error && typeof error === "object") {
+    const postgrestErr = error as { code?: string; message?: string; details?: string };
+    if (
+      postgrestErr.code === "23505" ||
+      postgrestErr.message?.includes("duplicate key") ||
+      postgrestErr.message?.includes("409")
+    ) {
+      return "Conflit d'identifiant (409) : Cet identifiant unique (slug) existe déjà dans le catalogue. Modifiez le champ « Identifiant catalogue (slug unique) » ci-dessus pour enregistrer ce produit.";
+    }
+    if (typeof postgrestErr.message === "string" && postgrestErr.message.trim()) {
+      return postgrestErr.message;
+    }
+    if (typeof postgrestErr.details === "string" && postgrestErr.details.trim()) {
+      return postgrestErr.details;
+    }
+  }
   return error instanceof Error ? error.message : "Impossible de communiquer avec Supabase.";
 }
 

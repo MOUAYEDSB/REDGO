@@ -124,6 +124,14 @@ export function AddToCartSheet() {
                         : currentCartItem.businessName}
                     </Text>
 
+                    {currentCartItem.variantName ? (
+                      <View style={styles.variantBadge}>
+                        <Text style={styles.variantBadgeText}>
+                          Variante : {currentCartItem.variantName}
+                        </Text>
+                      </View>
+                    ) : null}
+
                     {currentCartItem.selectedOptions.length > 0 && (
                       <Text style={styles.optionsList} numberOfLines={1}>
                         {currentCartItem.selectedOptions.map((o) => o.name).join(', ')}
@@ -255,6 +263,21 @@ const styles = StyleSheet.create({
   productName: {
     color: '#FFFFFF',
     fontSize: 15,
+    fontWeight: '800',
+  },
+  variantBadge: {
+    backgroundColor: '#262634',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    alignSelf: 'flex-start',
+    marginTop: 3,
+    borderWidth: 1,
+    borderColor: '#3F3F50',
+  },
+  variantBadgeText: {
+    color: colors.primary,
+    fontSize: 10,
     fontWeight: '800',
   },
   vendorName: {

@@ -26,6 +26,7 @@ type MarketProductItem = {
   priceMillimes: number;
   image: string;
   unit: string;
+  hasVariants?: boolean;
 };
 
 const FALLBACK_PRODUCTS: MarketProductItem[] = [
@@ -342,7 +343,9 @@ export default function MarketScreen() {
                   <Text style={styles.productUnit}>{product.unit}</Text>
 
                   <View style={styles.priceRow}>
-                    <Text style={styles.productPrice}>{formatMillimes(product.priceMillimes)}</Text>
+                    <Text style={styles.productPrice}>
+                      {product.hasVariants ? 'À partir de ' : ''}{formatMillimes(product.priceMillimes)}
+                    </Text>
 
                     {qty > 0 ? (
                       /* Stepper compact quand l'article est déjà au panier */

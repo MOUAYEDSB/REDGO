@@ -11,6 +11,9 @@ export type CatalogProduct = {
   maxQuantity: number;
   isAvailable: boolean;
   sortOrder: number;
+  hasVariants?: boolean;
+  defaultVariantName?: string;
+  defaultVariantPriceMillimes?: number;
 };
 
 export type CatalogBusiness = {
@@ -24,6 +27,18 @@ export type CatalogBusiness = {
   longitude: number | null;
   coverImageUrl: string | null;
   isActive: boolean;
+};
+
+
+
+export type ProductVariant = {
+  id: string;
+  productId: string;
+  name: string;
+  priceMillimes: number;
+  isAvailable: boolean;
+  maxQuantity: number;
+  sortOrder: number;
 };
 
 export type ProductOption = {
@@ -66,6 +81,7 @@ export async function fetchCoursesProducts(): Promise<CatalogProduct[]> {
       maxQuantity: row.max_quantity,
       isAvailable: row.is_available,
       sortOrder: row.sort_order,
+      hasVariants: Boolean((row as any).has_variants),
     }));
   } catch (err) {
     console.warn('fetchCoursesProducts catch :', err);
@@ -149,7 +165,7 @@ export async function fetchRestaurantProducts(businessId: string): Promise<Catal
     const client = requireSupabase();
     const { data, error } = await client
       .from('products')
-      .select('*')
+      .select('*, product_variants(id, name, price_millimes, is_available, sort_order)')
       .eq('business_id', businessId)
       .eq('is_available', true)
       .order('sort_order', { ascending: true })
@@ -160,18 +176,27 @@ export async function fetchRestaurantProducts(businessId: string): Promise<Catal
       return [];
     }
 
-    return (data ?? []).map((row) => ({
-      id: row.id,
-      businessId: row.business_id,
-      name: row.name,
-      description: row.description,
-      category: row.category || 'Plats',
-      priceMillimes: row.price_millimes,
-      imageUrl: row.image_url,
-      maxQuantity: row.max_quantity,
-      isAvailable: row.is_available,
-      sortOrder: row.sort_order,
-    }));
+    return (data ?? []).map((row) => {
+      const variantsList = ((row as any).product_variants ?? []).filter((v: any) => v.is_available !== false);
+      variantsList.sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+      const firstVariant = variantsList[0];
+
+      return {
+        id: row.id,
+        businessId: row.business_id,
+        name: row.name,
+        description: row.description,
+        category: row.category || 'Plats',
+        priceMillimes: firstVariant ? Number(firstVariant.price_millimes) : row.price_millimes,
+        imageUrl: row.image_url,
+        maxQuantity: row.max_quantity,
+        isAvailable: row.is_available,
+        sortOrder: row.sort_order,
+        hasVariants: Boolean((row as any).has_variants || variantsList.length > 0),
+        defaultVariantName: firstVariant?.name,
+        defaultVariantPriceMillimes: firstVariant ? Number(firstVariant.price_millimes) : undefined,
+      };
+    });
   } catch (err) {
     console.warn('fetchRestaurantProducts catch :', err);
     return [];
@@ -203,6 +228,7 @@ export async function fetchProductById(productId: string): Promise<CatalogProduc
       maxQuantity: data.max_quantity,
       isAvailable: data.is_available,
       sortOrder: data.sort_order,
+      hasVariants: Boolean((data as any).has_variants),
     };
   } catch {
     return null;
@@ -210,32 +236,88 @@ export async function fetchProductById(productId: string): Promise<CatalogProduc
 }
 
 /**
- * Récupère les options d'un produit (suppléments).
+ * Récupère les suppléments configurés au niveau d'un restaurant (business_supplements).
  */
-export async function fetchProductOptions(productId: string): Promise<ProductOption[]> {
+export async function fetchBusinessSupplements(businessId: string): Promise<ProductOption[]> {
   try {
     const client = requireSupabase();
     const { data, error } = await client
-      .from('product_options')
+      .from('business_supplements' as any)
       .select('*')
-      .eq('product_id', productId)
+      .eq('business_id', businessId)
       .eq('is_available', true)
-      .order('sort_order', { ascending: true });
+      .order('sort_order', { ascending: true })
+      .order('name', { ascending: true });
 
     if (error) {
-      console.warn('Erreur fetchProductOptions Supabase :', error.message);
+      console.warn('Erreur fetchBusinessSupplements Supabase :', error.message);
       return [];
     }
     if (!data) return [];
 
-    return data.map((opt) => ({
-      id: opt.id,
-      productId: opt.product_id,
-      name: opt.name,
-      priceMillimes: opt.price_millimes,
-      isAvailable: opt.is_available,
-      sortOrder: opt.sort_order ?? 0,
+    return (data as any[]).map((sup) => ({
+      id: sup.id,
+      productId: sup.business_id,
+      name: sup.name,
+      priceMillimes: Number(sup.price_millimes),
+      isAvailable: Boolean(sup.is_available),
+      sortOrder: Number(sup.sort_order) || 0,
     }));
+  } catch (err) {
+    console.warn('fetchBusinessSupplements catch :', err);
+    return [];
+  }
+}
+
+/**
+ * Récupère les options et suppléments d'un produit (suppléments).
+ * Fusionne automatiquement les suppléments du restaurant et les options du produit.
+ */
+export async function fetchProductOptions(productId: string, businessId?: string): Promise<ProductOption[]> {
+  try {
+    const client = requireSupabase();
+    let actualBusinessId = businessId;
+
+    if (!actualBusinessId) {
+      const { data: prodData } = await client
+        .from('products')
+        .select('business_id')
+        .eq('id', productId)
+        .maybeSingle();
+      if (prodData?.business_id) {
+        actualBusinessId = prodData.business_id;
+      }
+    }
+
+    const [businessSupplements, productOptions] = await Promise.all([
+      actualBusinessId ? fetchBusinessSupplements(actualBusinessId) : Promise.resolve([]),
+      client
+        .from('product_options')
+        .select('*')
+        .eq('product_id', productId)
+        .eq('is_available', true)
+        .order('sort_order', { ascending: true })
+        .then(({ data, error }) => {
+          if (error || !data) return [];
+          return (data as any[]).map((opt) => ({
+            id: opt.id,
+            productId: opt.product_id,
+            name: opt.name,
+            priceMillimes: Number(opt.price_millimes),
+            isAvailable: Boolean(opt.is_available),
+            sortOrder: Number(opt.sort_order) || 0,
+          }));
+        }),
+    ]);
+
+    // Combiner les suppléments du restaurant et les options du produit sans doublons d'id
+    const combined = [...businessSupplements];
+    for (const opt of productOptions) {
+      if (!combined.some((c) => c.id === opt.id)) {
+        combined.push(opt);
+      }
+    }
+    return combined;
   } catch (err) {
     console.warn('fetchProductOptions catch :', err);
     return [];
@@ -251,6 +333,8 @@ export type HomeFeaturedProduct = {
   priceMillimes: number;
   shop: string;
   image: string;
+  hasVariants?: boolean;
+  defaultVariantName?: string;
 };
 
 /**
@@ -261,7 +345,7 @@ export async function fetchPopularHomeItems(): Promise<HomeFeaturedProduct[]> {
     const client = requireSupabase();
     const { data, error } = await client
       .from('products')
-      .select('*, businesses!inner(id, name, kind, is_active)')
+      .select('*, businesses!inner(id, name, kind, is_active), product_variants(id, name, price_millimes, is_available, sort_order)')
       .eq('is_available', true)
       .eq('businesses.is_active', true)
       .order('sort_order', { ascending: true })
@@ -275,19 +359,25 @@ export async function fetchPopularHomeItems(): Promise<HomeFeaturedProduct[]> {
 
     return (data as any[]).map((p) => {
       const isCourses = p.businesses?.kind === 'courses';
+      const variantsList = (p.product_variants ?? []).filter((v: any) => v.is_available !== false);
+      variantsList.sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+      const firstVariant = variantsList[0];
+
       return {
         id: p.id,
         type: isCourses ? ('courses' as const) : ('food' as const),
         businessId: p.business_id,
         businessName: isCourses ? 'Courses REDGO' : p.businesses?.name || 'Restaurant',
         name: p.name,
-        priceMillimes: p.price_millimes,
+        priceMillimes: firstVariant ? Number(firstVariant.price_millimes) : p.price_millimes,
         shop: isCourses ? 'Courses REDGO · Prix fixe' : p.businesses?.name || 'Restaurant',
         image:
           p.image_url ||
           (isCourses
             ? 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500'
             : 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500'),
+        hasVariants: Boolean(p.has_variants || variantsList.length > 0),
+        defaultVariantName: firstVariant?.name,
       };
     });
   } catch (err) {
@@ -296,3 +386,38 @@ export async function fetchPopularHomeItems(): Promise<HomeFeaturedProduct[]> {
   }
 }
 
+
+/**
+ * Recupere les variantes actives d'un produit depuis Supabase.
+ */
+export async function fetchProductVariants(productId: string): Promise<ProductVariant[]> {
+  try {
+    const client = requireSupabase();
+    const { data, error } = await client
+      .from('product_variants' as any)
+      .select('*')
+      .eq('product_id', productId)
+      .eq('is_available', true)
+      .order('sort_order', { ascending: true })
+      .order('price_millimes', { ascending: true });
+
+    if (error) {
+      console.warn('Erreur fetchProductVariants Supabase :', error.message);
+      return [];
+    }
+    if (!data) return [];
+
+    return (data as any[]).map((v) => ({
+      id: v.id,
+      productId: v.product_id,
+      name: v.name,
+      priceMillimes: Number(v.price_millimes),
+      isAvailable: Boolean(v.is_available),
+      maxQuantity: Number(v.max_quantity) || 30,
+      sortOrder: Number(v.sort_order) || 0,
+    }));
+  } catch (err) {
+    console.warn('fetchProductVariants catch :', err);
+    return [];
+  }
+}

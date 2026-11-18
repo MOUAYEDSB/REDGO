@@ -19,6 +19,7 @@ import {
   CatalogBusiness,
   CatalogProduct,
   fetchBusinessById,
+  fetchProductVariants,
   fetchRestaurantProducts,
 } from '../../../services/catalog';
 
@@ -28,6 +29,8 @@ type DishItem = {
   description: string;
   priceMillimes: number;
   image: string;
+  hasVariants?: boolean;
+  defaultVariantName?: string;
 };
 
 const FALLBACK_RESTAURANTS: Record<
@@ -130,29 +133,54 @@ const FALLBACK_RESTAURANTS: Record<
   const dishes: DishItem[] = useMemo(() => {
     if (dbDishes.length > 0) {
       return dbDishes.map((p) => ({
-              id: p.id,
-            name: p.name,
-            description: p.description || 'Préparé à la commande avec des produits frais.',
-            priceMillimes: p.priceMillimes,
-            image:
-            p.imageUrl ||
-            'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500',
+        id: p.id,
+        name: p.name,
+        description: p.description || 'Préparé à la commande avec des produits frais.',
+        priceMillimes: p.priceMillimes,
+        image:
+          p.imageUrl ||
+          'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500',
+        hasVariants: Boolean(p.hasVariants),
+        defaultVariantName: p.defaultVariantName,
       }));
     }
             return fallback.dishes;
   }, [dbDishes, fallback.dishes]);
 
-  const handleQuickAdd = (dish: DishItem) => {
-              addProduct({
-                productId: dish.id,
-                productType: 'food',
-                businessId: id || 'restaurant_item',
-                businessName: restaurantName,
-                productName: dish.name,
-                productImage: dish.image,
-                unitPriceMillimes: dish.priceMillimes,
-                quantity: 1,
-              });
+  const handleQuickAdd = async (dish: DishItem) => {
+    if (dish.hasVariants) {
+      try {
+        const vars = await fetchProductVariants(dish.id);
+        if (vars.length > 0) {
+          const firstVariant = vars[0];
+          addProduct({
+            productId: dish.id,
+            variantId: firstVariant.id,
+            variantName: firstVariant.name,
+            productType: 'food',
+            businessId: id || 'restaurant_item',
+            businessName: restaurantName,
+            productName: dish.name,
+            productImage: dish.image,
+            unitPriceMillimes: firstVariant.priceMillimes,
+            quantity: 1,
+          });
+          return;
+        }
+      } catch (err) {
+        console.warn('Erreur handleQuickAdd variants:', err);
+      }
+    }
+    addProduct({
+      productId: dish.id,
+      productType: 'food',
+      businessId: id || 'restaurant_item',
+      businessName: restaurantName,
+      productName: dish.name,
+      productImage: dish.image,
+      unitPriceMillimes: dish.priceMillimes,
+      quantity: 1,
+    });
   };
 
             return (
@@ -235,7 +263,24 @@ const FALLBACK_RESTAURANTS: Record<
                               <Text style={styles.productDesc} numberOfLines={2}>
                                 {dish.description}
                               </Text>
-                              <Text style={styles.productPrice}>{formatMillimes(dish.priceMillimes)}</Text>
+                              <View style={styles.productPriceRow}>
+                                <Text style={styles.productPrice}>
+                                  {formatMillimes(dish.priceMillimes)}
+                                </Text>
+                                {dish.defaultVariantName ? (
+                                  <View style={styles.defaultVariantBadge}>
+                                    <Text style={styles.defaultVariantBadgeText}>
+                                      {dish.defaultVariantName}
+                                    </Text>
+                                  </View>
+                                ) : dish.hasVariants ? (
+                                  <View style={styles.defaultVariantBadge}>
+                                    <Text style={styles.defaultVariantBadgeText}>
+                                      Format standard
+                                    </Text>
+                                  </View>
+                                ) : null}
+                              </View>
                             </View>
 
                             {/* Quick Add Button */}
@@ -383,13 +428,31 @@ const FALLBACK_RESTAURANTS: Record<
             lineHeight: 15,
             marginTop: 3,
   },
-            productPrice: {
-              color: colors.primary,
-            fontSize: 14,
-            fontWeight: '900',
-            marginTop: 6,
+  productPrice: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '900',
   },
-            addButton: {
+  productPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+  },
+  defaultVariantBadge: {
+    backgroundColor: 'rgba(255, 38, 56, 0.12)',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 38, 56, 0.3)',
+  },
+  defaultVariantBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  addButton: {
               width: 40,
             height: 40,
             borderRadius: 20,

@@ -1,6 +1,6 @@
 "use client";
 
-import type { BusinessRow, Database } from "@redgo/shared";
+import type { BusinessRow, BusinessSupplementRow, Database } from "@redgo/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { AdminMapPicker } from "../components/admin-map-picker";
@@ -23,6 +23,13 @@ type BusinessDraft = {
   is_active: boolean;
 };
 
+type SupplementDraft = {
+  id?: string;
+  name: string;
+  price: string;
+  is_available: boolean;
+};
+
 const inputClass =
   "w-full rounded-lg border border-[#3F3F46] bg-[#09090B] px-3 py-2.5 text-sm text-white outline-none transition focus:border-[#FF2638]";
 const labelClass = "mb-1.5 block text-xs font-semibold text-[#D4D4D8]";
@@ -43,16 +50,32 @@ export default function BusinessManager({ client, onBusinessesUpdated }: Busines
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // Suppléments par restaurant (business_supplements)
+  const [supplementsByBusiness, setSupplementsByBusiness] = useState<Record<string, BusinessSupplementRow[]>>({});
+  const [supplementsModalBusiness, setSupplementsModalBusiness] = useState<BusinessRow | null>(null);
+  const [supplementsDrafts, setSupplementsDrafts] = useState<SupplementDraft[]>([]);
+  const [editingSupplementIds, setEditingSupplementIds] = useState<string[]>([]);
+  const [isSavingSupplements, setIsSavingSupplements] = useState(false);
+  const [supplementsError, setSupplementsError] = useState<string | null>(null);
+  const [supplementsNotice, setSupplementsNotice] = useState<string | null>(null);
+
   const loadBusinesses = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const { data, error: fetchErr } = await client
-        .from("businesses")
-        .select("*")
-        .order("name");
-      if (fetchErr) throw fetchErr;
-      setBusinesses(data ?? []);
+      const [bizRes, supsRes] = await Promise.all([
+        client.from("businesses").select("*").order("name"),
+        client.from("business_supplements").select("*").order("sort_order", { ascending: true }).order("name", { ascending: true }),
+      ]);
+      if (bizRes.error) throw bizRes.error;
+      setBusinesses(bizRes.data ?? []);
+
+      const supsMap: Record<string, BusinessSupplementRow[]> = {};
+      for (const sup of supsRes.data ?? []) {
+        if (!supsMap[sup.business_id]) supsMap[sup.business_id] = [];
+        supsMap[sup.business_id].push(sup);
+      }
+      setSupplementsByBusiness(supsMap);
     } catch (cause) {
       setError(errorMessage(cause));
       setBusinesses([]);
@@ -60,6 +83,108 @@ export default function BusinessManager({ client, onBusinessesUpdated }: Busines
       setIsLoading(false);
     }
   }, [client]);
+
+  const openSupplementsModal = (b: BusinessRow) => {
+    setSupplementsModalBusiness(b);
+    setSupplementsError(null);
+    setSupplementsNotice(null);
+    const existing = supplementsByBusiness[b.id] ?? [];
+    setEditingSupplementIds(existing.map((s) => s.id));
+    setSupplementsDrafts(
+      existing.map((s) => ({
+        id: s.id,
+        name: s.name,
+        price: millimesToInput(s.price_millimes),
+        is_available: s.is_available,
+      }))
+    );
+  };
+
+  const closeSupplementsModal = () => {
+    if (isSavingSupplements) return;
+    setSupplementsModalBusiness(null);
+  };
+
+  const addSupplementDraft = () => {
+    setSupplementsDrafts((prev) => [
+      ...prev,
+      { name: "", price: "1.000", is_available: true },
+    ]);
+  };
+
+  const updateSupplementDraft = (index: number, patch: Partial<SupplementDraft>) => {
+    setSupplementsDrafts((prev) =>
+      prev.map((item, idx) => (idx === index ? { ...item, ...patch } : item))
+    );
+  };
+
+  const removeSupplementDraft = (index: number) => {
+    setSupplementsDrafts((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const applySupplementPreset = (presetKey: "fastfood" | "pizzeria" | "drinks") => {
+    const presetItems = SUPPLEMENT_PRESETS[presetKey];
+    setSupplementsDrafts((prev) => {
+      const existingNames = new Set(prev.map((i) => i.name.trim().toLowerCase()));
+      const toAdd = presetItems.filter((i) => !existingNames.has(i.name.trim().toLowerCase()));
+      return [...prev, ...toAdd];
+    });
+  };
+
+  const saveSupplements = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!supplementsModalBusiness) return;
+    setSupplementsError(null);
+    setSupplementsNotice(null);
+
+    const named = supplementsDrafts.filter((s) => s.name.trim());
+    const invalidPrice = named.find((s) => parseMillimes(s.price, true) === null);
+    if (invalidPrice) {
+      setSupplementsError(`Prix invalide pour « ${invalidPrice.name.trim()} » (0 DT min, 3 décimales max).`);
+      return;
+    }
+
+    setIsSavingSupplements(true);
+    try {
+      const bId = supplementsModalBusiness.id;
+      const nextSupplements = named.map((s, index) => ({
+        id: s.id ?? createSupplementId(bId, s.name),
+        business_id: bId,
+        name: s.name.trim(),
+        price_millimes: parseMillimes(s.price, true) ?? 0,
+        is_available: s.is_available,
+        sort_order: index,
+      }));
+
+      if (nextSupplements.length > 0) {
+        const { error: upsertErr } = await client.from("business_supplements").upsert(nextSupplements);
+        if (upsertErr) throw upsertErr;
+      }
+
+      const nextIds = new Set(nextSupplements.map((s) => s.id));
+      const removedIds = editingSupplementIds.filter((id) => !nextIds.has(id));
+      if (removedIds.length > 0) {
+        const { error: delErr } = await client.from("business_supplements").delete().in("id", removedIds);
+        if (delErr) throw delErr;
+      }
+
+      await loadBusinesses();
+      setEditingSupplementIds(nextSupplements.map((s) => s.id));
+      setSupplementsDrafts(
+        nextSupplements.map((s) => ({
+          id: s.id,
+          name: s.name,
+          price: millimesToInput(s.price_millimes),
+          is_available: s.is_available,
+        }))
+      );
+      setSupplementsNotice("Suppléments enregistrés avec succès ! Ils sont maintenant actifs pour tous les plats de ce restaurant.");
+    } catch (cause) {
+      setSupplementsError(errorMessage(cause));
+    } finally {
+      setIsSavingSupplements(false);
+    }
+  };
 
   useEffect(() => {
     void loadBusinesses();
@@ -405,6 +530,15 @@ export default function BusinessManager({ client, onBusinessesUpdated }: Busines
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-2 md:justify-end">
+                    {b.kind === "restaurant" ? (
+                      <button
+                        type="button"
+                        onClick={() => openSupplementsModal(b)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300 hover:bg-amber-500/20"
+                      >
+                        <span>✨ Suppléments ({supplementsByBusiness[b.id]?.length ?? 0})</span>
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => void toggleActive(b)}
@@ -618,6 +752,32 @@ export default function BusinessManager({ client, onBusinessesUpdated }: Busines
                   )}
                 </label>
 
+                {/* Section Suppléments Restaurant */}
+                {draft.kind === "restaurant" && editingBusiness ? (
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 sm:col-span-2">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h4 className="flex items-center gap-2 text-sm font-bold text-white">
+                          <span>✨ Suppléments du restaurant</span>
+                          <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-semibold text-amber-300">
+                            {supplementsByBusiness[editingBusiness.id]?.length ?? 0} configurés
+                          </span>
+                        </h4>
+                        <p className="mt-1 text-xs text-[#A1A1AA]">
+                          Fromages, sauces, frites... configurés une seule fois et affichés automatiquement sur TOUS les plats de ce restaurant.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openSupplementsModal(editingBusiness)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/20 px-3 py-2 text-xs font-bold text-amber-300 hover:bg-amber-500/30"
+                      >
+                        <span>Gérer les suppléments →</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
                 <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-[#3F3F46] bg-[#111113] px-3 py-3 sm:col-span-2">
                   <input
                     type="checkbox"
@@ -655,8 +815,240 @@ export default function BusinessManager({ client, onBusinessesUpdated }: Busines
           </section>
         </div>
       ) : null}
+      {/* Dedicated Supplements Modal */}
+      {supplementsModalBusiness ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 p-0 backdrop-blur-sm sm:items-center sm:p-5"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !isSavingSupplements) closeSupplementsModal();
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            className="flex max-h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border border-[#3F3F46] bg-[#18181B] shadow-2xl sm:rounded-2xl"
+          >
+            <header className="flex items-start justify-between gap-4 border-b border-[#27272A] px-5 py-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">✨</span>
+                  <h2 className="text-lg font-bold text-white">
+                    Suppléments : {supplementsModalBusiness.name}
+                  </h2>
+                </div>
+                <p className="mt-1 text-xs text-[#A1A1AA]">
+                  Ces suppléments s&apos;affichent automatiquement sur <strong className="text-white">tous les plats</strong> de ce restaurant côté client.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeSupplementsModal}
+                disabled={isSavingSupplements}
+                className="rounded-lg border border-[#3F3F46] px-3 py-1.5 text-sm text-[#D4D4D8] hover:bg-[#27272A] disabled:opacity-50"
+              >
+                Fermer
+              </button>
+            </header>
+
+            <form onSubmit={saveSupplements} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="min-h-0 flex-1 overflow-y-auto p-5 space-y-5">
+                {supplementsError ? (
+                  <div role="alert" className="rounded-lg border border-red-900 bg-red-950/50 px-4 py-3 text-sm text-red-200">
+                    {supplementsError}
+                  </div>
+                ) : null}
+                {supplementsNotice ? (
+                  <div role="status" className="rounded-lg border border-emerald-900 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">
+                    {supplementsNotice}
+                  </div>
+                ) : null}
+
+                {/* Modèles Prédéfinis Rapides */}
+                <div className="rounded-xl border border-[#27272A] bg-[#121217] p-4">
+                  <span className="block text-xs font-semibold text-[#A1A1AA] uppercase tracking-wider mb-2">
+                    ⚡ Packs prédéfinis (1-clic pour ajouter)
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => applySupplementPreset("fastfood")}
+                      className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/20"
+                    >
+                      + Pack Fast-Food (Fromage, Frites, Sauces, Thon, Œuf...)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applySupplementPreset("pizzeria")}
+                      className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/20"
+                    >
+                      + Pack Pizzeria (Mozzarella, Champignons, Gorgonzola...)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applySupplementPreset("drinks")}
+                      className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-semibold text-blue-300 hover:bg-blue-500/20"
+                    >
+                      + Pack Boissons / Canettes
+                    </button>
+                  </div>
+                </div>
+
+                {/* Liste des suppléments */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-white">
+                      Liste des suppléments ({supplementsDrafts.length})
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={addSupplementDraft}
+                      className="rounded-lg bg-[#27272A] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#3F3F46]"
+                    >
+                      + Ajouter un supplément
+                    </button>
+                  </div>
+
+                  {supplementsDrafts.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-[#3F3F46] p-8 text-center">
+                      <p className="text-sm text-[#A1A1AA]">
+                        Aucun supplément configuré pour ce restaurant.
+                      </p>
+                      <p className="mt-1 text-xs text-[#71717A]">
+                        Utilisez un des packs prédéfinis ci-dessus ou ajoutez un supplément personnalisé.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={addSupplementDraft}
+                        className="mt-4 rounded-lg bg-[#FF2638] px-4 py-2 text-xs font-bold text-white hover:bg-[#e31f30]"
+                      >
+                        + Ajouter le premier supplément
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-[1fr_120px_100px_40px] gap-2 px-3 text-[11px] font-semibold uppercase text-[#71717A]">
+                        <span>Nom du supplément</span>
+                        <span>Prix (DT)</span>
+                        <span className="text-center">Disponible</span>
+                        <span></span>
+                      </div>
+                      {supplementsDrafts.map((sup, index) => (
+                        <div
+                          key={index}
+                          className="grid grid-cols-[1fr_120px_100px_40px] items-center gap-2 rounded-xl border border-[#27272A] bg-[#121217] p-2 transition hover:border-[#3F3F46]"
+                        >
+                          <input
+                            required
+                            type="text"
+                            placeholder="ex: Double Fromage, Frites..."
+                            value={sup.name}
+                            onChange={(e) => updateSupplementDraft(index, { name: e.target.value })}
+                            className={inputClass}
+                          />
+                          <input
+                            required
+                            type="text"
+                            placeholder="ex: 1.500"
+                            value={sup.price}
+                            onChange={(e) => updateSupplementDraft(index, { price: e.target.value })}
+                            className={`${inputClass} text-right font-mono`}
+                          />
+                          <label className="flex cursor-pointer items-center justify-center gap-1.5 text-xs text-[#D4D4D8]">
+                            <input
+                              type="checkbox"
+                              checked={sup.is_available}
+                              onChange={(e) => updateSupplementDraft(index, { is_available: e.target.checked })}
+                              className="size-4 accent-[#FF2638]"
+                            />
+                            <span>{sup.is_available ? "Oui" : "Non"}</span>
+                          </label>
+                          <button
+                            type="button"
+                            title="Supprimer"
+                            onClick={() => removeSupplementDraft(index)}
+                            className="flex size-9 items-center justify-center rounded-lg text-zinc-400 hover:bg-red-950/50 hover:text-red-400"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <footer className="sticky bottom-0 flex justify-between items-center border-t border-[#27272A] bg-[#18181B] px-5 py-4">
+                <button
+                  type="button"
+                  onClick={addSupplementDraft}
+                  className="rounded-lg border border-[#3F3F46] px-3 py-2 text-xs font-semibold text-white hover:bg-[#27272A]"
+                >
+                  + Ajouter une ligne
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={closeSupplementsModal}
+                    disabled={isSavingSupplements}
+                    className="rounded-lg border border-[#3F3F46] px-4 py-2 text-sm font-semibold hover:bg-[#27272A] disabled:opacity-50"
+                  >
+                    Fermer
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingSupplements}
+                    className="min-w-36 rounded-lg bg-[#FF2638] px-4 py-2 text-sm font-bold text-white hover:bg-[#e31f30] disabled:opacity-50"
+                  >
+                    {isSavingSupplements ? "Enregistrement…" : "Enregistrer les suppléments"}
+                  </button>
+                </div>
+              </footer>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
+}
+
+const SUPPLEMENT_PRESETS = {
+  fastfood: [
+    { name: "Double Fromage", price: "1.500", is_available: true },
+    { name: "Portion de Frites maison", price: "2.500", is_available: true },
+    { name: "Sauce Algérienne", price: "0.800", is_available: true },
+    { name: "Harissa Maison", price: "0.500", is_available: true },
+    { name: "Thon Extra", price: "2.000", is_available: true },
+    { name: "Œuf", price: "0.800", is_available: true },
+  ],
+  pizzeria: [
+    { name: "Extra Mozzarella Di Bufala", price: "3.000", is_available: true },
+    { name: "Champignons Frais", price: "1.500", is_available: true },
+    { name: "Gorgonzola crémeux", price: "2.500", is_available: true },
+    { name: "Sauce Piquante maison", price: "0.500", is_available: true },
+    { name: "Roquette fraîche", price: "1.000", is_available: true },
+  ],
+  drinks: [
+    { name: "Canette Coca-Cola (33cl)", price: "2.500", is_available: true },
+    { name: "Eau minérale (0.5L)", price: "1.000", is_available: true },
+  ],
+};
+
+function parseMillimes(value: string, allowZero: boolean): number | null {
+  const match = /^(\d+)(?:[.,](\d{1,3}))?$/.exec(value.trim());
+  if (!match) return null;
+  const amount = Number(match[1]) * 1000 + Number((match[2] ?? "").padEnd(3, "0"));
+  if (!Number.isSafeInteger(amount) || (!allowZero && amount === 0)) return null;
+  return amount;
+}
+
+function millimesToInput(value: number) {
+  return (value / 1000).toFixed(3);
+}
+
+function createSupplementId(businessId: string, name: string) {
+  const nameSlug = slugify(name).slice(0, 24) || "sup";
+  const businessSlug = businessId.slice(0, 32);
+  return `${businessSlug}_sup_${nameSlug}_${crypto.randomUUID().slice(0, 8)}`;
 }
 
 function createEmptyDraft(): BusinessDraft {

@@ -20,6 +20,7 @@ import { formatMillimes } from '../../services/cart';
 import {
   CatalogBusiness,
   fetchPopularHomeItems,
+  fetchProductVariants,
   fetchRestaurants,
   HomeFeaturedProduct,
 } from '../../services/catalog';
@@ -160,7 +161,26 @@ export default function Home() {
     return FALLBACK_POPULAR_PRODUCTS;
   }, [dbProducts]);
 
-  const handleQuickAdd = (product: HomeFeaturedProduct) => {
+  const handleQuickAdd = async (product: HomeFeaturedProduct) => {
+    try {
+      const vars = await fetchProductVariants(product.id);
+      if (vars.length > 0) {
+        const firstVariant = vars[0];
+        addProduct({
+          productId: product.id,
+          variantId: firstVariant.id,
+          variantName: firstVariant.name,
+          productType: product.type,
+          businessId: product.businessId,
+          businessName: product.businessName,
+          productName: product.name,
+          productImage: product.image,
+          unitPriceMillimes: firstVariant.priceMillimes,
+          quantity: 1,
+        });
+        return;
+      }
+    } catch {}
     addProduct({
       productId: product.id,
       productType: product.type,
@@ -460,9 +480,16 @@ export default function Home() {
                   {product.shop}
                 </Text>
                 <View style={styles.productFooter}>
-                  <Text style={styles.productPrice}>
-                    {formatMillimes(product.priceMillimes)}
-                  </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.productPrice}>
+                      {formatMillimes(product.priceMillimes)}
+                    </Text>
+                    {product.defaultVariantName ? (
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: colors.primary, marginTop: 1 }}>
+                        {product.defaultVariantName}
+                      </Text>
+                    ) : null}
+                  </View>
                   <Pressable
                     style={({ pressed }) => [
                       styles.quickAdd,

@@ -21,6 +21,7 @@ export async function createDeliveryOrder(input: CreateDeliveryOrderInput): Prom
   const { data: orderId, error: createError } = await client.rpc('place_delivery_order', {
     cart_items: input.items.map((item) => ({
       product_id: item.productId,
+      variant_id: item.variantId ?? null,
       quantity: item.quantity,
       option_ids: item.selectedOptions.map((option) => option.id),
       notes: item.notes,
