@@ -191,19 +191,29 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
     try {
       const isCourses = draft.business_id === REDGO_COURSES_ID || editorType === "courses";
       const targetActivity = isCourses ? "courses" : "restaurant";
-      const slug = slugify(trimmed) || `cat-${Date.now()}`;
+      let catId = slugify(trimmed).slice(0, 60);
+      if (!catId) catId = `cat-${Date.now()}`;
 
       // Check if it already exists in allCategories
       let cat = allCategories.find(
-        (c) => c.name.trim().toLowerCase() === trimmed.toLowerCase() || c.slug === slug
+        (c) => c.name.trim().toLowerCase() === trimmed.toLowerCase() || c.slug === catId || c.id === catId
       );
 
       if (!cat) {
+        if (allCategories.some((c) => c.id === catId)) {
+          let counter = 2;
+          while (allCategories.some((c) => c.id === `${catId}-${counter}`.slice(0, 60))) {
+            counter++;
+          }
+          catId = `${catId}-${counter}`.slice(0, 60);
+        }
+
         const { data, error: catError } = await client
           .from("categories")
           .insert({
+            id: catId,
             name: trimmed,
-            slug,
+            slug: catId,
             activity_types: [targetActivity],
             is_active: true,
             sort_order: allCategories.length + 1,
@@ -218,8 +228,10 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
 
       // Link to business if draft.business_id is set
       if (draft.business_id && cat) {
+        const bizCatId = `${draft.business_id}_${cat.id}`.slice(0, 95);
         await client.from("business_categories").upsert(
           {
+            id: bizCatId,
             business_id: draft.business_id,
             category_id: cat.id,
             is_active: true,
@@ -233,7 +245,7 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
           return [
             ...prev,
             {
-              id: `${draft.business_id}_${cat!.id}`,
+              id: bizCatId,
               business_id: draft.business_id,
               category_id: cat!.id,
               is_active: true,
@@ -554,13 +566,22 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
         if (existingCat) {
           finalCategoryId = existingCat.id;
         } else {
-          const newSlug = slugify(cleanCategoryName) || `cat-${Date.now()}`;
+          let newCatId = slugify(cleanCategoryName).slice(0, 60);
+          if (!newCatId) newCatId = `cat-${Date.now()}`;
+          if (allCategories.some((c) => c.id === newCatId)) {
+            let counter = 2;
+            while (allCategories.some((c) => c.id === `${newCatId}-${counter}`.slice(0, 60))) {
+              counter++;
+            }
+            newCatId = `${newCatId}-${counter}`.slice(0, 60);
+          }
           const isCourses = draft.business_id === REDGO_COURSES_ID || editorType === "courses";
           const { data: createdCat, error: createCatErr } = await client
             .from("categories")
             .insert({
+              id: newCatId,
               name: cleanCategoryName,
-              slug: newSlug,
+              slug: newCatId,
               activity_types: isCourses ? ["courses"] : ["restaurant"],
               is_active: true,
               sort_order: allCategories.length + 1,
@@ -577,8 +598,10 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
 
       // Associer automatiquement la catégorie à cet établissement dans business_categories
       if (finalCategoryId && draft.business_id) {
+        const bizCatId = `${draft.business_id}_${finalCategoryId}`.slice(0, 95);
         await client.from("business_categories").upsert(
           {
+            id: bizCatId,
             business_id: draft.business_id,
             category_id: finalCategoryId,
             is_active: true,
