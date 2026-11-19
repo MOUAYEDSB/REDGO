@@ -1094,7 +1094,7 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                       }`}
                     >
                       <span>Plat avec variantes</span>
-                      <span className="text-[10px] font-normal text-white/80">(Tailles, formats...)</span>
+                      <span className="text-[10px] font-normal text-white/80">(Tailles, formats, parfums, goûts...)</span>
                     </button>
                   </div>
                 </div>
@@ -1283,10 +1283,10 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-                          <span>🍕 Variantes du plat (formats, tailles, etc.)</span>
+                          <span>🍕 Variantes de l’article (formats, tailles, parfums, goûts...)</span>
                         </h3>
                         <p className="mt-0.5 text-xs text-[#A1A1AA]">
-                          Le client devra obligatoirement sélectionner une variante. Le prix minimum (« À partir de ») est calculé automatiquement.
+                          Le client devra obligatoirement sélectionner une variante (ex: parfum Fraise/Chocolat ou format Moyen/Large). Le prix minimum est calculé automatiquement.
                         </p>
                       </div>
                       <button
@@ -1354,6 +1354,19 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                           >
                             Sandwich (Mlawi, Makloub, Baguette, Cornet)
                           </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setVariants([
+                                { name: "Fraise", price: "4.000", is_available: true, max_quantity: "30", sort_order: 0 },
+                                { name: "Chocolat", price: "4.000", is_available: true, max_quantity: "30", sort_order: 1 },
+                                { name: "Vanille", price: "4.000", is_available: true, max_quantity: "30", sort_order: 2 },
+                              ])
+                            }
+                            className="rounded-lg border border-[#3F3F46] bg-[#18181B] px-2.5 py-1 text-xs text-[#E4E4E7] hover:border-[#FF2638]"
+                          >
+                            Parfums / Goûts (Fraise, Chocolat, Vanille)
+                          </button>
                         </div>
                       </div>
                     ) : (
@@ -1398,7 +1411,7 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                                     )
                                   }
                                   className={inputClass}
-                                  placeholder="Ex: Moyenne, Large, Makloub..."
+                                  placeholder="Ex: Fraise, Chocolat, ou Moyenne, Large..."
                                 />
                               </label>
 
@@ -1735,6 +1748,7 @@ function slugify(value: string) {
 }
 
 function parseMillimes(value: string, allowZero: boolean): number | null {
+  if (allowZero && (!value || !value.trim())) return 0;
   const match = /^(\d+)(?:[.,](\d{1,3}))?$/.exec(value.trim());
   if (!match) return null;
   const amount = Number(match[1]) * 1000 + Number((match[2] ?? "").padEnd(3, "0"));
