@@ -422,6 +422,14 @@ export async function fetchProductVariants(productId: string): Promise<ProductVa
   }
 }
 
+/**
+ * Restaurant enrichi avec ses catégories assignées (business_categories).
+ */
+export type CatalogBusinessWithCategories = CatalogBusiness & {
+  categoryIds: string[];     // ids des catégories assignées
+  categoryNames: string[];   // noms des catégories assignées
+};
+
 export type CatalogCategory = {
   id: string;
   name: string;
@@ -512,6 +520,62 @@ export async function fetchAllActiveCategories(activityType?: string): Promise<C
     }));
   } catch (err) {
     console.warn('fetchAllActiveCategories catch :', err);
+    return [];
+  }
+}
+
+/**
+ * Récupère les restaurants actifs avec leurs catégories assignées (via business_categories).
+ * Utilisé sur l'écran d'accueil Food pour filtrer par vraie catégorie DB.
+ */
+export async function fetchRestaurantsWithCategories(): Promise<CatalogBusinessWithCategories[]> {
+  try {
+    const client = requireSupabase();
+
+    // Récupère les restaurants actifs + leurs business_categories avec le nom de la catégorie
+    const { data, error } = await client
+      .from('businesses')
+      .select(`
+        *,
+        business_categories(
+          category_id,
+          is_active,
+          categories(id, name, slug, is_active)
+        )
+      `)
+      .eq('kind', 'restaurant')
+      .eq('is_active', true)
+      .order('name', { ascending: true });
+
+    if (error) {
+      console.warn('Erreur fetchRestaurantsWithCategories Supabase :', error.message);
+      return [];
+    }
+
+    return (data ?? []).map((b: any) => {
+      const bizCats: any[] = b.business_categories ?? [];
+      const activeCats = bizCats
+        .filter((bc: any) => bc.is_active !== false && bc.categories?.is_active !== false)
+        .map((bc: any) => bc.categories)
+        .filter(Boolean);
+
+      return {
+        id: b.id,
+        kind: b.kind as 'restaurant',
+        name: b.name,
+        description: b.description,
+        phone: b.phone,
+        address: b.address,
+        latitude: b.latitude,
+        longitude: b.longitude,
+        coverImageUrl: b.cover_image_url,
+        isActive: b.is_active,
+        categoryIds: activeCats.map((c: any) => c.id as string),
+        categoryNames: activeCats.map((c: any) => c.name as string),
+      };
+    });
+  } catch (err) {
+    console.warn('fetchRestaurantsWithCategories catch :', err);
     return [];
   }
 }
