@@ -19,8 +19,10 @@ import { useCart } from '../../../context/CartContext';
 import { formatMillimes } from '../../../services/cart';
 import {
   CatalogBusiness,
+  CatalogCategory,
   CatalogProduct,
   fetchBusinessById,
+  fetchBusinessCategories,
   fetchProductVariants,
   fetchRestaurantProducts,
 } from '../../../services/catalog';
@@ -140,6 +142,7 @@ export default function RestaurantScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const [dbBusiness, setDbBusiness] = useState<CatalogBusiness | null>(null);
   const [dbDishes, setDbDishes] = useState<CatalogProduct[]>([]);
+  const [dbCategories, setDbCategories] = useState<CatalogCategory[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('Tous');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
@@ -151,12 +154,14 @@ export default function RestaurantScreen() {
       setIsLoading(false);
       return;
     }
-    const [biz, dishes] = await Promise.all([
+    const [biz, dishes, bizCats] = await Promise.all([
       fetchBusinessById(id),
       fetchRestaurantProducts(id),
+      fetchBusinessCategories(id),
     ]);
     setDbBusiness(biz);
     setDbDishes(dishes);
+    setDbCategories(bizCats);
     setIsLoading(false);
     setRefreshing(false);
   }, [id]);
@@ -196,19 +201,43 @@ export default function RestaurantScreen() {
     return fallback.dishes;
   }, [dbDishes, fallback.dishes]);
 
-  // Dynamic category list computed from dishes
+  // Dynamic category list computed from DB assigned categories and dishes
   const categories = useMemo(() => {
     const map = new Map<string, number>();
     for (const d of dishes) {
       const cat = d.category?.trim() || 'Plats';
       map.set(cat, (map.get(cat) ?? 0) + 1);
     }
+
+    if (dbCategories.length > 0) {
+      // Use configured categories from DB for this restaurant
+      const list = dbCategories.map((c) => ({
+        id: c.id,
+        name: c.name,
+        count: map.get(c.name) ?? 0,
+        imageUrl: c.imageUrl,
+      }));
+
+      // Add any dish categories that might not be in dbCategories (fallback safeguard)
+      for (const [catName, count] of map.entries()) {
+        if (!list.some((c) => c.name.toLowerCase() === catName.toLowerCase())) {
+          list.push({ id: catName, name: catName, count, imageUrl: null });
+        }
+      }
+
+      return [
+        { id: 'all', name: 'Tous', count: dishes.length, imageUrl: null },
+        ...list,
+      ];
+    }
+
+    // Fallback: derived directly from dishes
     const list = Array.from(map.keys()).sort((a, b) => a.localeCompare(b, 'fr'));
     return [
-      { name: 'Tous', count: dishes.length },
-      ...list.map((c) => ({ name: c, count: map.get(c) ?? 0 })),
+      { id: 'all', name: 'Tous', count: dishes.length, imageUrl: null },
+      ...list.map((c) => ({ id: c, name: c, count: map.get(c) ?? 0, imageUrl: null })),
     ];
-  }, [dishes]);
+  }, [dbCategories, dishes]);
 
   // Filtered dishes according to active category and search input
   const filteredDishes = useMemo(() => {

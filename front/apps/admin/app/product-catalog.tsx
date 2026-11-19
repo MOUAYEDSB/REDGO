@@ -1,6 +1,6 @@
 "use client";
 
-import type { BusinessRow, Database, ProductOptionRow, ProductRow, ProductVariantRow } from "@redgo/shared";
+import type { BusinessCategoryRow, BusinessRow, CategoryRow, Database, ProductOptionRow, ProductRow, ProductVariantRow } from "@redgo/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 
@@ -30,6 +30,7 @@ type ProductDraft = {
   name: string;
   description: string;
   category: string;
+  category_id?: string | null;
   price: string;
   image_url: string;
   max_quantity: string;
@@ -41,30 +42,6 @@ type ProductDraft = {
 const REDGO_COURSES_ID = "courses_hub_msaken";
 const REDGO_COURSES_NAME = "Courses REDGO (Direct)";
 
-const COURSES_SUGGESTED_CATEGORIES = [
-  "Boissons & Eaux",
-  "Épicerie salée",
-  "Épicerie sucrée",
-  "Produits Laitiers",
-  "Pharmacie autorisée",
-  "Hygiène & Beauté",
-  "Boulangerie",
-  "Snacks & Biscuits",
-  "Entretien maison",
-  "Fruits & Légumes",
-];
-
-const RESTAURANT_SUGGESTED_CATEGORIES = [
-  "Pizzas",
-  "Burgers",
-  "Sandwichs & Makloub",
-  "Plats Tunisiens & Grillades",
-  "Pâtes",
-  "Salades",
-  "Boissons & Jus",
-  "Desserts",
-];
-
 const inputClass =
   "w-full rounded-lg border border-[#3F3F46] bg-[#09090B] px-3 py-2.5 text-sm text-white outline-none transition focus:border-[#FF2638]";
 const labelClass = "mb-1.5 block text-xs font-semibold text-[#D4D4D8]";
@@ -73,6 +50,8 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
   const [businesses, setBusinesses] = useState<BusinessRow[]>([]);
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [allOptions, setAllOptions] = useState<Pick<ProductOptionRow, "id" | "product_id" | "name" | "price_millimes" | "is_available">[]>([]);
+  const [allCategories, setAllCategories] = useState<CategoryRow[]>([]);
+  const [allBusinessCategories, setAllBusinessCategories] = useState<BusinessCategoryRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [savingAvailabilityId, setSavingAvailabilityId] = useState<string | null>(null);
@@ -94,6 +73,9 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
   const [variants, setVariants] = useState<ProductVariantDraft[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [isCreatingInlineCat, setIsCreatingInlineCat] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [isSavingInlineCat, setIsSavingInlineCat] = useState(false);
 
   const loadCatalog = useCallback(async () => {
     setIsLoading(true);
@@ -103,11 +85,15 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
       setBusinesses(catalog.businesses);
       setProducts(catalog.products);
       setAllOptions(catalog.allOptions);
+      setAllCategories(catalog.categories);
+      setAllBusinessCategories(catalog.businessCategories);
     } catch (cause) {
       setError(errorMessage(cause));
       setBusinesses([]);
       setProducts([]);
       setAllOptions([]);
+      setAllCategories([]);
+      setAllBusinessCategories([]);
     } finally {
       setIsLoading(false);
     }
@@ -127,7 +113,7 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
     [businesses]
   );
 
-  const allCategories = useMemo(() => {
+  const categoryFilterOptions = useMemo(() => {
     const set = new Set<string>();
     for (const p of products) {
       if (p.category.trim()) set.add(p.category.trim());
@@ -167,6 +153,114 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
     });
   }, [businessFilter, businessesById, categoryFilter, modeFilter, products, search, visibilityFilter]);
 
+  const availableCategoriesForDraft = useMemo(() => {
+    const isCourses = draft.business_id === REDGO_COURSES_ID || editorType === "courses";
+    const targetActivity = isCourses ? "courses" : "restaurant";
+
+    const assignedCatIds = new Set(
+      allBusinessCategories
+        .filter((bc) => bc.business_id === draft.business_id && bc.is_active !== false)
+        .map((bc) => bc.category_id)
+    );
+
+    // Return ALL active categories for this activity (restaurant or courses)
+    // Assigned categories are flagged and sorted first, but all categories are available!
+    return allCategories
+      .filter(
+        (c) =>
+          c.is_active !== false &&
+          (!c.activity_types || c.activity_types.length === 0 || c.activity_types.includes(targetActivity))
+      )
+      .map((c) => ({
+        ...c,
+        isAssignedToBiz: assignedCatIds.has(c.id),
+      }))
+      .sort((a, b) => {
+        if (a.isAssignedToBiz !== b.isAssignedToBiz) {
+          return a.isAssignedToBiz ? -1 : 1;
+        }
+        return (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name, "fr");
+      });
+  }, [allBusinessCategories, allCategories, draft.business_id, editorType]);
+
+  const handleCreateInlineCategory = async () => {
+    const trimmed = newCatName.trim();
+    if (!trimmed) return;
+    setIsSavingInlineCat(true);
+    setError(null);
+    try {
+      const isCourses = draft.business_id === REDGO_COURSES_ID || editorType === "courses";
+      const targetActivity = isCourses ? "courses" : "restaurant";
+      const slug = slugify(trimmed) || `cat-${Date.now()}`;
+
+      // Check if it already exists in allCategories
+      let cat = allCategories.find(
+        (c) => c.name.trim().toLowerCase() === trimmed.toLowerCase() || c.slug === slug
+      );
+
+      if (!cat) {
+        const { data, error: catError } = await client
+          .from("categories")
+          .insert({
+            name: trimmed,
+            slug,
+            activity_types: [targetActivity],
+            is_active: true,
+            sort_order: allCategories.length + 1,
+          })
+          .select()
+          .single();
+
+        if (catError) throw catError;
+        cat = data as CategoryRow;
+        setAllCategories((prev) => [...prev, cat!]);
+      }
+
+      // Link to business if draft.business_id is set
+      if (draft.business_id && cat) {
+        await client.from("business_categories").upsert(
+          {
+            business_id: draft.business_id,
+            category_id: cat.id,
+            is_active: true,
+          },
+          { onConflict: "business_id, category_id" }
+        );
+
+        setAllBusinessCategories((prev) => {
+          const exists = prev.some((bc) => bc.business_id === draft.business_id && bc.category_id === cat!.id);
+          if (exists) return prev;
+          return [
+            ...prev,
+            {
+              id: `${draft.business_id}_${cat!.id}`,
+              business_id: draft.business_id,
+              category_id: cat!.id,
+              is_active: true,
+              sort_order: 0,
+              created_at: new Date().toISOString(),
+            },
+          ];
+        });
+      }
+
+      // Automatically select this category for current dish
+      setDraft((curr) => ({
+        ...curr,
+        category: cat!.name,
+        category_id: cat!.id,
+      }));
+      setNewCatName("");
+      setIsCreatingInlineCat(false);
+      setNotice(`Catégorie « ${cat!.name} » créée et sélectionnée avec succès !`);
+    } catch (err) {
+      console.error("Erreur création catégorie inline:", err);
+      setError(errorMessage(err));
+    } finally {
+      setIsSavingInlineCat(false);
+    }
+  };
+
   /* Open new Courses product (Direct REDGO, sans restaurant) */
   const openNewCoursesProduct = async () => {
     let coursesBiz = businesses.find((b) => b.id === REDGO_COURSES_ID);
@@ -202,6 +296,10 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
       }
     }
 
+    const firstCoursesCat =
+      allCategories.find((c) => c.is_active !== false && c.activity_types?.includes("courses")) ??
+      allCategories.find((c) => c.is_active !== false);
+
     setEditingProduct(null);
     setEditingOptionIds([]);
     setEditingVariantIds([]);
@@ -210,7 +308,8 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
     setDraft({
       ...createEmptyDraft(),
       business_id: REDGO_COURSES_ID,
-      category: "Épicerie salée",
+      category: firstCoursesCat?.name ?? "Épicerie",
+      category_id: firstCoursesCat?.id ?? null,
       has_variants: false,
     });
     setImageFile(null);
@@ -224,6 +323,18 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
   /* Open new Restaurant dish */
   const openNewRestaurantProduct = () => {
     const firstRestaurant = restaurantBusinesses.find((b) => b.is_active) ?? restaurantBusinesses[0];
+    const bizId = firstRestaurant?.id ?? "";
+
+    const assignedCatIds = new Set(
+      allBusinessCategories
+        .filter((bc) => bc.business_id === bizId && bc.is_active !== false)
+        .map((bc) => bc.category_id)
+    );
+    const firstCat =
+      allCategories.find((c) => assignedCatIds.has(c.id) && c.is_active !== false) ??
+      allCategories.find((c) => c.is_active !== false && c.activity_types?.includes("restaurant")) ??
+      allCategories.find((c) => c.is_active !== false);
+
     setEditingProduct(null);
     setEditingOptionIds([]);
     setEditingVariantIds([]);
@@ -231,8 +342,9 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
     setEditorType("restaurant");
     setDraft({
       ...createEmptyDraft(),
-      business_id: firstRestaurant?.id ?? "",
-      category: "Pizzas",
+      business_id: bizId,
+      category: firstCat?.name ?? "Pizzas",
+      category_id: firstCat?.id ?? null,
       has_variants: true,
     });
     setImageFile(null);
@@ -277,6 +389,7 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
       name: product.name,
       description: product.description,
       category: product.category,
+      category_id: (product as any).category_id ?? null,
       price: millimesToInput(product.price_millimes),
       image_url: product.image_url ?? "",
       max_quantity: String(product.max_quantity),
@@ -430,11 +543,56 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
         imageUrl = client.storage.from("redgo-product-images").getPublicUrl(uploadedImagePath).data.publicUrl;
       }
 
+      let finalCategoryId = draft.category_id || null;
+      const cleanCategoryName = draft.category.trim();
+
+      // Résoudre ou créer automatiquement la catégorie si elle n'a pas encore d'ID
+      if (!finalCategoryId && cleanCategoryName) {
+        const existingCat = allCategories.find(
+          (c) => c.name.trim().toLowerCase() === cleanCategoryName.toLowerCase()
+        );
+        if (existingCat) {
+          finalCategoryId = existingCat.id;
+        } else {
+          const newSlug = slugify(cleanCategoryName) || `cat-${Date.now()}`;
+          const isCourses = draft.business_id === REDGO_COURSES_ID || editorType === "courses";
+          const { data: createdCat, error: createCatErr } = await client
+            .from("categories")
+            .insert({
+              name: cleanCategoryName,
+              slug: newSlug,
+              activity_types: isCourses ? ["courses"] : ["restaurant"],
+              is_active: true,
+              sort_order: allCategories.length + 1,
+            })
+            .select()
+            .single();
+
+          if (!createCatErr && createdCat) {
+            finalCategoryId = (createdCat as CategoryRow).id;
+            setAllCategories((prev) => [...prev, createdCat as CategoryRow]);
+          }
+        }
+      }
+
+      // Associer automatiquement la catégorie à cet établissement dans business_categories
+      if (finalCategoryId && draft.business_id) {
+        await client.from("business_categories").upsert(
+          {
+            business_id: draft.business_id,
+            category_id: finalCategoryId,
+            is_active: true,
+          },
+          { onConflict: "business_id, category_id" }
+        );
+      }
+
       const productValues = {
         business_id: draft.business_id,
         name: draft.name.trim(),
         description: draft.description.trim(),
         category: draft.category.trim(),
+        category_id: finalCategoryId,
         price_millimes: finalPriceMillimes,
         image_url: imageUrl,
         max_quantity: maxQuantity,
@@ -698,7 +856,7 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
               className={inputClass}
             >
               <option value="all">Toutes catégories</option>
-              {allCategories.map((cat) => (
+              {categoryFilterOptions.map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
                 </option>
@@ -873,9 +1031,16 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
                       value={draft.business_id}
                       onChange={(event) => {
                         const newBusinessId = event.target.value;
+                        const assignedForNewBiz = allBusinessCategories
+                          .filter((bc) => bc.business_id === newBusinessId && bc.is_active !== false)
+                          .map((bc) => bc.category_id);
+                        const firstCat = allCategories.find((c) => assignedForNewBiz.includes(c.id) && c.is_active !== false);
+
                         setDraft((current) => ({
                           ...current,
                           business_id: newBusinessId,
+                          category: firstCat ? firstCat.name : current.category,
+                          category_id: firstCat ? firstCat.id : current.category_id,
                           id: idWasEdited || editingProduct ? current.id : generateProductSlug(current.name, newBusinessId, products),
                         }));
                       }}
@@ -978,33 +1143,122 @@ export default function ProductCatalog({ client }: ProductCatalogProps) {
 
                 {/* Catégorie */}
                 <div className="sm:col-span-2 space-y-2">
-                  <span className={labelClass}>Catégorie *</span>
-                  <input
-                    required
-                    maxLength={120}
-                    value={draft.category}
-                    onChange={(event) => setDraft((current) => ({ ...current, category: event.target.value }))}
-                    className={inputClass}
-                    placeholder="Choisir ci-dessous ou taper une nouvelle catégorie"
-                  />
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    <span className="text-[10px] text-[#71717A] self-center pr-1">Suggestions :</span>
-                    {(editorType === "courses" ? COURSES_SUGGESTED_CATEGORIES : RESTAURANT_SUGGESTED_CATEGORIES).map(
-                      (cat) => (
+                  <div className="flex items-center justify-between">
+                    <span className={labelClass}>Catégorie *</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCreatingInlineCat(!isCreatingInlineCat);
+                        setNewCatName("");
+                      }}
+                      className="flex items-center gap-1 rounded-lg border border-[#FF2638]/50 bg-[#FF2638]/10 px-2.5 py-1 text-xs font-bold text-[#FF6572] hover:bg-[#FF2638]/20 transition"
+                    >
+                      <span>{isCreatingInlineCat ? "✕ Fermer" : "➕ Nouvelle catégorie"}</span>
+                    </button>
+                  </div>
+
+                  {/* Formulaire de création rapide de catégorie */}
+                  {isCreatingInlineCat && (
+                    <div className="rounded-xl border border-[#FF2638]/50 bg-[#161214] p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <span>✨ Ajouter une nouvelle catégorie au catalogue</span>
+                        </span>
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={newCatName}
+                          onChange={(e) => setNewCatName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void handleCreateInlineCategory();
+                            }
+                          }}
+                          placeholder="Ex: Tacos, Crêpes, Chawarma, Glaces…"
+                          className="flex-1 rounded-lg border border-[#3F3F46] bg-[#09090B] px-3 py-2 text-xs text-white outline-none focus:border-[#FF2638]"
+                        />
                         <button
-                          key={cat}
                           type="button"
-                          onClick={() => setDraft((curr) => ({ ...curr, category: cat }))}
-                          className={`rounded-md px-2 py-1 text-[11px] font-semibold transition ${
-                            draft.category === cat
-                              ? "bg-[#FF2638] text-white"
-                              : "bg-[#27272A] text-[#A1A1AA] hover:text-white"
-                          }`}
+                          disabled={isSavingInlineCat || !newCatName.trim()}
+                          onClick={() => void handleCreateInlineCategory()}
+                          className="rounded-lg bg-[#FF2638] px-4 py-2 text-xs font-bold text-white hover:bg-[#E01E30] disabled:opacity-50 transition"
                         >
-                          {cat}
+                          {isSavingInlineCat ? "Création…" : "Créer & Sélectionner"}
                         </button>
-                      )
-                    )}
+                      </div>
+                      <p className="text-[10px] text-zinc-400">
+                        Cette catégorie sera enregistrée dans la gestion centrale et ajoutée immédiatement au restaurant.
+                      </p>
+                    </div>
+                  )}
+
+                  {availableCategoriesForDraft.length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-[#A1A1AA]">
+                          Sélectionnez une catégorie ci-dessous ({availableCategoriesForDraft.length} disponibles) :
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto p-2 rounded-xl border border-[#3F3F46] bg-[#09090B]">
+                        {availableCategoriesForDraft.map((cat) => {
+                          const isSelected =
+                            draft.category_id === cat.id ||
+                            draft.category.trim().toLowerCase() === cat.name.trim().toLowerCase();
+                          return (
+                            <button
+                              key={cat.id}
+                              type="button"
+                              onClick={() =>
+                                setDraft((curr) => ({
+                                  ...curr,
+                                  category: cat.name,
+                                  category_id: cat.id,
+                                }))
+                              }
+                              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
+                                isSelected
+                                  ? "bg-[#FF2638] text-white shadow-sm ring-1 ring-white/30"
+                                  : cat.isAssignedToBiz
+                                    ? "bg-[#1C1C22] text-white hover:bg-[#27272A] border border-[#3F3F46]"
+                                    : "bg-[#141418] text-[#8F9196] hover:bg-[#222228] hover:text-white border border-[#27272E]"
+                              }`}
+                            >
+                              <span>{isSelected ? "✓" : "🏷️"}</span>
+                              <span>{cat.name}</span>
+                              {cat.isAssignedToBiz && !isSelected && (
+                                <span className="text-[9px] text-emerald-400 font-bold bg-emerald-950/60 px-1 py-0.5 rounded">
+                                  Menu
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="pt-1">
+                    <label className="block text-[11px] text-[#A1A1AA] mb-1">
+                      Catégorie sélectionnée :
+                    </label>
+                    <input
+                      required
+                      maxLength={120}
+                      value={draft.category}
+                      onChange={(event) => {
+                        const val = event.target.value;
+                        const match = allCategories.find((c) => c.name.trim().toLowerCase() === val.trim().toLowerCase());
+                        setDraft((current) => ({
+                          ...current,
+                          category: val,
+                          category_id: match ? match.id : null,
+                        }));
+                      }}
+                      className={inputClass}
+                      placeholder="Ex: Pizzas, Burgers, Boissons..."
+                    />
                   </div>
                 </div>
 
@@ -1559,10 +1813,12 @@ function errorMessage(error: unknown) {
 }
 
 async function fetchCatalog(client: SupabaseClient<Database>) {
-  const [businessResult, productResult, optionsResult] = await Promise.all([
+  const [businessResult, productResult, optionsResult, categoriesResult, bizCategoriesResult] = await Promise.all([
     client.from("businesses").select("*").order("name"),
     client.from("products").select("*").order("sort_order").order("name"),
     client.from("product_options").select("id, product_id, name, price_millimes, is_available"),
+    client.from("categories").select("*").order("sort_order").order("name"),
+    client.from("business_categories").select("*").order("sort_order"),
   ]);
   if (businessResult.error) throw businessResult.error;
   if (productResult.error) throw productResult.error;
@@ -1570,6 +1826,8 @@ async function fetchCatalog(client: SupabaseClient<Database>) {
     businesses: businessResult.data ?? [],
     products: productResult.data ?? [],
     allOptions: optionsResult.data ?? [],
+    categories: categoriesResult.data ?? [],
+    businessCategories: bizCategoriesResult.data ?? [],
   };
 }
 

@@ -53,6 +53,7 @@ export type ProductRow = {
   name: string;
   description: string;
   category: string;
+  category_id?: string | null;
   price_millimes: number;
   image_url: string | null;
   max_quantity: number;
@@ -61,6 +62,31 @@ export type ProductRow = {
   sort_order: number;
   created_at: string;
   updated_at: string;
+};
+
+export type CategoryActivityType = 'restaurant' | 'courses' | 'bakery' | 'pharmacy';
+
+export type CategoryRow = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  image_url: string | null;
+  parent_id: string | null;
+  activity_types: CategoryActivityType[];
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BusinessCategoryRow = {
+  id: string;
+  business_id: string;
+  category_id: string;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
 };
 
 export type ProductVariantRow = {
@@ -374,6 +400,18 @@ export type AdminCashPaymentRow = {
 export type Database = {
   public: {
     Tables: {
+      categories: {
+        Row: CategoryRow;
+        Insert: Pick<CategoryRow, 'name' | 'slug'> & Partial<Omit<CategoryRow, 'name' | 'slug' | 'created_at' | 'updated_at'>>;
+        Update: Partial<Omit<CategoryRow, 'id' | 'created_at'>>;
+        Relationships: [];
+      };
+      business_categories: {
+        Row: BusinessCategoryRow;
+        Insert: Pick<BusinessCategoryRow, 'business_id' | 'category_id'> & Partial<Omit<BusinessCategoryRow, 'business_id' | 'category_id' | 'created_at'>>;
+        Update: Partial<Omit<BusinessCategoryRow, 'id' | 'business_id' | 'category_id' | 'created_at'>>;
+        Relationships: [];
+      };
       businesses: {
         Row: BusinessRow;
         Insert: Pick<BusinessRow, 'id' | 'kind' | 'name'> & Partial<Omit<BusinessRow, 'id' | 'kind' | 'name'>>;

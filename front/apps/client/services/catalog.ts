@@ -421,3 +421,98 @@ export async function fetchProductVariants(productId: string): Promise<ProductVa
     return [];
   }
 }
+
+export type CatalogCategory = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  imageUrl: string | null;
+  parentId: string | null;
+  activityTypes: string[];
+  sortOrder: number;
+  isActive: boolean;
+};
+
+/**
+ * Récupère les catégories assignées au menu d'un restaurant spécifique.
+ */
+export async function fetchBusinessCategories(businessId: string): Promise<CatalogCategory[]> {
+  try {
+    const client = requireSupabase();
+    const { data, error } = await client
+      .from('business_categories')
+      .select('category_id, sort_order, is_active, categories(*)')
+      .eq('business_id', businessId)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+
+    if (error) {
+      console.warn('Erreur fetchBusinessCategories Supabase :', error.message);
+      return [];
+    }
+
+    if (!data) return [];
+
+    const categories: CatalogCategory[] = [];
+    for (const row of data) {
+      const cat = (row as any).categories;
+      if (cat && cat.is_active !== false) {
+        categories.push({
+          id: cat.id,
+          name: cat.name,
+          slug: cat.slug,
+          description: cat.description,
+          imageUrl: cat.image_url,
+          parentId: cat.parent_id,
+          activityTypes: cat.activity_types || [],
+          sortOrder: row.sort_order ?? cat.sort_order ?? 0,
+          isActive: true,
+        });
+      }
+    }
+
+    return categories.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'fr'));
+  } catch (err) {
+    console.warn('fetchBusinessCategories catch :', err);
+    return [];
+  }
+}
+
+/**
+ * Récupère toutes les catégories actives globales (facultativement filtrées par type d'activité).
+ */
+export async function fetchAllActiveCategories(activityType?: string): Promise<CatalogCategory[]> {
+  try {
+    const client = requireSupabase();
+    let query = client
+      .from('categories')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true })
+      .order('name', { ascending: true });
+
+    if (activityType) {
+      query = query.contains('activity_types', [activityType]);
+    }
+
+    const { data, error } = await query;
+    if (error || !data) return [];
+
+    return data.map((cat: any) => ({
+      id: cat.id,
+      name: cat.name,
+      slug: cat.slug,
+      description: cat.description,
+      imageUrl: cat.image_url,
+      parentId: cat.parent_id,
+      activityTypes: cat.activity_types || [],
+      sortOrder: cat.sort_order ?? 0,
+      isActive: Boolean(cat.is_active),
+    }));
+  } catch (err) {
+    console.warn('fetchAllActiveCategories catch :', err);
+    return [];
+  }
+}
+

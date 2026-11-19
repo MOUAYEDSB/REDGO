@@ -14,7 +14,12 @@ import {
 import { CartBadge } from '../../components/CartBadge';
 import { Screen } from '../../components/Screen';
 import { colors } from '../../constants/theme';
-import { CatalogBusiness, fetchRestaurants } from '../../services/catalog';
+import {
+  CatalogBusiness,
+  CatalogCategory,
+  fetchAllActiveCategories,
+  fetchRestaurants,
+} from '../../services/catalog';
 
 type DisplayRestaurant = {
   id: string;
@@ -52,12 +57,17 @@ const FALLBACK_RESTAURANTS: DisplayRestaurant[] = [
 export default function FoodHome() {
   const [selectedCat, setSelectedCat] = useState('Tous');
   const [dbRestaurants, setDbRestaurants] = useState<CatalogBusiness[]>([]);
+  const [dbCategories, setDbCategories] = useState<CatalogCategory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
-    const list = await fetchRestaurants();
+    const [list, cats] = await Promise.all([
+      fetchRestaurants(),
+      fetchAllActiveCategories('restaurant'),
+    ]);
     setDbRestaurants(list);
+    setDbCategories(cats);
     setIsLoading(false);
     setRefreshing(false);
   }, []);
@@ -87,6 +97,13 @@ export default function FoodHome() {
     }
     return FALLBACK_RESTAURANTS;
   }, [dbRestaurants]);
+
+  const categories = useMemo(() => {
+    if (dbCategories.length > 0) {
+      return ['Tous', ...dbCategories.map((c) => c.name)];
+    }
+    return CATEGORIES;
+  }, [dbCategories]);
 
   const filteredRestaurants = useMemo(() => {
     if (selectedCat === 'Tous') return restaurants;
@@ -131,7 +148,7 @@ export default function FoodHome() {
 
         {/* Categories Filter */}
         <View style={styles.categoryRow}>
-          {CATEGORIES.map((category) => {
+          {categories.map((category) => {
             const isActive = selectedCat === category;
             return (
               <Pressable

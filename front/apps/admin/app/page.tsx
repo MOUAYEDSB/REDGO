@@ -6,12 +6,13 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import ProductCatalog from "./product-catalog";
 import BusinessManager from "./business-manager";
 import PromoManager from "./promo-manager";
+import CategoryManager from "./category-manager";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-type AdminSection = "overview" | "businesses" | "catalog" | "promotions" | "drivers" | "payments";
+type AdminSection = "overview" | "categories" | "businesses" | "catalog" | "promotions" | "drivers" | "payments";
 
 type DriverApplicationAdminRow = {
   user_id: string;
@@ -37,6 +38,7 @@ type DriverStatusFilter = "all" | DriverApplicationStatus;
 
 const sectionDetails: Record<AdminSection, { label: string; description: string; icon: string }> = {
   overview: { label: "Vue générale", description: "Aperçu global de l'activité REDGO.", icon: "📊" },
+  categories: { label: "Gestion des catégories", description: "Arborescence centrale des catégories, sous-catégories et activités.", icon: "🏷️" },
   businesses: { label: "Restaurants & Commerces", description: "Gestion des restaurants partenaires et commerces.", icon: "🍽️" },
   catalog: { label: "Produits & Menus", description: "Gestion des plats, menus, prix et suppléments.", icon: "📦" },
   promotions: { label: "Annonces & Promos", description: "Gestion des bannières promotionnelles et annonces (Arabe/Français).", icon: "📢" },
@@ -405,6 +407,7 @@ export default function Home() {
 
   const navigationItems: { id: AdminSection; label: string; icon: string; count: number | null }[] = [
     { id: "overview", label: "Vue générale", icon: "📊", count: null },
+    { id: "categories", label: "Gestion des catégories", icon: "🏷️", count: null },
     { id: "businesses", label: "Restaurants", icon: "🍽️", count: null },
     { id: "catalog", label: "Produits & Menus", icon: "📦", count: null },
     { id: "promotions", label: "Annonces & Promos", icon: "📢", count: null },
@@ -800,6 +803,10 @@ export default function Home() {
                 </div>
               )}
             </section>
+
+            /* ========== CATEGORIES ========== */
+          ) : activeSection === "categories" ? (
+            <CategoryManager client={supabase} />
 
             /* ========== BUSINESSES ========== */
           ) : activeSection === "businesses" ? (

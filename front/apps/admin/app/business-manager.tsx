@@ -1,6 +1,6 @@
 "use client";
 
-import type { BusinessRow, BusinessSupplementRow, Database } from "@redgo/shared";
+import type { BusinessRow, BusinessSupplementRow, CategoryRow, Database } from "@redgo/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { AdminMapPicker } from "../components/admin-map-picker";
@@ -59,13 +59,27 @@ export default function BusinessManager({ client, onBusinessesUpdated }: Busines
   const [supplementsError, setSupplementsError] = useState<string | null>(null);
   const [supplementsNotice, setSupplementsNotice] = useState<string | null>(null);
 
+  // Catégories assignées aux restaurants (business_categories)
+  const [allCategories, setAllCategories] = useState<CategoryRow[]>([]);
+  const [categoriesByBusiness, setCategoriesByBusiness] = useState<Record<string, string[]>>({});
+  const [productsCountByBizCat, setProductsCountByBizCat] = useState<Record<string, Record<string, number>>>({});
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [categoriesModalBusiness, setCategoriesModalBusiness] = useState<BusinessRow | null>(null);
+  const [categoriesModalSelection, setCategoriesModalSelection] = useState<string[]>([]);
+  const [isSavingCategories, setIsSavingCategories] = useState(false);
+  const [categoriesNotice, setCategoriesNotice] = useState<string | null>(null);
+  const [categoriesError, setCategoriesError] = useState<string | null>(null);
+
   const loadBusinesses = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [bizRes, supsRes] = await Promise.all([
+      const [bizRes, supsRes, catsRes, bizCatsRes, prodsRes] = await Promise.all([
         client.from("businesses").select("*").order("name"),
         client.from("business_supplements").select("*").order("sort_order", { ascending: true }).order("name", { ascending: true }),
+        client.from("categories").select("*").order("sort_order", { ascending: true }).order("name", { ascending: true }),
+        client.from("business_categories").select("*").order("sort_order", { ascending: true }),
+        client.from("products").select("id, business_id, category_id, category"),
       ]);
       if (bizRes.error) throw bizRes.error;
       setBusinesses(bizRes.data ?? []);
@@ -76,6 +90,25 @@ export default function BusinessManager({ client, onBusinessesUpdated }: Busines
         supsMap[sup.business_id].push(sup);
       }
       setSupplementsByBusiness(supsMap);
+
+      setAllCategories(catsRes.data ?? []);
+
+      const bizCatsMap: Record<string, string[]> = {};
+      for (const bc of bizCatsRes.data ?? []) {
+        if (bc.is_active) {
+          if (!bizCatsMap[bc.business_id]) bizCatsMap[bc.business_id] = [];
+          bizCatsMap[bc.business_id].push(bc.category_id);
+        }
+      }
+      setCategoriesByBusiness(bizCatsMap);
+
+      const prodCounts: Record<string, Record<string, number>> = {};
+      for (const p of prodsRes.data ?? []) {
+        if (!prodCounts[p.business_id]) prodCounts[p.business_id] = {};
+        const catKey = p.category_id || p.category;
+        prodCounts[p.business_id][catKey] = (prodCounts[p.business_id][catKey] ?? 0) + 1;
+      }
+      setProductsCountByBizCat(prodCounts);
     } catch (cause) {
       setError(errorMessage(cause));
       setBusinesses([]);
@@ -209,6 +242,7 @@ export default function BusinessManager({ client, onBusinessesUpdated }: Busines
     setEditingBusiness(null);
     setIdWasEdited(false);
     setDraft({ ...createEmptyDraft(), kind: defaultKind });
+    setSelectedCategoryIds([]);
     setCoverFile(null);
     setError(null);
     setNotice(null);
@@ -220,6 +254,7 @@ export default function BusinessManager({ client, onBusinessesUpdated }: Busines
     setNotice(null);
     setEditingBusiness(b);
     setIdWasEdited(true);
+    setSelectedCategoryIds(categoriesByBusiness[b.id] ?? []);
     setCoverFile(null);
     setDraft({
       id: b.id,
@@ -234,6 +269,55 @@ export default function BusinessManager({ client, onBusinessesUpdated }: Busines
       is_active: b.is_active,
     });
     setIsEditorOpen(true);
+  };
+
+  const openCategoriesModal = (b: BusinessRow) => {
+    setCategoriesModalBusiness(b);
+    setCategoriesModalSelection(categoriesByBusiness[b.id] ?? []);
+    setCategoriesNotice(null);
+    setCategoriesError(null);
+  };
+
+  const handleToggleCategory = (catId: string, currentSelection: string[], setter: (val: string[]) => void) => {
+    const isSelected = currentSelection.includes(catId);
+    if (isSelected) {
+      const subcatIds = allCategories.filter((c) => c.parent_id === catId).map((c) => c.id);
+      setter(currentSelection.filter((id) => id !== catId && !subcatIds.includes(id)));
+    } else {
+      const cat = allCategories.find((c) => c.id === catId);
+      const toAdd = [catId];
+      if (cat?.parent_id && !currentSelection.includes(cat.parent_id)) {
+        toAdd.push(cat.parent_id);
+      }
+      setter([...new Set([...currentSelection, ...toAdd])]);
+    }
+  };
+
+  const syncBusinessCategories = async (businessId: string, selectedIds: string[]) => {
+    const existing = categoriesByBusiness[businessId] ?? [];
+    const toAdd = selectedIds.filter((id) => !existing.includes(id));
+    const toRemove = existing.filter((id) => !selectedIds.includes(id));
+
+    if (toAdd.length > 0) {
+      const inserts = toAdd.map((catId, idx) => ({
+        id: `${businessId}_${catId}`,
+        business_id: businessId,
+        category_id: catId,
+        is_active: true,
+        sort_order: idx * 10,
+      }));
+      const { error: insErr } = await client.from("business_categories").upsert(inserts);
+      if (insErr) throw insErr;
+    }
+
+    if (toRemove.length > 0) {
+      const { error: delErr } = await client
+        .from("business_categories")
+        .delete()
+        .eq("business_id", businessId)
+        .in("category_id", toRemove);
+      if (delErr) throw delErr;
+    }
   };
 
   const toggleActive = async (b: BusinessRow) => {
@@ -338,6 +422,9 @@ export default function BusinessManager({ client, onBusinessesUpdated }: Busines
           .insert({ id: businessId, ...payload });
         if (insErr) throw insErr;
       }
+
+      // Synchroniser les catégories de menu sélectionnées pour ce restaurant
+      await syncBusinessCategories(businessId, selectedCategoryIds);
 
       await loadBusinesses();
       onBusinessesUpdated?.();
@@ -530,6 +617,13 @@ export default function BusinessManager({ client, onBusinessesUpdated }: Busines
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-2 md:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => openCategoriesModal(b)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#38BDF8]/40 bg-[#38BDF8]/10 px-3 py-2 text-xs font-semibold text-[#38BDF8] hover:bg-[#38BDF8]/20"
+                    >
+                      <span>🏷️ Catégories ({categoriesByBusiness[b.id]?.length ?? 0})</span>
+                    </button>
                     {b.kind === "restaurant" ? (
                       <button
                         type="button"
@@ -778,6 +872,88 @@ export default function BusinessManager({ client, onBusinessesUpdated }: Busines
                   </div>
                 ) : null}
 
+                {/* Section Catégories du Menu */}
+                <div className="rounded-xl border border-[#38BDF8]/30 bg-[#38BDF8]/5 p-4 sm:col-span-2 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h4 className="flex items-center gap-2 text-sm font-bold text-white">
+                        <span>🏷️ Catégories du menu</span>
+                        <span className="rounded-full bg-[#38BDF8]/20 px-2 py-0.5 text-xs font-semibold text-[#38BDF8]">
+                          {selectedCategoryIds.length} sélectionnée{selectedCategoryIds.length > 1 ? "s" : ""}
+                        </span>
+                      </h4>
+                      <p className="mt-0.5 text-xs text-[#A1A1AA]">
+                        Cochez uniquement les catégories proposées dans le menu de cet établissement.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Arborescence des catégories avec cases à cocher */}
+                  <div className="max-h-60 overflow-y-auto space-y-2 rounded-lg border border-[#27272A] bg-[#0E0E12] p-3">
+                    {allCategories
+                      .filter((c) => !c.parent_id && (c.activity_types.includes(draft.kind) || c.activity_types.includes("restaurant")))
+                      .map((root) => {
+                        const isRootSelected = selectedCategoryIds.includes(root.id);
+                        const subcats = allCategories.filter((c) => c.parent_id === root.id);
+                        const rootProdCount = editingBusiness ? productsCountByBizCat[editingBusiness.id]?.[root.id] ?? 0 : 0;
+
+                        return (
+                          <div key={root.id} className="space-y-1.5 rounded-lg border border-[#27272A] bg-[#14141A] p-2.5">
+                            <label className="flex items-center justify-between cursor-pointer">
+                              <div className="flex items-center gap-2.5">
+                                <input
+                                  type="checkbox"
+                                  checked={isRootSelected}
+                                  onChange={() => handleToggleCategory(root.id, selectedCategoryIds, setSelectedCategoryIds)}
+                                  className="h-4 w-4 rounded accent-[#FF2638]"
+                                />
+                                <span className={`text-xs font-bold ${isRootSelected ? "text-white" : "text-[#A1A1AA]"}`}>
+                                  {root.name}
+                                </span>
+                              </div>
+                              {rootProdCount > 0 && (
+                                <span className="text-[10px] text-amber-300 bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-500/30">
+                                  {rootProdCount} plat(s) associés
+                                </span>
+                              )}
+                            </label>
+
+                            {/* Subcategories */}
+                            {subcats.length > 0 && (
+                              <div className="pl-6 pt-1 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                {subcats.map((sub) => {
+                                  const isSubSelected = selectedCategoryIds.includes(sub.id);
+                                  const subProdCount = editingBusiness ? productsCountByBizCat[editingBusiness.id]?.[sub.id] ?? 0 : 0;
+
+                                  return (
+                                    <label key={sub.id} className="flex items-center justify-between cursor-pointer rounded bg-[#1C1C24] p-1.5 px-2 text-[11px]">
+                                      <div className="flex items-center gap-2">
+                                        <input
+                                          type="checkbox"
+                                          checked={isSubSelected}
+                                          onChange={() => handleToggleCategory(sub.id, selectedCategoryIds, setSelectedCategoryIds)}
+                                          className="h-3.5 w-3.5 rounded accent-[#FF2638]"
+                                        />
+                                        <span className={isSubSelected ? "text-white font-semibold" : "text-[#71717A]"}>
+                                          {sub.name}
+                                        </span>
+                                      </div>
+                                      {subProdCount > 0 && (
+                                        <span className="text-[9px] text-amber-400">
+                                          {subProdCount}
+                                        </span>
+                                      )}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+
                 <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-[#3F3F46] bg-[#111113] px-3 py-3 sm:col-span-2">
                   <input
                     type="checkbox"
@@ -815,6 +991,7 @@ export default function BusinessManager({ client, onBusinessesUpdated }: Busines
           </section>
         </div>
       ) : null}
+
       {/* Dedicated Supplements Modal */}
       {supplementsModalBusiness ? (
         <div
@@ -1005,6 +1182,150 @@ export default function BusinessManager({ client, onBusinessesUpdated }: Busines
               </footer>
             </form>
           </section>
+        </div>
+      ) : null}
+
+      {/* QUICK CATEGORIES MODAL */}
+      {categoriesModalBusiness ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !isSavingCategories) setCategoriesModalBusiness(null);
+          }}
+        >
+          <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-[#38BDF8]/30 bg-[#121217] p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[#27272A] pb-3">
+              <div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  <span>🏷️ Catégories du Menu :</span>
+                  <span className="text-[#38BDF8]">{categoriesModalBusiness.name}</span>
+                </h3>
+                <p className="text-xs text-[#A1A1AA]">
+                  Sélectionnez les catégories qui composent la carte de ce restaurant.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCategoriesModalBusiness(null)}
+                className="rounded-lg p-1 text-[#71717A] hover:bg-[#27272A] hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            {categoriesNotice && (
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/40 p-3 text-xs text-emerald-300">
+                ✅ {categoriesNotice}
+              </div>
+            )}
+            {categoriesError && (
+              <div className="rounded-xl border border-rose-500/30 bg-rose-950/40 p-3 text-xs text-rose-300">
+                ⚠️ {categoriesError}
+              </div>
+            )}
+
+            <div className="max-h-96 overflow-y-auto space-y-2 rounded-xl border border-[#27272A] bg-[#0E0E12] p-3">
+              {allCategories
+                .filter((c) => !c.parent_id)
+                .map((root) => {
+                  const isRootSelected = categoriesModalSelection.includes(root.id);
+                  const subcats = allCategories.filter((c) => c.parent_id === root.id);
+                  const rootProdCount = productsCountByBizCat[categoriesModalBusiness.id]?.[root.id] ?? 0;
+
+                  return (
+                    <div key={root.id} className="space-y-1.5 rounded-xl border border-[#27272A] bg-[#14141A] p-3">
+                      <label className="flex items-center justify-between cursor-pointer">
+                        <div className="flex items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            checked={isRootSelected}
+                            onChange={() => handleToggleCategory(root.id, categoriesModalSelection, setCategoriesModalSelection)}
+                            className="h-4 w-4 rounded accent-[#FF2638]"
+                          />
+                          <span className={`text-xs font-bold ${isRootSelected ? "text-white" : "text-[#A1A1AA]"}`}>
+                            {root.name}
+                          </span>
+                        </div>
+                        {rootProdCount > 0 && (
+                          <span className="text-[10px] text-amber-300 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/30">
+                            {rootProdCount} plat(s) dans le menu
+                          </span>
+                        )}
+                      </label>
+
+                      {subcats.length > 0 && (
+                        <div className="pl-6 pt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                          {subcats.map((sub) => {
+                            const isSubSelected = categoriesModalSelection.includes(sub.id);
+                            const subProdCount = productsCountByBizCat[categoriesModalBusiness.id]?.[sub.id] ?? 0;
+
+                            return (
+                              <label key={sub.id} className="flex items-center justify-between cursor-pointer rounded-lg bg-[#1C1C24] p-2 text-xs">
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSubSelected}
+                                    onChange={() => handleToggleCategory(sub.id, categoriesModalSelection, setCategoriesModalSelection)}
+                                    className="h-3.5 w-3.5 rounded accent-[#FF2638]"
+                                  />
+                                  <span className={isSubSelected ? "text-white font-semibold" : "text-[#71717A]"}>
+                                    {sub.name}
+                                  </span>
+                                </div>
+                                {subProdCount > 0 && (
+                                  <span className="text-[10px] text-amber-400 font-bold">
+                                    {subProdCount}
+                                  </span>
+                                )}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-xs text-[#71717A]">
+                {categoriesModalSelection.length} catégorie(s) sélectionnée(s)
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCategoriesModalBusiness(null)}
+                  className="rounded-xl bg-[#27272A] px-4 py-2 text-xs font-bold text-white hover:bg-[#323238]"
+                >
+                  Fermer
+                </button>
+                <button
+                  type="button"
+                  disabled={isSavingCategories}
+                  onClick={async () => {
+                    if (!categoriesModalBusiness) return;
+                    setIsSavingCategories(true);
+                    setCategoriesError(null);
+                    setCategoriesNotice(null);
+                    try {
+                      await syncBusinessCategories(categoriesModalBusiness.id, categoriesModalSelection);
+                      await loadBusinesses();
+                      onBusinessesUpdated?.();
+                      setCategoriesNotice("Catégories du menu enregistrées avec succès !");
+                      setTimeout(() => setCategoriesModalBusiness(null), 1200);
+                    } catch (err) {
+                      setCategoriesError(err instanceof Error ? err.message : String(err));
+                    } finally {
+                      setIsSavingCategories(false);
+                    }
+                  }}
+                  className="rounded-xl bg-[#38BDF8] px-5 py-2 text-xs font-bold text-black hover:bg-[#7dd3fc] disabled:opacity-50"
+                >
+                  {isSavingCategories ? "Enregistrement…" : "Enregistrer le menu"}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       ) : null}
     </section>
