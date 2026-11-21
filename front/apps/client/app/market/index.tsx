@@ -29,49 +29,6 @@ type MarketProductItem = {
   hasVariants?: boolean;
 };
 
-const FALLBACK_PRODUCTS: MarketProductItem[] = [
-  {
-    id: 'eau-minerale-pack',
-    name: 'Pack Eau Minérale Safia (6x1.5L)',
-    category: 'Boissons',
-    priceMillimes: 5200,
-    image: 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?w=500',
-    unit: 'Pack 6 bouteilles',
-  },
-  {
-    id: 'lait-demi-ecreme',
-    name: 'Lait Vitalait Demi-Écrémé 1L',
-    category: 'Épicerie',
-    priceMillimes: 1450,
-    image: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=500',
-    unit: 'Brique 1L',
-  },
-  {
-    id: 'doliprane-1000',
-    name: 'Paracétamol 1000mg (Boîte)',
-    category: 'Pharmacie',
-    priceMillimes: 3800,
-    image: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500',
-    unit: 'Pharmacie autorisée',
-  },
-  {
-    id: 'gel-douche',
-    name: 'Gel Douche Hydratant 400ml',
-    category: 'Hygiène',
-    priceMillimes: 7900,
-    image: 'https://images.unsplash.com/photo-1556228578-8c89e6adf883?w=500',
-    unit: 'Flacon 400ml',
-  },
-  {
-    id: 'huile-olive-bio',
-    name: 'Huile d’Olive Extra Vierge de M\'Saken',
-    category: 'Produits locaux',
-    priceMillimes: 18500,
-    image: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=500',
-    unit: 'Bouteille 1L',
-  },
-];
-
 function getCategoryIcon(cat: string): keyof typeof Ionicons.glyphMap {
   const lower = cat.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   if (lower === 'tous') return 'apps-outline';
@@ -127,17 +84,14 @@ export default function MarketScreen() {
   }, [items]);
 
   const allProducts: MarketProductItem[] = useMemo(() => {
-    if (dbProducts.length > 0) {
-      return dbProducts.map((p) => ({
-        id: p.id,
-        name: p.name,
-        category: p.category || 'Courses',
-        priceMillimes: p.priceMillimes,
-        image: p.imageUrl || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500',
-        unit: 'REDGO Direct',
-      }));
-    }
-    return FALLBACK_PRODUCTS;
+    return dbProducts.map((p) => ({
+      id: p.id,
+      name: p.name,
+      category: p.category || 'Courses',
+      priceMillimes: p.priceMillimes,
+      image: p.imageUrl || 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=500',
+      unit: 'REDGO Direct',
+    }));
   }, [dbProducts]);
 
   const categories = useMemo(() => {

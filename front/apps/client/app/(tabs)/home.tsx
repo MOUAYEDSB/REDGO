@@ -69,39 +69,6 @@ const categories = [
   ['cafe-outline', 'Boissons', '/market'],
 ];
 
-const FALLBACK_POPULAR_PRODUCTS: HomeFeaturedProduct[] = [
-  {
-    id: 'margherita',
-    type: 'food' as const,
-    businessId: 'karma',
-    businessName: 'Karma Kitchen',
-    name: 'Pizza Margherita Di Bufala',
-    priceMillimes: 14500,
-    shop: 'Karma Kitchen',
-    image: 'https://images.unsplash.com/photo-1547592180-85f173990554?w=700',
-  },
-  {
-    id: 'eau-minerale-pack',
-    type: 'courses' as const,
-    businessId: 'courses_hub_msaken',
-    businessName: 'Courses REDGO',
-    name: 'Pack Eau Safia (6x1.5L)',
-    priceMillimes: 5200,
-    shop: 'Courses REDGO · Prix fixe',
-    image: 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?w=700',
-  },
-  {
-    id: 'burger-special',
-    type: 'food' as const,
-    businessId: 'karma',
-    businessName: 'Karma Kitchen',
-    name: 'Smash Burger REDGO',
-    priceMillimes: 16800,
-    shop: 'Karma Kitchen',
-    image: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=700',
-  },
-];
-
 export default function Home() {
   const { profile, user } = useRedgoAuth();
   const { addProduct } = useCart();
@@ -156,28 +123,26 @@ export default function Home() {
     void loadHomeData();
   }, [loadHomeData]);
 
-  const products = useMemo(() => {
-    if (dbProducts.length > 0) return dbProducts;
-    return FALLBACK_POPULAR_PRODUCTS;
-  }, [dbProducts]);
+  const products = dbProducts;
 
   const handleQuickAdd = async (product: HomeFeaturedProduct) => {
+    // Si le produit a des variantes, obliger le client à choisir la variante sur la page produit
+    if (product.hasVariants) {
+      router.push(
+        product.type === 'food'
+          ? `/food/product/${product.id}?restaurant=${product.businessId}`
+          : `/market/product/${product.id}`
+      );
+      return;
+    }
     try {
       const vars = await fetchProductVariants(product.id);
       if (vars.length > 0) {
-        const firstVariant = vars[0];
-        addProduct({
-          productId: product.id,
-          variantId: firstVariant.id,
-          variantName: firstVariant.name,
-          productType: product.type,
-          businessId: product.businessId,
-          businessName: product.businessName,
-          productName: product.name,
-          productImage: product.image,
-          unitPriceMillimes: firstVariant.priceMillimes,
-          quantity: 1,
-        });
+        router.push(
+          product.type === 'food'
+            ? `/food/product/${product.id}?restaurant=${product.businessId}`
+            : `/market/product/${product.id}`
+        );
         return;
       }
     } catch {}
@@ -428,88 +393,103 @@ export default function Home() {
         </>
       ) : null}
 
-      {/* SÉLECTION DU MOMENT (Plats & Courses Réels) */}
-      <View style={styles.sectionHeader}>
-        <View>
-          <Text style={styles.sectionTitleInline}>Sélection du moment</Text>
-          <Text style={styles.sectionSubtitle}>
-            {isLoading ? 'Synchronisation…' : 'Ajoutez en 1 clic à votre panier partagé'}
-          </Text>
-        </View>
-        <Pressable onPress={() => router.push('/market')}>
-          <Text style={styles.seeAll}>Faire mes courses</Text>
-        </Pressable>
-      </View>
-
-      {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="small" color={colors.primary} />
-          <Text style={styles.loadingText}>Chargement des produits…</Text>
-        </View>
-      ) : (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.products}
-        >
-          {products.map((product) => (
-            <Pressable
-              key={product.id}
-              style={({ pressed }) => [
-                styles.productCard,
-                pressed && { borderColor: colors.primary },
-              ]}
-              onPress={() =>
-                router.push(
-                  product.type === 'food'
-                    ? `/food/product/${product.id}`
-                    : `/market/product/${product.id}`
-                )
-              }
-            >
-              <Image
-                source={{ uri: product.image }}
-                style={styles.productImage}
-                contentFit="cover"
-              />
-              <View style={styles.productBody}>
-                <Text style={styles.productName} numberOfLines={1}>
-                  {product.name}
-                </Text>
-                <Text style={styles.productShop} numberOfLines={1}>
-                  {product.shop}
-                </Text>
-                <View style={styles.productFooter}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.productPrice}>
-                      {formatMillimes(product.priceMillimes)}
-                    </Text>
-                    {product.defaultVariantName ? (
-                      <Text style={{ fontSize: 10, fontWeight: '700', color: colors.primary, marginTop: 1 }}>
-                        {product.defaultVariantName}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.quickAdd,
-                      pressed && { transform: [{ scale: 0.9 }] },
-                    ]}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      handleQuickAdd(product);
-                    }}
-                    hitSlop={8}
-                    accessibilityLabel={`Ajouter ${product.name}`}
-                  >
-                    <Ionicons name="add" size={20} color="#FFFFFF" />
-                  </Pressable>
-                </View>
-              </View>
+      {/* SÉLECTION DU MOMENT (Plats & Courses Réels) - Affiché uniquement si produits réels disponibles */}
+      {isLoading || products.length > 0 ? (
+        <>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionTitleInline}>Sélection du moment</Text>
+              <Text style={styles.sectionSubtitle}>
+                {isLoading ? 'Synchronisation…' : 'Ajoutez en 1 clic à votre panier partagé'}
+              </Text>
+            </View>
+            <Pressable onPress={() => router.push('/market')}>
+              <Text style={styles.seeAll}>Faire mes courses</Text>
             </Pressable>
-          ))}
-        </ScrollView>
-      )}
+          </View>
+
+          {isLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.loadingText}>Chargement des produits…</Text>
+            </View>
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.products}
+            >
+              {products.map((product) => (
+                <Pressable
+                  key={product.id}
+                  style={({ pressed }) => [
+                    styles.productCard,
+                    pressed && { borderColor: colors.primary },
+                  ]}
+                  onPress={() =>
+                    router.push(
+                      product.type === 'food'
+                        ? `/food/product/${product.id}`
+                        : `/market/product/${product.id}`
+                    )
+                  }
+                >
+                  <Image
+                    source={{ uri: product.image }}
+                    style={styles.productImage}
+                    contentFit="cover"
+                  />
+                  <View style={styles.productBody}>
+                    <Text style={styles.productName} numberOfLines={1}>
+                      {product.name}
+                    </Text>
+                    <Text style={styles.productShop} numberOfLines={1}>
+                      {product.shop}
+                    </Text>
+                    <View style={styles.productFooter}>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          {product.hasVariants ? (
+                            <Text style={{ fontSize: 10, fontWeight: '600', color: colors.textSecondary }}>
+                              À partir de
+                            </Text>
+                          ) : null}
+                          <Text style={styles.productPrice}>
+                            {formatMillimes(product.priceMillimes)}
+                          </Text>
+                        </View>
+                        {product.defaultVariantName ? (
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: colors.primary, marginTop: 1 }}>
+                            {product.defaultVariantName}
+                          </Text>
+                        ) : product.hasVariants ? (
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: colors.primary, marginTop: 1 }}>
+                            Choix requis
+                          </Text>
+                        ) : null}
+                      </View>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.quickAdd,
+                          pressed && { transform: [{ scale: 0.9 }] },
+                        ]}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleQuickAdd(product);
+                        }}
+                        hitSlop={8}
+                        accessibilityLabel={`Ajouter ${product.name}`}
+                      >
+                        <Ionicons name="add" size={20} color="#FFFFFF" />
+                      </Pressable>
+                    </View>
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+        </>
+      ) : null}
     </Screen>
   );
 }

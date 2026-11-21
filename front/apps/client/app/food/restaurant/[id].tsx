@@ -76,68 +76,6 @@ function getRestaurantCategoryIcon(cat: string): keyof typeof Ionicons.glyphMap 
   return 'pricetag-outline';
 }
 
-const FALLBACK_RESTAURANTS: Record<
-  string,
-  { name: string; description: string; deliveryTime: string; cover: string; dishes: DishItem[] }
-> = {
-  karma: {
-    name: 'Karma Kitchen',
-    description: 'Pizzas artisanales, burgers gourmets et spécialités italiennes.',
-    deliveryTime: '20–30 min',
-    cover: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=900',
-    dishes: [
-      {
-        id: 'margherita',
-        name: 'Pizza Margherita Di Bufala',
-        description: 'Sauce tomate San Marzano, mozzarella fior di latte et basilic frais.',
-        category: 'Pizzas',
-        priceMillimes: 14500,
-        image: 'https://images.unsplash.com/photo-1547592180-85f173990554?w=500',
-      },
-      {
-        id: 'burger-special',
-        name: 'Smash Burger REDGO',
-        description: 'Double steak haché pur bœuf, cheddar fondant, sauce secrète.',
-        category: 'Burgers',
-        priceMillimes: 16800,
-        image: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500',
-      },
-      {
-        id: 'pasta-carbonara',
-        name: 'Pâtes Carbonara Traditionnelles',
-        description: 'Guanciale croustillant, pecorino romano, jaunes d\'œufs frais.',
-        category: 'Pâtes',
-        priceMillimes: 18500,
-        image: 'https://images.unsplash.com/photo-1612874742237-6526221588e3?w=500',
-      },
-    ],
-  },
-  traditional: {
-    name: 'Saveurs de M\'Saken',
-    description: 'Cuisine tunisienne authentique, couscous et grillades au feu de bois.',
-    deliveryTime: '25–40 min',
-    cover: 'https://images.unsplash.com/photo-1541518763669-27fef04b14ea?w=900',
-    dishes: [
-      {
-        id: 'couscous-agneau',
-        name: 'Couscous à l\'Agneau de M\'Saken',
-        description: 'Semoule fine cuite à la vapeur, légumes fondants et agneau mijoté.',
-        category: 'Plats Tunisiens',
-        priceMillimes: 19500,
-        image: 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=500',
-      },
-      {
-        id: 'ojja-merguez',
-        name: 'Ojja Traditionnelle aux Merguez',
-        description: 'Tomates fraîches, poivrons, œufs pochés et merguez artisanales épicées.',
-        category: 'Plats Tunisiens',
-        priceMillimes: 13500,
-        image: 'https://images.unsplash.com/photo-1590577976322-3d2d6e2130d5?w=500',
-      },
-    ],
-  },
-};
-
 export default function RestaurantScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const [dbBusiness, setDbBusiness] = useState<CatalogBusiness | null>(null);
@@ -175,31 +113,26 @@ export default function RestaurantScreen() {
     void loadData();
   }, [loadData]);
 
-  const fallback = id && FALLBACK_RESTAURANTS[id] ? FALLBACK_RESTAURANTS[id] : FALLBACK_RESTAURANTS.karma;
-
-  const restaurantName = dbBusiness?.name || fallback.name;
-  const restaurantDesc = dbBusiness?.description || fallback.description;
+  const restaurantName = dbBusiness?.name || 'Restaurant partenaire';
+  const restaurantDesc = dbBusiness?.description || 'Restaurant partenaire REDGO';
   const restaurantCover =
     dbBusiness?.coverImageUrl ||
-    fallback.cover;
+    'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=900';
 
   const dishes: DishItem[] = useMemo(() => {
-    if (dbDishes.length > 0) {
-      return dbDishes.map((p) => ({
-        id: p.id,
-        name: p.name,
-        description: p.description || 'Préparé à la commande avec des produits frais.',
-        category: p.category?.trim() || 'Plats',
-        priceMillimes: p.priceMillimes,
-        image:
-          p.imageUrl ||
-          'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500',
-        hasVariants: Boolean(p.hasVariants),
-        defaultVariantName: p.defaultVariantName,
-      }));
-    }
-    return fallback.dishes;
-  }, [dbDishes, fallback.dishes]);
+    return dbDishes.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: p.description || 'Préparé à la commande avec des produits frais.',
+      category: p.category?.trim() || 'Plats',
+      priceMillimes: p.priceMillimes,
+      image:
+        p.imageUrl ||
+        'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500',
+      hasVariants: Boolean(p.hasVariants),
+      defaultVariantName: p.defaultVariantName,
+    }));
+  }, [dbDishes]);
 
   // Dynamic category list computed from DB assigned categories and dishes
   const categories = useMemo(() => {
@@ -239,10 +172,10 @@ export default function RestaurantScreen() {
     ];
   }, [dbCategories, dishes]);
 
-  // Filtered dishes according to active category and search input
-  const filteredDishes = useMemo(() => {
+  // Groupement ordonné des plats par catégorie pour organiser le menu
+  const groupedSections = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return dishes.filter((dish) => {
+    const filtered = dishes.filter((dish) => {
       const matchesCategory =
         selectedCategory === 'Tous' ||
         dish.category.toLowerCase() === selectedCategory.toLowerCase();
@@ -252,31 +185,56 @@ export default function RestaurantScreen() {
         dish.description.toLowerCase().includes(q);
       return matchesCategory && matchesSearch;
     });
-  }, [dishes, selectedCategory, searchQuery]);
 
-  const handleQuickAdd = async (dish: DishItem) => {
-    if (dish.hasVariants) {
-      try {
-        const vars = await fetchProductVariants(dish.id);
-        if (vars.length > 0) {
-          const firstVariant = vars[0];
-          addProduct({
-            productId: dish.id,
-            variantId: firstVariant.id,
-            variantName: firstVariant.name,
-            productType: 'food',
-            businessId: id || 'restaurant_item',
-            businessName: restaurantName,
-            productName: dish.name,
-            productImage: dish.image,
-            unitPriceMillimes: firstVariant.priceMillimes,
-            quantity: 1,
-          });
-          return;
-        }
-      } catch (err) {
-        console.warn('Erreur handleQuickAdd variants:', err);
+    if (filtered.length === 0) return [];
+
+    // Si une catégorie spécifique est filtrée, on montre seulement cette section
+    if (selectedCategory !== 'Tous') {
+      return [{ categoryName: selectedCategory, dishes: filtered }];
+    }
+
+    // Si "Tous" est sélectionné, on regroupe par catégorie selon l'ordre du menu
+    const categoryOrder = categories
+      .filter((c) => c.name !== 'Tous')
+      .map((c) => c.name);
+
+    const map = new Map<string, DishItem[]>();
+    for (const dish of filtered) {
+      const cat = dish.category?.trim() || 'Plats';
+      if (!map.has(cat)) map.set(cat, []);
+      map.get(cat)!.push(dish);
+    }
+
+    const sections: { categoryName: string; dishes: DishItem[] }[] = [];
+
+    // Prioriser l'ordre des catégories de l'établissement
+    for (const catName of categoryOrder) {
+      const existingKey = Array.from(map.keys()).find(
+        (k) => k.toLowerCase() === catName.toLowerCase()
+      );
+      if (existingKey && map.has(existingKey)) {
+        sections.push({ categoryName: existingKey, dishes: map.get(existingKey)! });
+        map.delete(existingKey);
       }
+    }
+
+    // Ajouter les autres catégories éventuelles
+    for (const [catName, catDishes] of map.entries()) {
+      sections.push({ categoryName: catName, dishes: catDishes });
+    }
+
+    return sections;
+  }, [dishes, categories, selectedCategory, searchQuery]);
+
+  const totalFilteredDishes = useMemo(() => {
+    return groupedSections.reduce((sum, s) => sum + s.dishes.length, 0);
+  }, [groupedSections]);
+
+  const handleQuickAdd = (dish: DishItem) => {
+    if (dish.hasVariants) {
+      // Produit avec variantes → obliger le client à choisir la variante sur la page produit
+      router.push(`/food/product/${dish.id}?restaurant=${id || 'karma'}`);
+      return;
     }
     addProduct({
       productId: dish.id,
@@ -346,163 +304,226 @@ export default function RestaurantScreen() {
         </View>
       </View>
 
-      {/* Search Bar */}
-      <View style={styles.searchWrapper}>
-        <View style={styles.searchBar}>
-          <Ionicons name="search-outline" size={18} color="#71717A" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Rechercher un plat, boisson..."
-            placeholderTextColor="#71717A"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            clearButtonMode="while-editing"
-          />
-          {searchQuery ? (
-            <Pressable onPress={() => setSearchQuery('')} hitSlop={8}>
-              <Ionicons name="close-circle" size={18} color="#A1A1AA" />
-            </Pressable>
-          ) : null}
+      {/* Si le restaurant n'a pas encore de plats enregistrés dans la DB */}
+      {dishes.length === 0 && !isLoading ? (
+        <View style={styles.soonContainer}>
+          <View style={styles.soonIconCircle}>
+            <Ionicons name="time-outline" size={44} color={colors.primary} />
+          </View>
+          <Text style={styles.soonTitle}>Menu bientôt disponible !</Text>
+          <Text style={styles.soonSubtitle}>
+            {restaurantName} prépare actuellement sa carte sur REDGO. Revenez très bientôt pour découvrir et commander ses spécialités !
+          </Text>
+          <Pressable
+            style={({ pressed }) => [styles.soonBackButton, pressed && { opacity: 0.85 }]}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={18} color="#FFFFFF" />
+            <Text style={styles.soonBackText}>Voir les autres restaurants</Text>
+          </Pressable>
         </View>
-      </View>
-
-      {/* Category Filter Chips */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.categoriesScrollContent}
-        style={styles.categoriesScroll}
-      >
-        {categories.map((cat) => {
-          const isSelected =
-            selectedCategory.toLowerCase() === cat.name.toLowerCase();
-          const iconName = getRestaurantCategoryIcon(cat.name);
-          return (
-            <Pressable
-              key={cat.name}
-              style={[styles.categoryPill, isSelected && styles.categoryPillActive]}
-              onPress={() => setSelectedCategory(cat.name)}
-            >
-              <Ionicons
-                name={iconName}
-                size={16}
-                color={isSelected ? '#FFFFFF' : '#A1A1AA'}
+      ) : (
+        <>
+          {/* Search Bar */}
+          <View style={styles.searchWrapper}>
+            <View style={styles.searchBar}>
+              <Ionicons name="search-outline" size={18} color="#71717A" style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Rechercher un plat, boisson..."
+                placeholderTextColor="#71717A"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                clearButtonMode="while-editing"
               />
-              <Text
-                style={[
-                  styles.categoryPillText,
-                  isSelected && styles.categoryPillTextActive,
-                ]}
-              >
-                {cat.name}
-              </Text>
-              <View
-                style={[
-                  styles.categoryCountBadge,
-                  isSelected && styles.categoryCountBadgeActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.categoryCountText,
-                    isSelected && styles.categoryCountTextActive,
-                  ]}
-                >
-                  {cat.count}
-                </Text>
-              </View>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
-      {/* Dishes Section Header */}
-      <View style={styles.dishesHeader}>
-        <Text style={styles.sectionTitle}>
-          {selectedCategory === 'Tous' ? 'Plats & Menus' : selectedCategory}
-        </Text>
-        <Text style={styles.dishesCountBadge}>
-          {filteredDishes.length} plat{filteredDishes.length > 1 ? 's' : ''}
-        </Text>
-      </View>
-
-      <View style={styles.dishesList}>
-        {filteredDishes.length === 0 ? (
-          <View style={styles.emptyState}>
-            <View style={styles.emptyIconCircle}>
-              <Ionicons name="restaurant-outline" size={32} color="#71717A" />
+              {searchQuery ? (
+                <Pressable onPress={() => setSearchQuery('')} hitSlop={8}>
+                  <Ionicons name="close-circle" size={18} color="#A1A1AA" />
+                </Pressable>
+              ) : null}
             </View>
-            <Text style={styles.emptyTitle}>Aucun plat trouvé</Text>
-            <Text style={styles.emptySubtitle}>
-              {searchQuery
-                ? `Aucun plat ne correspond à "${searchQuery}".`
-                : `Aucun plat disponible dans la catégorie "${selectedCategory}".`}
+          </View>
+
+          {/* Category Filter Chips */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoriesScrollContent}
+            style={styles.categoriesScroll}
+          >
+            {categories.map((cat) => {
+              const isSelected =
+                selectedCategory.toLowerCase() === cat.name.toLowerCase();
+              const iconName = getRestaurantCategoryIcon(cat.name);
+              return (
+                <Pressable
+                  key={cat.name}
+                  style={[styles.categoryPill, isSelected && styles.categoryPillActive]}
+                  onPress={() => setSelectedCategory(cat.name)}
+                >
+                  <Ionicons
+                    name={iconName}
+                    size={16}
+                    color={isSelected ? '#FFFFFF' : '#A1A1AA'}
+                  />
+                  <Text
+                    style={[
+                      styles.categoryPillText,
+                      isSelected && styles.categoryPillTextActive,
+                    ]}
+                  >
+                    {cat.name}
+                  </Text>
+                  <View
+                    style={[
+                      styles.categoryCountBadge,
+                      isSelected && styles.categoryCountBadgeActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.categoryCountText,
+                        isSelected && styles.categoryCountTextActive,
+                      ]}
+                    >
+                      {cat.count}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          {/* Dishes Section Header */}
+          <View style={styles.dishesHeader}>
+            <Text style={styles.sectionTitle}>
+              {selectedCategory === 'Tous' ? 'Menu du restaurant' : selectedCategory}
             </Text>
-            {(searchQuery || selectedCategory !== 'Tous') && (
-              <Pressable
-                style={styles.resetFilterButton}
-                onPress={() => {
-                  setSearchQuery('');
-                  setSelectedCategory('Tous');
-                }}
-              >
-                <Ionicons name="refresh" size={16} color="#FFFFFF" />
-                <Text style={styles.resetFilterText}>Voir tout le menu</Text>
-              </Pressable>
+            <Text style={styles.dishesCountBadge}>
+              {totalFilteredDishes} plat{totalFilteredDishes > 1 ? 's' : ''}
+            </Text>
+          </View>
+
+          <View style={styles.dishesList}>
+            {groupedSections.length === 0 ? (
+              <View style={styles.emptyState}>
+                <View style={styles.emptyIconCircle}>
+                  <Ionicons name="restaurant-outline" size={32} color="#71717A" />
+                </View>
+                <Text style={styles.emptyTitle}>Aucun plat trouvé</Text>
+                <Text style={styles.emptySubtitle}>
+                  {searchQuery
+                    ? `Aucun plat ne correspond à "${searchQuery}".`
+                    : `Aucun plat disponible dans la catégorie "${selectedCategory}".`}
+                </Text>
+                {(searchQuery || selectedCategory !== 'Tous') && (
+                  <Pressable
+                    style={styles.resetFilterButton}
+                    onPress={() => {
+                      setSearchQuery('');
+                      setSelectedCategory('Tous');
+                    }}
+                  >
+                    <Ionicons name="refresh" size={16} color="#FFFFFF" />
+                    <Text style={styles.resetFilterText}>Voir tout le menu</Text>
+                  </Pressable>
+                )}
+              </View>
+            ) : (
+              groupedSections.map((section) => {
+                const iconName = getRestaurantCategoryIcon(section.categoryName);
+                return (
+                  <View key={section.categoryName} style={styles.menuSectionBlock}>
+                    {/* En-tête de la section catégorie (ex: Pizzas, Chapati, Makloub) */}
+                    <View style={styles.sectionCategoryHeader}>
+                      <View style={styles.sectionCategoryTitleWrapper}>
+                        <View style={styles.sectionCategoryIconBadge}>
+                          <Ionicons name={iconName} size={15} color={colors.primary} />
+                        </View>
+                        <Text style={styles.sectionCategoryTitle}>{section.categoryName}</Text>
+                      </View>
+                      <View style={styles.sectionCategoryCountBadge}>
+                        <Text style={styles.sectionCategoryCountText}>
+                          {section.dishes.length} plat{section.dishes.length > 1 ? 's' : ''}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Plats sous cette catégorie */}
+                    <View style={styles.sectionDishesWrapper}>
+                      {section.dishes.map((dish) => (
+                        <Pressable
+                          key={dish.id}
+                          style={({ pressed }) => [
+                            styles.productCard,
+                            pressed && { borderColor: colors.primary },
+                          ]}
+                          onPress={() =>
+                            router.push(`/food/product/${dish.id}?restaurant=${id || 'karma'}`)
+                          }
+                        >
+                          <Image
+                            source={{ uri: dish.image }}
+                            style={styles.productImage}
+                            contentFit="cover"
+                          />
+
+                          <View style={styles.productBody}>
+                            <Text style={styles.productName} numberOfLines={1}>
+                              {dish.name}
+                            </Text>
+                            <Text style={styles.productDesc} numberOfLines={2}>
+                              {dish.description}
+                            </Text>
+                            <View style={styles.productPriceRow}>
+                              {dish.hasVariants ? (
+                                <>
+                                  <Text style={styles.productPriceFrom}>À partir de</Text>
+                                  <Text style={styles.productPrice}>
+                                    {formatMillimes(dish.priceMillimes)}
+                                  </Text>
+                                  <View style={styles.variantsBadge}>
+                                    <Ionicons
+                                      name="options-outline"
+                                      size={10}
+                                      color={colors.primary}
+                                    />
+                                    <Text style={styles.variantsBadgeText}>Choix requis</Text>
+                                  </View>
+                                </>
+                              ) : (
+                                <Text style={styles.productPrice}>
+                                  {formatMillimes(dish.priceMillimes)}
+                                </Text>
+                              )}
+                            </View>
+                          </View>
+
+                          {/* Bouton + rouge : le + reste présent, redirige vers la page si variant requis */}
+                          <Pressable
+                            style={({ pressed }) => [
+                              styles.addButton,
+                              pressed && { transform: [{ scale: 0.9 }] },
+                            ]}
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              handleQuickAdd(dish);
+                            }}
+                            hitSlop={10}
+                            accessibilityLabel={`Ajouter ${dish.name} au panier`}
+                          >
+                            <Ionicons name="add" size={24} color="#FFFFFF" />
+                          </Pressable>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                );
+              })
             )}
           </View>
-        ) : (
-          filteredDishes.map((dish) => (
-            <Pressable
-              key={dish.id}
-              style={({ pressed }) => [styles.productCard, pressed && { borderColor: colors.primary }]}
-              onPress={() => router.push(`/food/product/${dish.id}?restaurant=${id || 'karma'}`)}
-            >
-              <Image source={{ uri: dish.image }} style={styles.productImage} contentFit="cover" />
-
-              <View style={styles.productBody}>
-                <Text style={styles.productName} numberOfLines={1}>
-                  {dish.name}
-                </Text>
-                <Text style={styles.productDesc} numberOfLines={2}>
-                  {dish.description}
-                </Text>
-                <View style={styles.productPriceRow}>
-                  <Text style={styles.productPrice}>
-                    {formatMillimes(dish.priceMillimes)}
-                  </Text>
-                  {dish.defaultVariantName ? (
-                    <View style={styles.defaultVariantBadge}>
-                      <Text style={styles.defaultVariantBadgeText}>
-                        {dish.defaultVariantName}
-                      </Text>
-                    </View>
-                  ) : dish.hasVariants ? (
-                    <View style={styles.defaultVariantBadge}>
-                      <Text style={styles.defaultVariantBadgeText}>
-                        Format standard
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-              </View>
-
-              {/* Quick Add Button */}
-              <Pressable
-                style={({ pressed }) => [styles.addButton, pressed && { transform: [{ scale: 0.9 }] }]}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  handleQuickAdd(dish);
-                }}
-                hitSlop={10}
-                accessibilityLabel={`Ajouter ${dish.name} au panier`}
-              >
-                <Ionicons name="add" size={24} color="#FFFFFF" />
-              </Pressable>
-            </Pressable>
-          ))
-        )}
-    </View >
+        </>
+      )}
   </Screen >
 );
 }
@@ -536,6 +557,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.15)',
+    overflow: 'visible',
   },
   header: {
     paddingHorizontal: 20,
@@ -654,6 +676,51 @@ const styles = StyleSheet.create({
   categoryCountTextActive: {
     color: '#FFFFFF',
   },
+  soonContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 56,
+    paddingHorizontal: 28,
+  },
+  soonIconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#181820',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#2D2D3B',
+  },
+  soonTitle: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '900',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  soonSubtitle: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  soonBackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 14,
+  },
+  soonBackText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -719,6 +786,51 @@ const styles = StyleSheet.create({
   dishesList: {
     paddingHorizontal: 20,
     paddingBottom: 32,
+    gap: 20,
+  },
+  menuSectionBlock: {
+    gap: 12,
+  },
+  sectionCategoryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2D2D3B',
+  },
+  sectionCategoryTitleWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sectionCategoryIconBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 38, 56, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionCategoryTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  sectionCategoryCountBadge: {
+    backgroundColor: '#1E1E2E',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2D2D3B',
+  },
+  sectionCategoryCountText: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  sectionDishesWrapper: {
     gap: 12,
   },
   productCard: {
@@ -787,5 +899,31 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 6,
     elevation: 3,
+  },
+  addButtonVariant: {
+    backgroundColor: '#2D2D3B', // gris neutre pour indiquer "choisir" plutôt qu'ajouter direct
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  productPriceFrom: {
+    color: colors.textSecondary,
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  variantsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(255, 38, 56, 0.1)',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 38, 56, 0.25)',
+  },
+  variantsBadgeText: {
+    color: colors.primary,
+    fontSize: 9,
+    fontWeight: '800',
   },
 });

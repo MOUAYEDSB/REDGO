@@ -3,6 +3,7 @@ import { requireSupabase } from './supabase';
 export type CatalogProduct = {
   id: string;
   businessId: string;
+  businessName?: string;
   name: string;
   description: string;
   category: string;
@@ -211,7 +212,7 @@ export async function fetchProductById(productId: string): Promise<CatalogProduc
     const client = requireSupabase();
     const { data, error } = await client
       .from('products')
-      .select('*')
+      .select('*, businesses(name)')
       .eq('id', productId)
       .single();
 
@@ -220,6 +221,7 @@ export async function fetchProductById(productId: string): Promise<CatalogProduc
     return {
       id: data.id,
       businessId: data.business_id,
+      businessName: (data as any).businesses?.name || undefined,
       name: data.name,
       description: data.description,
       category: data.category || 'Courses',

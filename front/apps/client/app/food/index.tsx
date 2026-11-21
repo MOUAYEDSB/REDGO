@@ -44,29 +44,6 @@ const POPULAR_CATEGORY_SLUGS = [
   'Boissons',
 ];
 
-const FALLBACK_RESTAURANTS: DisplayRestaurant[] = [
-  {
-    id: 'karma',
-    name: 'Karma Kitchen',
-    food: 'Pizzas au feu de bois & Burgers gourmets',
-    deliveryTime: '20–30 min',
-    deliveryFee: '2.500 DT',
-    rating: '4.9 ★ (320+ avis)',
-    image: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=800',
-    categoryNames: ['Pizzas', 'Burgers'],
-  },
-  {
-    id: 'traditional',
-    name: "Saveurs de M'Saken",
-    food: 'Plats tunisiens authentiques & Grillades',
-    deliveryTime: '25–40 min',
-    deliveryFee: '2.500 DT',
-    rating: '4.8 ★ (190+ avis)',
-    image: 'https://images.unsplash.com/photo-1541518763669-27fef04b14ea?w=800',
-    categoryNames: ['Plats Tunisiens', 'Grillades'],
-  },
-];
-
 export default function FoodHome() {
   const [selectedCat, setSelectedCat] = useState('Tous');
   const [dbRestaurants, setDbRestaurants] = useState<CatalogBusinessWithCategories[]>([]);
@@ -89,23 +66,20 @@ export default function FoodHome() {
     void loadData();
   }, [loadData]);
 
-  // Restaurants mappés en DisplayRestaurant (avec categoryNames pour le filtre)
+  // Restaurants réels mappés en DisplayRestaurant (uniquement depuis Supabase)
   const restaurants: DisplayRestaurant[] = useMemo(() => {
-    if (dbRestaurants.length > 0) {
-      return dbRestaurants.map((b) => ({
-        id: b.id,
-        name: b.name,
-        food: b.description || 'Restaurant partenaire REDGO',
-        deliveryTime: '20–35 min',
-        deliveryFee: '2.500 DT',
-        rating: '4.9 ★ (Partenaire vérifié)',
-        image:
-          b.coverImageUrl ||
-          'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800',
-        categoryNames: b.categoryNames,
-      }));
-    }
-    return FALLBACK_RESTAURANTS;
+    return dbRestaurants.map((b) => ({
+      id: b.id,
+      name: b.name,
+      food: b.description || 'Restaurant partenaire REDGO',
+      deliveryTime: '20–35 min',
+      deliveryFee: '2.500 DT',
+      rating: '4.9 ★ (Partenaire vérifié)',
+      image:
+        b.coverImageUrl ||
+        'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800',
+      categoryNames: b.categoryNames,
+    }));
   }, [dbRestaurants]);
 
   // Catégories populaires : on garde uniquement celles qui ont au moins 1 restaurant assigné
@@ -206,55 +180,66 @@ export default function FoodHome() {
         </Text>
       </View>
 
-      {filteredRestaurants.map((restaurant) => (
-        <Pressable
-          key={restaurant.id}
-          style={({ pressed }) => [styles.restaurant, pressed && { borderColor: colors.primary }]}
-          onPress={() => router.push(`/food/restaurant/${restaurant.id}`)}
-        >
-          <Image
-            source={{ uri: restaurant.image }}
-            style={styles.restaurantImage}
-            contentFit="cover"
-          />
-          <View style={styles.restaurantCopy}>
-            <View style={styles.nameRow}>
-              <Text style={styles.restaurantName}>{restaurant.name}</Text>
-              <Text style={styles.ratingText}>{restaurant.rating}</Text>
-            </View>
-            <Text style={styles.restaurantFood} numberOfLines={2}>
-              {restaurant.food}
-            </Text>
+      {filteredRestaurants.length === 0 && !isLoading ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="restaurant-outline" size={44} color="#71717A" />
+          <Text style={styles.emptyTitle}>
+            {selectedCat === 'Tous' ? 'Aucun restaurant pour le moment' : `Aucun restaurant dans "${selectedCat}"`}
+          </Text>
+          <Text style={styles.emptySubtitle}>
+            Les restaurants partenaires arrivent très bientôt sur REDGO !
+          </Text>
+        </View>
+      ) : (
+        filteredRestaurants.map((restaurant) => (
+          <Pressable
+            key={restaurant.id}
+            style={({ pressed }) => [styles.restaurant, pressed && { borderColor: colors.primary }]}
+            onPress={() => router.push(`/food/restaurant/${restaurant.id}`)}
+          >
+            <Image
+              source={{ uri: restaurant.image }}
+              style={styles.restaurantImage}
+              contentFit="cover"
+            />
+            <View style={styles.restaurantCopy}>
+              <View style={styles.nameRow}>
+                <Text style={styles.restaurantName}>{restaurant.name}</Text>
+                <Text style={styles.ratingText}>{restaurant.rating}</Text>
+              </View>
+              <Text style={styles.restaurantFood} numberOfLines={2}>
+                {restaurant.food}
+              </Text>
 
-            {/* Tags catégories du restaurant */}
-            {restaurant.categoryNames.length > 0 && (
-              <View style={styles.catTagsRow}>
-                {restaurant.categoryNames.slice(0, 3).map((cn) => (
-                  <View key={cn} style={styles.catTag}>
-                    <Text style={styles.catTagText}>{cn}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
+              {/* Tags catégories du restaurant */}
+              {restaurant.categoryNames.length > 0 && (
+                <View style={styles.catTagsRow}>
+                  {restaurant.categoryNames.slice(0, 3).map((cn) => (
+                    <View key={cn} style={styles.catTag}>
+                      <Text style={styles.catTagText}>{cn}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
 
-            <View style={styles.meta}>
-              <View style={styles.metaPill}>
-                <Ionicons name="time-outline" size={13} color={colors.success} />
-                <Text style={styles.metaText}>{restaurant.deliveryTime}</Text>
-              </View>
-              <View style={styles.metaPill}>
-                <Ionicons name="bicycle-outline" size={13} color={colors.primary} />
-                <Text style={styles.metaText}>{restaurant.deliveryFee}</Text>
-              </View>
-              <View style={styles.metaPill}>
-                <Ionicons name="location-outline" size={13} color="#9CA3AF" />
-                <Text style={styles.metaText}>M'Saken</Text>
+              <View style={styles.meta}>
+                <View style={styles.metaPill}>
+                  <Ionicons name="time-outline" size={13} color={colors.success} />
+                  <Text style={styles.metaText}>{restaurant.deliveryTime}</Text>
+                </View>
+                <View style={styles.metaPill}>
+                  <Ionicons name="bicycle-outline" size={13} color={colors.primary} />
+                  <Text style={styles.metaText}>{restaurant.deliveryFee}</Text>
+                </View>
+                <View style={styles.metaPill}>
+                  <Ionicons name="location-outline" size={13} color="#9CA3AF" />
+                  <Text style={styles.metaText}>M'Saken</Text>
+                </View>
               </View>
             </View>
-          </View>
-        </Pressable>
-  ))
-}
+          </Pressable>
+        ))
+      )}
     </Screen >
   );
 }
@@ -355,7 +340,27 @@ export default function FoodHome() {
                                         color: colors.textSecondary,
                                         fontWeight: '600',
                                       },
-                                        restaurant: {
+                                        emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 24,
+  },
+  emptyTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '800',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginTop: 6,
+  },
+  restaurant: {
                                           borderRadius: 20,
                                           overflow: 'hidden',
                                           backgroundColor: '#181822',
