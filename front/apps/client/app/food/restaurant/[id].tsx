@@ -233,7 +233,7 @@ export default function RestaurantScreen() {
   const handleQuickAdd = (dish: DishItem) => {
     if (dish.hasVariants) {
       // Produit avec variantes → obliger le client à choisir la variante sur la page produit
-      router.push(`/food/product/${dish.id}?restaurant=${id || 'karma'}`);
+      router.push(`/food/product/${dish.id}${id ? `?restaurant=${id}` : ''}`);
       return;
     }
     addProduct({
@@ -459,71 +459,72 @@ export default function RestaurantScreen() {
                             pressed && { borderColor: colors.primary },
                           ]}
                           onPress={() =>
-                            router.push(`/food/product/${dish.id}?restaurant=${id || 'karma'}`)
+                            router.push(`/food/product/${dish.id}${id ? `?restaurant=${id}` : ''}`)
                           }
                         >
-                          <Image
-                            source={{ uri: dish.image }}
-                            style={styles.productImage}
-                            contentFit="cover"
-                          />
+                      <Image
+                        source={{ uri: dish.image }}
+                        style={styles.productImage}
+                        contentFit="cover"
+                      />
 
-                          <View style={styles.productBody}>
-                            <Text style={styles.productName} numberOfLines={1}>
-                              {dish.name}
+                      <View style={styles.productBody}>
+                        <Text style={styles.productName} numberOfLines={1}>
+                          {dish.name}
+                        </Text>
+                        <Text style={styles.productDesc} numberOfLines={2}>
+                          {dish.description}
+                        </Text>
+                        <View style={styles.productPriceRow}>
+                          {dish.hasVariants ? (
+                            <>
+                              <Text style={styles.productPriceFrom}>À partir de</Text>
+                              <Text style={styles.productPrice}>
+                                {formatMillimes(dish.priceMillimes)}
+                              </Text>
+                              <View style={styles.variantsBadge}>
+                                <Ionicons
+                                  name="options-outline"
+                                  size={10}
+                                  color={colors.primary}
+                                />
+                                <Text style={styles.variantsBadgeText}>Choix requis</Text>
+                              </View>
+                            </>
+                          ) : (
+                            <Text style={styles.productPrice}>
+                              {formatMillimes(dish.priceMillimes)}
                             </Text>
-                            <Text style={styles.productDesc} numberOfLines={2}>
-                              {dish.description}
-                            </Text>
-                            <View style={styles.productPriceRow}>
-                              {dish.hasVariants ? (
-                                <>
-                                  <Text style={styles.productPriceFrom}>À partir de</Text>
-                                  <Text style={styles.productPrice}>
-                                    {formatMillimes(dish.priceMillimes)}
-                                  </Text>
-                                  <View style={styles.variantsBadge}>
-                                    <Ionicons
-                                      name="options-outline"
-                                      size={10}
-                                      color={colors.primary}
-                                    />
-                                    <Text style={styles.variantsBadgeText}>Choix requis</Text>
-                                  </View>
-                                </>
-                              ) : (
-                                <Text style={styles.productPrice}>
-                                  {formatMillimes(dish.priceMillimes)}
-                                </Text>
-                              )}
-                            </View>
-                          </View>
+                          )}
+                        </View>
+                      </View>
 
-                          {/* Bouton + rouge : le + reste présent, redirige vers la page si variant requis */}
-                          <Pressable
-                            style={({ pressed }) => [
-                              styles.addButton,
-                              pressed && { transform: [{ scale: 0.9 }] },
-                            ]}
-                            onPress={(e) => {
-                              e.stopPropagation();
-                              handleQuickAdd(dish);
-                            }}
-                            hitSlop={10}
-                            accessibilityLabel={`Ajouter ${dish.name} au panier`}
-                          >
-                            <Ionicons name="add" size={24} color="#FFFFFF" />
-                          </Pressable>
-                        </Pressable>
+                      {/* Bouton + rouge : le + reste présent, redirige vers la page si variant requis */}
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.addButton,
+                          pressed && { transform: [{ scale: 0.9 }] },
+                        ]}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleQuickAdd(dish);
+                        }}
+                        hitSlop={10}
+                        accessibilityLabel={`Ajouter ${dish.name} au panier`}
+                      >
+                        <Ionicons name="add" size={24} color="#FFFFFF" />
+                      </Pressable>
+                    </Pressable>
                       ))}
-                    </View>
                   </View>
-                );
+                  </View>
+          );
               })
             )}
-          </View>
-        </>
-      )}
+        </View>
+    </>
+  )
+}
   </Screen >
 );
 }

@@ -54,59 +54,59 @@ export default function FoodProductScreen() {
     setIsLoading(true);
 
     // Charger le restaurant si passé en paramètre
-    if (restaurant && restaurant !== 'karma' && restaurant !== 'traditional') {
-      fetchBusinessById(restaurant).then((biz) => {
-        if (active && biz) setDbBusiness(biz);
-      });
-    }
+      if (restaurant) {
+        fetchBusinessById(restaurant).then((biz) => {
+          if (active && biz) setDbBusiness(biz);
+        });
+      }
 
-    const loadProdAndOpts = fetchProductById(id)
-      .then(async (prod) => {
-        if (!active) return;
-        setDbProduct(prod);
-        const bId = prod?.businessId || restaurant;
-        if (bId && bId !== 'karma' && bId !== 'traditional') {
-          fetchBusinessById(bId).then((biz) => {
-            if (active && biz) setDbBusiness(biz);
-          });
-        }
-        if (bId) {
-          const opts = await fetchProductOptions(id, bId);
+      const loadProdAndOpts = fetchProductById(id)
+        .then(async (prod) => {
           if (!active) return;
-          if (opts.length > 0) {
-            setOptions(
-              opts.map((o) => ({
-                id: o.id,
-                name: o.priceMillimes > 0 ? `${o.name} (+${formatMillimes(o.priceMillimes)})` : o.name,
-                priceMillimes: o.priceMillimes,
-              }))
-            );
-          } else {
-            setOptions([]);
-          }
-        } else {
-          setOptions([]);
-        }
-      })
-      .catch(() => {
-        if (active) setOptions([]);
+          setDbProduct(prod);
+          const bId = prod?.businessId || restaurant;
+            if (bId) {
+              fetchBusinessById(bId).then((biz) => {
+                if (active && biz) setDbBusiness(biz);
+              });
+            }
+            if (bId) {
+              const opts = await fetchProductOptions(id, bId);
+              if (!active) return;
+              if (opts.length > 0) {
+                setOptions(
+                  opts.map((o) => ({
+                    id: o.id,
+                    name: o.priceMillimes > 0 ? `${o.name} (+${formatMillimes(o.priceMillimes)})` : o.name,
+                    priceMillimes: o.priceMillimes,
+                  }))
+                );
+              } else {
+                setOptions([]);
+              }
+            } else {
+              setOptions([]);
+            }
+          })
+        .catch(() => {
+          if (active) setOptions([]);
+        });
+
+      const loadVariants = fetchProductVariants(id)
+        .then((vars) => {
+          if (!active) return;
+          setVariants(vars);
+        })
+        .catch(() => { });
+
+      Promise.all([loadProdAndOpts, loadVariants]).finally(() => {
+        if (active) setIsLoading(false);
       });
 
-    const loadVariants = fetchProductVariants(id)
-      .then((vars) => {
-        if (!active) return;
-        setVariants(vars);
-      })
-      .catch(() => {});
-
-    Promise.all([loadProdAndOpts, loadVariants]).finally(() => {
-      if (active) setIsLoading(false);
-    });
-
-    return () => {
-      active = false;
-    };
-  }, [id, restaurant]);
+      return () => {
+        active = false;
+      };
+    }, [id, restaurant]);
 
   const hasVariants = variants.length > 0;
 
@@ -130,329 +130,348 @@ export default function FoodProductScreen() {
   const restaurantName = useMemo(() => {
     if (dbBusiness?.name) return dbBusiness.name;
     if (dbProduct?.businessName) return dbProduct.businessName;
-    if (restaurant === 'traditional') return "Saveurs de M'Saken";
-    if (restaurant === 'karma') return 'Karma Kitchen';
-    return dbBusiness?.name || 'Restaurant';
-  }, [dbBusiness, dbProduct, restaurant]);
+  return 'Restaurant';
+}, [dbBusiness, dbProduct]);
 
-  const toggleOption = (option: SelectedCartOption) => {
-    setSelectedOptions((current) => {
-      const exists = current.some((o) => o.id === option.id);
-      if (exists) {
-        return current.filter((o) => o.id !== option.id);
-      }
-      return [...current, option];
-    });
-  };
+const toggleOption = (option: SelectedCartOption) => {
+  setSelectedOptions((current) => {
+    const exists = current.some((o) => o.id === option.id);
+    if (exists) {
+      return current.filter((o) => o.id !== option.id);
+    }
+    return [...current, option];
+  });
+};
 
-  const optionsTotalMillimes = selectedOptions.reduce((acc, opt) => acc + opt.priceMillimes, 0);
-  const unitTotalMillimes = effectiveBasePriceMillimes + optionsTotalMillimes;
-  const lineTotalMillimes = unitTotalMillimes * quantity;
+const optionsTotalMillimes = selectedOptions.reduce((acc, opt) => acc + opt.priceMillimes, 0);
+const unitTotalMillimes = effectiveBasePriceMillimes + optionsTotalMillimes;
+const lineTotalMillimes = unitTotalMillimes * quantity;
 
-  const canAddToCart = !hasVariants || selectedVariant !== null;
+const canAddToCart = !hasVariants || selectedVariant !== null;
 
-  const handleAddToCart = () => {
-    if (!canAddToCart) return;
+const handleAddToCart = () => {
+  if (!canAddToCart) return;
 
-    addProduct({
-      productId: id || 'food_item',
-      productType: 'food',
-      businessId: dbProduct?.businessId || restaurant || 'restaurant_item',
-      businessName: restaurantName,
-      productName,
-      productImage,
-      unitPriceMillimes: effectiveBasePriceMillimes,
-      variantId: selectedVariant?.id,
-      variantName: selectedVariant?.name,
-      selectedOptions,
-      quantity,
-      maxQuantity: selectedVariant?.maxQuantity ?? dbProduct?.maxQuantity ?? 30,
-    });
+  addProduct({
+    productId: id || 'food_item',
+    productType: 'food',
+    businessId: dbProduct?.businessId || restaurant || 'restaurant_item',
+    businessName: restaurantName,
+    productName,
+    productImage,
+    unitPriceMillimes: effectiveBasePriceMillimes,
+    variantId: selectedVariant?.id,
+    variantName: selectedVariant?.name,
+    selectedOptions,
+    quantity,
+    maxQuantity: selectedVariant?.maxQuantity ?? dbProduct?.maxQuantity ?? 30,
+  });
 
-    // Feedback visuel + réinitialisation pour permettre un autre variant
-    setJustAdded(true);
-    setSelectedVariant(null);
-    setSelectedOptions([]);
-    setQuantity(1);
-    setTimeout(() => setJustAdded(false), 2000);
-  };
+  // Feedback visuel + réinitialisation pour permettre un autre variant
+  setJustAdded(true);
+  setSelectedVariant(null);
+  setSelectedOptions([]);
+  setQuantity(1);
+  setTimeout(() => setJustAdded(false), 2000);
+};
 
-  if (!dbProduct && !isLoading) {
-    return (
-      <Screen style={styles.notFoundContainer}>
-        <Ionicons name="alert-circle-outline" size={52} color={colors.primary} />
-        <Text style={styles.notFoundTitle}>Plat introuvable</Text>
-        <Text style={styles.notFoundSubtitle}>
-          Ce plat n'est pas encore disponible ou a été retiré de la carte.
-        </Text>
-        <Pressable style={styles.notFoundBackBtn} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={16} color="#FFFFFF" />
-          <Text style={styles.notFoundBackBtnText}>Retour au restaurant</Text>
-        </Pressable>
-      </Screen>
-    );
-  }
-
+if (!dbProduct && !isLoading) {
   return (
-    <Screen scroll>
-      {/* Top Media & Navigation */}
-      <View style={styles.imageWrapper}>
-        <Image source={{ uri: productImage }} style={styles.image} contentFit="cover" />
-        <View style={styles.topNav}>
-          <Pressable
-            style={({ pressed }) => [styles.navCircle, pressed && { opacity: 0.8 }]}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
-          </Pressable>
-          <View style={styles.navCircle}>
-            <CartBadge tintColor="#FFFFFF" />
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.body}>
-        {isLoading ? (
-          <View style={styles.loadingRow}>
-            <ActivityIndicator size="small" color={colors.primary} />
-            <Text style={styles.loadingText}>Chargement du plat et des variantes…</Text>
-          </View>
-        ) : null}
-
-        {/* Vendor Tag */}
-        <View style={styles.vendorPill}>
-          <Ionicons name="restaurant" size={13} color={colors.primary} />
-          <Text style={styles.vendorText}>{restaurantName}</Text>
-        </View>
-
-        <Text style={styles.name}>{productName}</Text>
-        <Text style={styles.description}>
-          {dbProduct?.description ||
-            'Préparé à la minute avec des ingrédients rigoureusement sélectionnés. Livraison chaude et rapide par coursier REDGO.'}
-        </Text>
-
-        <View style={styles.priceRow}>
-          <View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              {hasVariants && !selectedVariant && (
-                <Text style={styles.priceFrom}>À partir de</Text>
-              )}
-              <Text style={styles.price}>
-                {formatMillimes(effectiveBasePriceMillimes)}
-              </Text>
-              {selectedVariant ? (
-                <View style={styles.selectedVariantBadge}>
-                  <Text style={styles.selectedVariantBadgeText}>{selectedVariant.name}</Text>
-                </View>
-              ) : null}
-            </View>
-            {hasVariants && !selectedVariant ? (
-              <Text style={styles.priceHint}>Sélectionnez une variante ci-dessous ↓</Text>
-            ) : hasVariants && selectedVariant ? (
-              <Text style={styles.priceHint}>Variante sélectionnée : {selectedVariant.name}</Text>
-            ) : null}
-          </View>
-          <Text style={styles.fixedPriceBadge}>Prix fixe garanti</Text>
-        </View>
-
-        {/* Badge récapitulatif des articles déjà dans le panier pour ce produit */}
-        {totalThisProductInCart > 0 && (
-          <View style={styles.inCartSummaryCard}>
-            <View style={styles.inCartIconCircle}>
-              <Ionicons name="cart" size={15} color="#22C55E" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.inCartSummaryTitle}>
-                {totalThisProductInCart} dans votre panier
-              </Text>
-              <Text style={styles.inCartSummaryText}>
-                {itemsInCartForThisProduct
-                  .map((it) => `${it.quantity}× ${it.variantName || 'Standard'}`)
-                  .join(' · ')}
-              </Text>
-            </View>
-            <Pressable
-              style={styles.inCartViewCartBtn}
-              onPress={() => router.push('/cart')}
-            >
-              <Text style={styles.inCartViewCartText}>Voir panier</Text>
-              <Ionicons name="chevron-forward" size={13} color="#22C55E" />
-            </Pressable>
-          </View>
-        )}
-
-        {hasVariants && (
-          <View style={styles.variantsSection}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Choisissez votre variante *</Text>
-              <Text style={styles.requiredBadge}>Obligatoire</Text>
-            </View>
-            <Text style={styles.sectionSubtitle}>
-              Touchez une option pour la sélectionner :
-            </Text>
-
-            <View style={styles.variantsList}>
-              {variants.map((v) => {
-                const isSelected = selectedVariant?.id === v.id;
-                const inCartQty = itemsInCartForThisProduct
-                  .filter((it) => it.variantId === v.id)
-                  .reduce((sum, it) => sum + it.quantity, 0);
-
-                if (!dbProduct && !isLoading) {
-    return (
-      <Screen style={styles.notFoundContainer}>
-        <Ionicons name="alert-circle-outline" size={52} color={colors.primary} />
-        <Text style={styles.notFoundTitle}>Plat introuvable</Text>
-        <Text style={styles.notFoundSubtitle}>
-          Ce plat n'est pas encore disponible ou a été retiré de la carte.
-        </Text>
-        <Pressable style={styles.notFoundBackBtn} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={16} color="#FFFFFF" />
-          <Text style={styles.notFoundBackBtnText}>Retour au restaurant</Text>
-        </Pressable>
-      </Screen>
-    );
-  }
-
-  return (
-                  <Pressable
-                    key={v.id}
-                    style={[styles.variantCard, isSelected && styles.variantCardSelected]}
-                    onPress={() => setSelectedVariant(v)}
-                  >
-                    <View style={[styles.radioCircle, isSelected && styles.radioCircleSelected]}>
-                      {isSelected && <View style={styles.radioInner} />}
-                    </View>
-                    <View style={styles.variantInfo}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                        <Text style={[styles.variantName, isSelected && styles.variantNameSelected]}>
-                          {v.name}
-                        </Text>
-                        {inCartQty > 0 && (
-                          <View style={styles.variantCartBadge}>
-                            <Ionicons name="checkmark-circle" size={12} color="#22C55E" />
-                            <Text style={styles.variantCartBadgeText}>
-                              {inCartQty} dans le panier
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text style={styles.variantAvailable}>Disponible</Text>
-                    </View>
-                    <Text style={[styles.variantPrice, isSelected && styles.variantPriceSelected]}>
-                      {formatMillimes(v.priceMillimes)}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        )}
-
-        {/* Options / Suppléments List */}
-        {options.length > 0 ? (
-          <>
-            <Text style={styles.optionsTitle}>Personnalisez votre plat</Text>
-            <View style={styles.optionsList}>
-              {options.map((option) => {
-                const isSelected = selectedOptions.some((o) => o.id === option.id);
-                if (!dbProduct && !isLoading) {
-    return (
-      <Screen style={styles.notFoundContainer}>
-        <Ionicons name="alert-circle-outline" size={52} color={colors.primary} />
-        <Text style={styles.notFoundTitle}>Plat introuvable</Text>
-        <Text style={styles.notFoundSubtitle}>
-          Ce plat n'est pas encore disponible ou a été retiré de la carte.
-        </Text>
-        <Pressable style={styles.notFoundBackBtn} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={16} color="#FFFFFF" />
-          <Text style={styles.notFoundBackBtnText}>Retour au restaurant</Text>
-        </Pressable>
-      </Screen>
-    );
-  }
-
-  return (
-                  <Pressable
-                    key={option.id}
-                    style={[styles.optionCard, isSelected && styles.optionCardSelected]}
-                    onPress={() => toggleOption(option)}
-                  >
-                    <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
-                      {isSelected && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
-                    </View>
-                    <Text style={[styles.optionName, isSelected && styles.optionNameSelected]}>
-                      {option.name}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </>
-        ) : null}
-
-        {/* Quantity Controls */}
-        <View style={styles.quantitySection}>
-          <Text style={styles.quantityLabel}>Quantité</Text>
-          <QuantityStepper
-            value={quantity}
-            min={1}
-            max={selectedVariant?.maxQuantity ?? 20}
-            onChange={setQuantity}
-            size="large"
-          />
-        </View>
-
-        {/* Info : comment ajouter plusieurs variants */}
-        {hasVariants && (
-          <View style={styles.multiVariantHint}>
-            <Ionicons name="information-circle-outline" size={14} color={colors.textSecondary} />
-            <Text style={styles.multiVariantHintText}>
-              Pour commander plusieurs variantes différentes (ex: 2 Thon + 1 Shawarma), ajoutez-les une par une en changeant la sélection à chaque fois.
-            </Text>
-          </View>
-        )}
-
-        {/* Bouton Ajouter au panier */}
-        <Pressable
-          style={({ pressed }) => [
-            styles.submitButton,
-            !canAddToCart && styles.submitButtonDisabled,
-            justAdded && styles.submitButtonSuccess,
-            pressed && canAddToCart && { opacity: 0.9 },
-          ]}
-          disabled={!canAddToCart}
-          onPress={handleAddToCart}
-        >
-          <Ionicons
-            name={justAdded ? 'checkmark-circle' : canAddToCart ? 'cart' : 'alert-circle-outline'}
-            size={20}
-            color="#FFFFFF"
-          />
-          <Text style={styles.submitButtonText}>
-            {justAdded
-              ? `✓ Ajouté au panier ! (${totalThisProductInCart} au total)`
-              : !canAddToCart
-                ? 'Choisissez une variante ↑'
-                : selectedVariant
-                  ? `Ajouter · ${selectedVariant.name} · ${formatMillimes(lineTotalMillimes)}`
-                  : `Ajouter au panier · ${formatMillimes(lineTotalMillimes)}`}
-          </Text>
-        </Pressable>
-      </View>
+    <Screen style={styles.notFoundContainer}>
+      <Ionicons name="alert-circle-outline" size={52} color={colors.primary} />
+      <Text style={styles.notFoundTitle}>Plat introuvable</Text>
+      <Text style={styles.notFoundSubtitle}>
+        Ce plat n'est pas encore disponible ou a été retiré de la carte.
+      </Text>
+      <Pressable style={styles.notFoundBackBtn} onPress={() => router.back()}>
+        <Ionicons name="arrow-back" size={16} color="#FFFFFF" />
+        <Text style={styles.notFoundBackBtnText}>Retour au restaurant</Text>
+      </Pressable>
     </Screen>
   );
+}
+
+return (
+  <Screen scroll>
+    {/* Top Media & Navigation */}
+    <View style={styles.imageWrapper}>
+      {/* Arrière-plan flouté pour ambiance si l'image est de format particulier */}
+      <Image
+        source={{ uri: productImage }}
+        style={styles.imageBlurBg}
+        contentFit="cover"
+        blurRadius={25}
+      />
+      <View style={styles.imageDimOverlay} />
+
+      {/* Image complète du plat 100% visible (aucun rognage) */}
+      <Image
+        source={{ uri: productImage }}
+        style={styles.image}
+        contentFit="contain"
+      />
+
+      <View style={styles.topNav}>
+        <Pressable
+          style={({ pressed }) => [styles.navCircle, pressed && { opacity: 0.8 }]}
+          onPress={() => router.back()}
+        >
+          <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
+        </Pressable>
+        <View style={styles.navCircle}>
+          <CartBadge tintColor="#FFFFFF" />
+        </View>
+      </View>
+    </View>
+
+    <View style={styles.body}>
+      {isLoading ? (
+        <View style={styles.loadingRow}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={styles.loadingText}>Chargement du plat et des variantes…</Text>
+        </View>
+      ) : null}
+
+      {/* Vendor Tag */}
+      <View style={styles.vendorPill}>
+        <Ionicons name="restaurant" size={13} color={colors.primary} />
+        <Text style={styles.vendorText}>{restaurantName}</Text>
+      </View>
+
+      <Text style={styles.name}>{productName}</Text>
+      <Text style={styles.description}>
+        {dbProduct?.description ||
+          'Préparé à la minute avec des ingrédients rigoureusement sélectionnés. Livraison chaude et rapide par coursier REDGO.'}
+      </Text>
+
+      <View style={styles.priceRow}>
+        <View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {hasVariants && !selectedVariant && (
+              <Text style={styles.priceFrom}>À partir de</Text>
+            )}
+            <Text style={styles.price}>
+              {formatMillimes(effectiveBasePriceMillimes)}
+            </Text>
+            {selectedVariant ? (
+              <View style={styles.selectedVariantBadge}>
+                <Text style={styles.selectedVariantBadgeText}>{selectedVariant.name}</Text>
+              </View>
+            ) : null}
+          </View>
+          {hasVariants && !selectedVariant ? (
+            <Text style={styles.priceHint}>Sélectionnez une variante ci-dessous ↓</Text>
+          ) : hasVariants && selectedVariant ? (
+            <Text style={styles.priceHint}>Variante sélectionnée : {selectedVariant.name}</Text>
+          ) : null}
+        </View>
+        <Text style={styles.fixedPriceBadge}>Prix fixe garanti</Text>
+      </View>
+
+      {/* Badge récapitulatif des articles déjà dans le panier pour ce produit */}
+      {totalThisProductInCart > 0 && (
+        <View style={styles.inCartSummaryCard}>
+          <View style={styles.inCartIconCircle}>
+            <Ionicons name="cart" size={15} color="#22C55E" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.inCartSummaryTitle}>
+              {totalThisProductInCart} dans votre panier
+            </Text>
+            <Text style={styles.inCartSummaryText}>
+              {itemsInCartForThisProduct
+                .map((it) => `${it.quantity}× ${it.variantName || 'Standard'}`)
+                .join(' · ')}
+            </Text>
+          </View>
+          <Pressable
+            style={styles.inCartViewCartBtn}
+            onPress={() => router.push('/cart')}
+          >
+            <Text style={styles.inCartViewCartText}>Voir panier</Text>
+            <Ionicons name="chevron-forward" size={13} color="#22C55E" />
+          </Pressable>
+        </View>
+      )}
+
+      {hasVariants && (
+        <View style={styles.variantsSection}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Choisissez votre variante *</Text>
+            <Text style={styles.requiredBadge}>Obligatoire</Text>
+          </View>
+          <Text style={styles.sectionSubtitle}>
+            Touchez une option pour la sélectionner :
+          </Text>
+
+          <View style={styles.variantsList}>
+            {variants.map((v) => {
+              const isSelected = selectedVariant?.id === v.id;
+              const inCartQty = itemsInCartForThisProduct
+                .filter((it) => it.variantId === v.id)
+                .reduce((sum, it) => sum + it.quantity, 0);
+
+                return (
+                <Pressable
+                  key={v.id}
+                  style={[styles.variantCard, isSelected && styles.variantCardSelected]}
+                  onPress={() => setSelectedVariant(v)}
+                >
+                  <View style={[styles.radioCircle, isSelected && styles.radioCircleSelected]}>
+                    {isSelected && <View style={styles.radioInner} />}
+                  </View>
+                  <View style={styles.variantInfo}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <Text style={[styles.variantName, isSelected && styles.variantNameSelected]}>
+                        {v.name}
+                      </Text>
+                      {inCartQty > 0 && (
+                        <View style={styles.variantCartBadge}>
+                          <Ionicons name="checkmark-circle" size={12} color="#22C55E" />
+                          <Text style={styles.variantCartBadgeText}>
+                            {inCartQty} dans le panier
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.variantAvailable}>Disponible</Text>
+                  </View>
+                  <Text style={[styles.variantPrice, isSelected && styles.variantPriceSelected]}>
+                    {formatMillimes(v.priceMillimes)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
+      {/* Options / Suppléments List */}
+      {options.length > 0 ? (
+        <>
+          <Text style={styles.optionsTitle}>Personnalisez votre plat</Text>
+          <View style={styles.optionsList}>
+            {options.map((option) => {
+              const isSelected = selectedOptions.some((o) => o.id === option.id);
+              if (!dbProduct && !isLoading) {
+                return (
+                  <Screen style={styles.notFoundContainer}>
+                    <Ionicons name="alert-circle-outline" size={52} color={colors.primary} />
+                    <Text style={styles.notFoundTitle}>Plat introuvable</Text>
+                    <Text style={styles.notFoundSubtitle}>
+                      Ce plat n'est pas encore disponible ou a été retiré de la carte.
+                    </Text>
+                    <Pressable style={styles.notFoundBackBtn} onPress={() => router.back()}>
+                      <Ionicons name="arrow-back" size={16} color="#FFFFFF" />
+                      <Text style={styles.notFoundBackBtnText}>Retour au restaurant</Text>
+                    </Pressable>
+                  </Screen>
+                );
+              }
+
+              return (
+                <Pressable
+                  key={option.id}
+                  style={[styles.optionCard, isSelected && styles.optionCardSelected]}
+                  onPress={() => toggleOption(option)}
+                >
+                  <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+                    {isSelected && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
+                  </View>
+                  <Text style={[styles.optionName, isSelected && styles.optionNameSelected]}>
+                    {option.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      ) : null}
+
+      {/* Quantity Controls */}
+      <View style={styles.quantitySection}>
+        <Text style={styles.quantityLabel}>Quantité</Text>
+        <QuantityStepper
+          value={quantity}
+          min={1}
+          max={selectedVariant?.maxQuantity ?? 20}
+          onChange={setQuantity}
+          size="large"
+        />
+      </View>
+
+      {/* Info : comment ajouter plusieurs variants */}
+      {hasVariants && (
+        <View style={styles.multiVariantHint}>
+          <Ionicons name="information-circle-outline" size={14} color={colors.textSecondary} />
+          <Text style={styles.multiVariantHintText}>
+            Pour commander plusieurs variantes différentes (ex: 2 Thon + 1 Shawarma), ajoutez-les une par une en changeant la sélection à chaque fois.
+          </Text>
+        </View>
+      )}
+
+      {/* Bouton Ajouter au panier */}
+      <Pressable
+        style={({ pressed }) => [
+          styles.submitButton,
+          !canAddToCart && styles.submitButtonDisabled,
+          justAdded && styles.submitButtonSuccess,
+          pressed && canAddToCart && { opacity: 0.9 },
+        ]}
+        disabled={!canAddToCart}
+        onPress={handleAddToCart}
+      >
+        <Ionicons
+          name={justAdded ? 'checkmark-circle' : canAddToCart ? 'cart' : 'alert-circle-outline'}
+          size={20}
+          color="#FFFFFF"
+        />
+        <Text style={styles.submitButtonText}>
+          {justAdded
+            ? `✓ Ajouté au panier ! (${totalThisProductInCart} au total)`
+            : !canAddToCart
+              ? 'Choisissez une variante ↑'
+              : selectedVariant
+                ? `Ajouter · ${selectedVariant.name} · ${formatMillimes(lineTotalMillimes)}`
+                : `Ajouter au panier · ${formatMillimes(lineTotalMillimes)}`}
+        </Text>
+      </Pressable>
+    </View>
+  </Screen>
+);
 }
 
 const styles = StyleSheet.create({
   imageWrapper: {
     position: 'relative',
     width: '100%',
-    height: 280,
+    height: 300,
+    backgroundColor: '#09090B',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imageBlurBg: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0.35,
+  },
+  imageDimOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(9, 9, 11, 0.45)',
   },
   image: {
     width: '100%',
     height: '100%',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   topNav: {
     position: 'absolute',
