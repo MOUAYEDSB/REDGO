@@ -205,6 +205,55 @@ export async function fetchRestaurantProducts(businessId: string): Promise<Catal
 }
 
 /**
+ * Récupère tous les plats de restaurants actifs depuis Supabase
+ * avec le nom de l'établissement et les variantes.
+ */
+export async function fetchAllActiveFoodDishes(): Promise<CatalogProduct[]> {
+  try {
+    const client = requireSupabase();
+    const { data, error } = await client
+      .from('products')
+      .select('*, businesses!inner(id, name, kind, is_active), product_variants(id, name, price_millimes, is_available, sort_order)')
+      .eq('businesses.kind', 'restaurant')
+      .eq('businesses.is_active', true)
+      .eq('is_available', true)
+      .order('sort_order', { ascending: true })
+      .order('name', { ascending: true });
+
+    if (error) {
+      console.warn('Erreur fetchAllActiveFoodDishes Supabase :', error.message);
+      return [];
+    }
+
+    return (data ?? []).map((row) => {
+      const variantsList = ((row as any).product_variants ?? []).filter((v: any) => v.is_available !== false);
+      variantsList.sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+      const firstVariant = variantsList[0];
+
+      return {
+        id: row.id,
+        businessId: row.business_id,
+        businessName: (row as any).businesses?.name || undefined,
+        name: row.name,
+        description: row.description,
+        category: row.category || 'Plats',
+        priceMillimes: firstVariant ? Number(firstVariant.price_millimes) : row.price_millimes,
+        imageUrl: row.image_url,
+        maxQuantity: row.max_quantity,
+        isAvailable: row.is_available,
+        sortOrder: row.sort_order,
+        hasVariants: Boolean((row as any).has_variants || variantsList.length > 0),
+        defaultVariantName: firstVariant?.name,
+        defaultVariantPriceMillimes: firstVariant ? Number(firstVariant.price_millimes) : undefined,
+      };
+    });
+  } catch (err) {
+    console.warn('fetchAllActiveFoodDishes catch :', err);
+    return [];
+  }
+}
+
+/**
  * Récupère un produit unique par son identifiant.
  */
 export async function fetchProductById(productId: string): Promise<CatalogProduct | null> {

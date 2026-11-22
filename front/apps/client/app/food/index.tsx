@@ -12,15 +12,16 @@ import {
   View,
 } from 'react-native';
 import { CartBadge } from '../../components/CartBadge';
-import { FoodCategoryNeonBadge, getCategoryFoodImage } from '../../components/FoodCategoryNeonIcon';
+import { getCategoryFoodImage, getCategoryIconImage } from '../../components/FoodCategoryNeonIcon';
 import { Screen } from '../../components/Screen';
 import { colors } from '../../constants/theme';
+import { useCart } from '../../context/CartContext';
+import { formatMillimes } from '../../services/cart';
 import {
   CatalogBusinessWithCategories,
-  CatalogCategory,
-  fetchAllActiveCategories,
+  CatalogProduct,
+  fetchAllActiveFoodDishes,
   fetchRestaurantsWithCategories,
-  getCategoryFallbackOrder,
 } from '../../services/catalog';
 
 type DisplayRestaurant = {
@@ -35,14 +36,14 @@ type DisplayRestaurant = {
   categoryNames: string[];
 };
 
-  type CategoryFilter = {
-    id: string;
-    name: string;
-    sortOrder: number;
-    count: number;
-  };
+type CategoryFilter = {
+  id: string;
+  name: string;
+  sortOrder: number;
+  count: number;
+};
 
-// Filtres majeurs rapides dans l'ordre canonique (Pizzas d'abord -> Boissons à la fin)
+// Filtres majeurs rapides dans l'ordre canonique (les 12 catégories de l'image de référence)
 const CANONICAL_FOOD_FILTERS = [
   { id: 'all', name: 'Tous', sortOrder: 0 },
   { id: 'pizzas', name: 'Pizzas', sortOrder: 10 },
@@ -53,64 +54,92 @@ const CANONICAL_FOOD_FILTERS = [
   { id: 'chappati', name: 'Chapati', sortOrder: 60 },
   { id: 'mtabga', name: 'Mtabga', sortOrder: 65 },
   { id: 'tabouna', name: 'Tabouna', sortOrder: 70 },
-  { id: 'panini', name: 'Panini', sortOrder: 80 },
-  { id: 'plats-tunisiens', name: 'Plats Tunisiens', sortOrder: 100 },
-  { id: 'desserts', name: 'Desserts', sortOrder: 110 },
-  { id: 'boissons-eaux', name: 'Boissons', sortOrder: 120 },
+  { id: 'panini', name: 'Panini / Calzones', sortOrder: 80 },
+  { id: 'plats-tunisiens', name: 'Plats Tunisiens & Grillades', sortOrder: 100 },
+  { id: 'desserts', name: 'Desserts & Sucré', sortOrder: 110 },
+  { id: 'boissons-eaux', name: 'Boissons & Eaux', sortOrder: 120 },
 ];
 
 // Vérifie si un restaurant correspond à une catégorie donnée
 function matchesRestaurantCategory(
   restaurant: DisplayRestaurant,
   targetId: string,
-  targetName: string
+  targetName: string,
+  allDishes: CatalogProduct[] = []
 ): boolean {
   if (targetId === 'all' || targetName === 'Tous') return true;
 
   const targetIdLower = targetId.toLowerCase().trim();
   const targetNameLower = targetName.toLowerCase().trim();
 
-  // 1. Correspondance directe par ID
+  // 1. Correspondance directe par les plats enregistrés sous ce restaurant
+  const restaurantDishes = allDishes.filter((d) => d.businessId === restaurant.id);
+  for (const d of restaurantDishes) {
+    const dCat = (d.category || '').toLowerCase();
+    const dName = (d.name || '').toLowerCase();
+    if (targetIdLower === 'pizzas' && (dCat.includes('pizza') || dName.includes('pizza'))) return true;
+    if (targetIdLower === 'ma9loub' && (dCat.includes('makloub') || dCat.includes('ma9loub') || dCat.includes('sandwich'))) return true;
+    if (targetIdLower === 'burgers' && (dCat.includes('burger') || dName.includes('burger'))) return true;
+    if (targetIdLower === 'tacos' && (dCat.includes('tacos') || dName.includes('tacos'))) return true;
+    if (targetIdLower === 'baquette-farcie' && (dCat.includes('baguette') || dCat.includes('baquette'))) return true;
+    if (targetIdLower === 'chappati' && (dCat.includes('chapati') || dCat.includes('chappati'))) return true;
+    if (targetIdLower === 'mtabga' && (dCat.includes('mtabga') || dName.includes('mtabga'))) return true;
+    if (targetIdLower === 'tabouna' && (dCat.includes('tabouna') || dName.includes('tabouna'))) return true;
+    if (targetIdLower === 'panini' && (dCat.includes('panini') || dCat.includes('cornet') || dCat.includes('calzone') || dCat.includes('fleur'))) return true;
+    if (targetIdLower === 'plats-tunisiens' && (dCat.includes('plat') || dCat.includes('grillade') || dCat.includes('tunisien') || dCat.includes('dorade') || dCat.includes('escalope'))) return true;
+    if (targetIdLower === 'desserts' && (dCat.includes('dessert') || dCat.includes('sucre') || dCat.includes('sucré'))) return true;
+    if (targetIdLower === 'boissons-eaux' && (dCat.includes('boisson') || dCat.includes('eau') || dCat.includes('jus') || dCat.includes('soda'))) return true;
+  }
+
+  // 2. Correspondance directe par ID
   if (restaurant.categoryIds.some((cid) => cid.toLowerCase() === targetIdLower)) {
     return true;
   }
 
-  // 2. Correspondance par alias d'identifiants
+  // 3. Correspondance par alias d'identifiants
   for (const cId of restaurant.categoryIds) {
     const cidNorm = cId.toLowerCase();
+    if (targetIdLower === 'pizzas' && cidNorm.includes('pizza')) return true;
     if (targetIdLower === 'ma9loub' && (cidNorm.includes('makloub') || cidNorm.includes('ma9loub') || cidNorm.includes('sandwich'))) return true;
+    if (targetIdLower === 'burgers' && cidNorm.includes('burger')) return true;
+    if (targetIdLower === 'tacos' && cidNorm.includes('tacos')) return true;
     if (targetIdLower === 'chappati' && (cidNorm.includes('chapati') || cidNorm.includes('chappati'))) return true;
     if (targetIdLower === 'baquette-farcie' && (cidNorm.includes('baguette') || cidNorm.includes('baquette'))) return true;
+    if (targetIdLower === 'mtabga' && cidNorm.includes('mtabga')) return true;
+    if (targetIdLower === 'tabouna' && cidNorm.includes('tabouna')) return true;
+    if (targetIdLower === 'panini' && (cidNorm.includes('panini') || cidNorm.includes('cornet') || cidNorm.includes('calzone') || cidNorm.includes('fleur'))) return true;
     if (targetIdLower === 'desserts' && (cidNorm.includes('dessert') || cidNorm.includes('sucre'))) return true;
     if (targetIdLower === 'boissons-eaux' && (cidNorm.includes('boisson') || cidNorm.includes('eau'))) return true;
     if (targetIdLower === 'plats-tunisiens' && (cidNorm.includes('plat') || cidNorm.includes('grillade'))) return true;
   }
 
-  // 3. Correspondance textuelle souple sur les noms de catégories assignées
+  // 4. Correspondance textuelle souple sur les noms de catégories assignées
   for (const cn of restaurant.categoryNames) {
     const cnLower = cn.toLowerCase().trim();
     if (cnLower === targetNameLower) return true;
     if (cnLower.includes(targetNameLower) || targetNameLower.includes(cnLower)) return true;
 
     // Synonymes tunisiens courants
-    if (targetNameLower === 'chapati' && (cnLower.includes('chapati') || cnLower.includes('chappati'))) return true;
-    if (targetNameLower === 'makloub' && (cnLower.includes('makloub') || cnLower.includes('ma9loub') || cnLower.includes('sandwich'))) return true;
-    if (targetNameLower === 'baguette farcie' && (cnLower.includes('baguette') || cnLower.includes('baquette'))) return true;
-    if (targetNameLower === 'tabouna' && cnLower.includes('tabouna')) return true;
-    if (targetNameLower === 'mtabga' && cnLower.includes('mtabga')) return true;
-    if (targetNameLower === 'desserts' && (cnLower.includes('dessert') || cnLower.includes('sucré'))) return true;
-    if (targetNameLower === 'boissons' && (cnLower.includes('boisson') || cnLower.includes('eau'))) return true;
-    if (targetNameLower === 'plats tunisiens' && (cnLower.includes('plat') || cnLower.includes('grillade') || cnLower.includes('tunisien'))) return true;
+    if (targetIdLower === 'chappati' && (cnLower.includes('chapati') || cnLower.includes('chappati'))) return true;
+    if (targetIdLower === 'ma9loub' && (cnLower.includes('makloub') || cnLower.includes('ma9loub') || cnLower.includes('sandwich'))) return true;
+    if (targetIdLower === 'baquette-farcie' && (cnLower.includes('baguette') || cnLower.includes('baquette'))) return true;
+    if (targetIdLower === 'tabouna' && cnLower.includes('tabouna')) return true;
+    if (targetIdLower === 'mtabga' && cnLower.includes('mtabga')) return true;
+    if (targetIdLower === 'panini' && (cnLower.includes('panini') || cnLower.includes('cornet') || cnLower.includes('calzone'))) return true;
+    if (targetIdLower === 'desserts' && (cnLower.includes('dessert') || cnLower.includes('sucré'))) return true;
+    if (targetIdLower === 'boissons-eaux' && (cnLower.includes('boisson') || cnLower.includes('eau'))) return true;
+    if (targetIdLower === 'plats-tunisiens' && (cnLower.includes('plat') || cnLower.includes('grillade') || cnLower.includes('tunisien'))) return true;
   }
 
-  // 4. Fallback sur le titre ou la description du restaurant
+  // 5. Fallback sur le titre ou la description du restaurant
   const fullText = `${restaurant.name} ${restaurant.food}`.toLowerCase();
-  if (targetNameLower === 'chapati' && (fullText.includes('chapati') || fullText.includes('chappati'))) return true;
-  if (targetNameLower === 'mtabga' && fullText.includes('mtabga')) return true;
-  if (targetNameLower === 'tabouna' && fullText.includes('tabouna')) return true;
-  if (targetNameLower === 'makloub' && (fullText.includes('makloub') || fullText.includes('ma9loub'))) return true;
-  if (targetNameLower === 'pizzas' && fullText.includes('pizza')) return true;
-  if (targetNameLower === 'burgers' && fullText.includes('burger')) return true;
+  if (targetIdLower === 'chappati' && (fullText.includes('chapati') || fullText.includes('chappati'))) return true;
+  if (targetIdLower === 'mtabga' && fullText.includes('mtabga')) return true;
+  if (targetIdLower === 'tabouna' && fullText.includes('tabouna')) return true;
+  if (targetIdLower === 'ma9loub' && (fullText.includes('makloub') || fullText.includes('ma9loub'))) return true;
+  if (targetIdLower === 'pizzas' && fullText.includes('pizza')) return true;
+  if (targetIdLower === 'burgers' && fullText.includes('burger')) return true;
+  if (targetIdLower === 'tacos' && fullText.includes('tacos')) return true;
 
   return false;
 }
@@ -127,20 +156,99 @@ function getRestaurantRating(id: string): string {
   return ratings[index];
 }
 
+/**
+ * Carte de plat moderne, arrondie & interactive avec image, restaurant et bouton d'ajout
+ */
+function FoodDishCard({
+  dish,
+  onPress,
+  onQuickAdd,
+}: {
+  dish: CatalogProduct;
+  onPress: () => void;
+  onQuickAdd: () => void;
+}) {
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.dishCard,
+        pressed && { transform: [{ scale: 0.97 }], opacity: 0.9 },
+      ]}
+      onPress={onPress}
+    >
+      <View style={styles.dishImageWrapper}>
+        <Image
+          source={{
+            uri:
+              dish.imageUrl ||
+              'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500',
+          }}
+          style={styles.dishImage}
+          contentFit="cover"
+        />
+        {dish.businessName ? (
+          <View style={styles.dishRestaurantBadge}>
+            <Text style={styles.dishRestaurantText} numberOfLines={1}>
+              {dish.businessName}
+            </Text>
+          </View>
+        ) : null}
+        {dish.hasVariants ? (
+          <View style={styles.dishVariantsBadge}>
+            <Text style={styles.dishVariantsText}>Tailles</Text>
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles.dishContent}>
+        <Text style={styles.dishName} numberOfLines={1}>
+          {dish.name}
+        </Text>
+        <Text style={styles.dishCategory} numberOfLines={1}>
+          {dish.category || 'Spécialité'}
+        </Text>
+
+        <View style={styles.dishFooter}>
+          <Text style={styles.dishPrice}>{formatMillimes(dish.priceMillimes)}</Text>
+          <Pressable
+            style={({ pressed }) => [
+              styles.dishAddBtn,
+              dish.hasVariants && styles.dishOptionsBtn,
+              pressed && { opacity: 0.7, transform: [{ scale: 0.9 }] },
+            ]}
+            onPress={(e) => {
+              e.stopPropagation();
+              onQuickAdd();
+            }}
+            hitSlop={8}
+          >
+            <Ionicons
+              name={dish.hasVariants ? 'arrow-forward' : 'add'}
+              size={16}
+              color="#FFFFFF"
+            />
+          </Pressable>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
 export default function FoodHome() {
   const [selectedCatId, setSelectedCatId] = useState('all');
   const [dbRestaurants, setDbRestaurants] = useState<CatalogBusinessWithCategories[]>([]);
-  const [dbCategories, setDbCategories] = useState<CatalogCategory[]>([]);
+  const [dbDishes, setDbDishes] = useState<CatalogProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const { addProduct } = useCart();
 
   const loadData = useCallback(async () => {
-    const [restaurantsList, categoriesList] = await Promise.all([
+    const [restaurantsList, dishesList] = await Promise.all([
       fetchRestaurantsWithCategories(),
-      fetchAllActiveCategories('restaurant'),
+      fetchAllActiveFoodDishes(),
     ]);
     setDbRestaurants(restaurantsList);
-    setDbCategories(categoriesList);
+    setDbDishes(dishesList);
     setIsLoading(false);
     setRefreshing(false);
   }, []);
@@ -171,321 +279,479 @@ export default function FoodHome() {
     }));
   }, [dbRestaurants]);
 
-    // Catégories dynamiques : fusion de la base de données et des filtres canoniques
-    const categories: CategoryFilter[] = useMemo(() => {
-      const baseList: { id: string; name: string; sortOrder: number }[] = CANONICAL_FOOD_FILTERS.map((f) => ({
-        id: f.id,
-        name: f.name,
-        sortOrder: f.sortOrder,
-      }));
+  // Exactement et uniquement les 12 catégories de l'image de référence (aucune répétition d'image)
+  const categories: CategoryFilter[] = useMemo(() => {
+      return CANONICAL_FOOD_FILTERS.map((cat) => {
+        const count =
+          cat.id === 'all'
+            ? restaurants.length
+            : restaurants.filter((r) => matchesRestaurantCategory(r, cat.id, cat.name, dbDishes)).length;
+        return {
+          id: cat.id,
+          name: cat.name,
+          sortOrder: cat.sortOrder,
+          count,
+        };
+      });
+    }, [restaurants, dbDishes]);
 
-          // Intégrer les catégories supplémentaires de la base qui ne sont pas encore dans baseList
-          for (const dbCat of dbCategories) {
-            const alreadyRepresented = baseList.some(
-              (f) =>
-                f.id === dbCat.id ||
-                f.name.toLowerCase() === dbCat.name.toLowerCase() ||
-                (f.id === 'chappati' && dbCat.id === 'chappati') ||
-                (f.id === 'ma9loub' && dbCat.id === 'ma9loub') ||
-                (f.id === 'baquette-farcie' && dbCat.id === 'baquette-farcie') ||
-                (f.id === 'boissons-eaux' && dbCat.id === 'boissons-eaux')
-            );
-            if (!alreadyRepresented) {
-              baseList.push({
-                id: dbCat.id,
-                name: dbCat.name,
-                sortOrder: typeof dbCat.sortOrder === 'number' && dbCat.sortOrder > 0 ? dbCat.sortOrder : getCategoryFallbackOrder(dbCat.name),
-              });
-            }
-          }
-
-    // Calculer le nombre de restaurants correspondants pour chaque filtre
-    const withCounts = baseList.map((cat) => {
-      const count =
-        cat.id === 'all'
-          ? restaurants.length
-          : restaurants.filter((r) => matchesRestaurantCategory(r, cat.id, cat.name)).length;
-      return { ...cat, count };
-    });
-
-    // Garder seulement les catégories qui ont au moins 1 restaurant (plus 'Tous')
-    const activeFilters = withCounts.filter((c) => c.id === 'all' || c.count > 0);
-
-    // Ordonner : Pizzas d'abord (10), Makloub (20), Burgers (30)... Boissons à la fin (120)
-    activeFilters.sort((a, b) => a.sortOrder - b.sortOrder);
-
-    return activeFilters;
-  }, [dbCategories, restaurants]);
-
-  // Filtre par catégorie réelle (table business_categories)
+  // Filtre par catégorie réelle (table business_categories ou plats servis)
   const filteredRestaurants = useMemo(() => {
-  if (selectedCatId === 'all') return restaurants;
-  const cat = categories.find((c) => c.id === selectedCatId);
-  if (!cat) return restaurants;
-  return restaurants.filter((r) => matchesRestaurantCategory(r, cat.id, cat.name));
-}, [restaurants, selectedCatId, categories]);
+    if (selectedCatId === 'all') return restaurants;
+    const cat = categories.find((c) => c.id === selectedCatId);
+    if (!cat) return restaurants;
+    return restaurants.filter((r) => matchesRestaurantCategory(r, cat.id, cat.name, dbDishes));
+  }, [restaurants, selectedCatId, categories, dbDishes]);
 
-const currentCategory = useMemo(() => {
-  return categories.find((c) => c.id === selectedCatId) || categories[0] || { id: 'all', name: 'Tous', count: 0, sortOrder: 0 };
-}, [categories, selectedCatId]);
+  const currentCategory = useMemo(() => {
+    return categories.find((c) => c.id === selectedCatId) || categories[0] || { id: 'all', name: 'Tous', count: 0, sortOrder: 0 };
+  }, [categories, selectedCatId]);
 
-return (
-  <Screen
-    scroll
-    style={styles.screen}
-    refreshControl={
-      <RefreshControl
-        refreshing={refreshing}
-        onRefresh={onRefresh}
-        tintColor={colors.primary}
-        colors={[colors.primary]}
-      />
+  // Sections de plats thématiques filtrées depuis la base Supabase
+  // 1. Nos Pizzas phares
+  const popularPizzas = useMemo(() => {
+    return dbDishes.filter((d) => {
+      const cat = (d.category || '').toLowerCase();
+      const name = (d.name || '').toLowerCase();
+      return cat.includes('pizza') || name.includes('pizza');
+    });
+  }, [dbDishes]);
+
+  // 2. Les Incontournables Fast-Food (Makloub, Baguette farcie, Tacos, Chapati, Burgers...)
+  const popularFastFood = useMemo(() => {
+    return dbDishes.filter((d) => {
+      const cat = (d.category || '').toLowerCase();
+      const name = (d.name || '').toLowerCase();
+      return (
+        cat.includes('makloub') || cat.includes('ma9loub') || name.includes('makloub') ||
+        cat.includes('chapati') || cat.includes('chappati') || name.includes('chapati') ||
+        cat.includes('baguette') || cat.includes('baquette') || name.includes('baguette') ||
+        cat.includes('tacos') || name.includes('tacos') ||
+        cat.includes('burger') || name.includes('burger') ||
+        cat.includes('calzone') || cat.includes('cornet') || cat.includes('panini') ||
+        cat.includes('tabouna') || cat.includes('mtabga')
+      );
+    });
+  }, [dbDishes]);
+
+  // 3. Plats Tunisiens & Grillades
+  const popularPlats = useMemo(() => {
+    return dbDishes.filter((d) => {
+      const cat = (d.category || '').toLowerCase();
+      return cat.includes('plat') || cat.includes('grillade') || cat.includes('tunisien') || cat.includes('dorade') || cat.includes('escalope');
+    });
+  }, [dbDishes]);
+
+  // 4. Plats de la catégorie sélectionnée (quand != 'all')
+  const categoryDishes = useMemo(() => {
+    if (selectedCatId === 'all') return [];
+    const targetIdLower = selectedCatId.toLowerCase();
+    const targetNameLower = currentCategory.name.toLowerCase();
+
+    return dbDishes.filter((d) => {
+      const dCat = (d.category || '').toLowerCase();
+      const dName = (d.name || '').toLowerCase();
+      if (dCat === targetIdLower || dCat === targetNameLower) return true;
+      if (targetIdLower === 'pizzas' && (dCat.includes('pizza') || dName.includes('pizza'))) return true;
+      if (targetIdLower === 'ma9loub' && (dCat.includes('makloub') || dCat.includes('ma9loub') || dCat.includes('sandwich'))) return true;
+      if (targetIdLower === 'chappati' && (dCat.includes('chapati') || dCat.includes('chappati'))) return true;
+      if (targetIdLower === 'baquette-farcie' && (dCat.includes('baguette') || dCat.includes('baquette'))) return true;
+      if (targetIdLower === 'tacos' && (dCat.includes('tacos') || dName.includes('tacos'))) return true;
+      if (targetIdLower === 'burgers' && (dCat.includes('burger') || dName.includes('burger'))) return true;
+      if (targetIdLower === 'tabouna' && (dCat.includes('tabouna') || dName.includes('tabouna'))) return true;
+      if (targetIdLower === 'mtabga' && (dCat.includes('mtabga') || dName.includes('mtabga'))) return true;
+      if (targetIdLower === 'panini' && (dCat.includes('panini') || dCat.includes('cornet') || dCat.includes('calzone'))) return true;
+      if (targetIdLower === 'plats-tunisiens' && (dCat.includes('plat') || dCat.includes('grillade') || dCat.includes('tunisien'))) return true;
+      if (targetIdLower === 'desserts' && (dCat.includes('dessert') || dCat.includes('sucre') || dCat.includes('sucré'))) return true;
+      if (targetIdLower === 'boissons-eaux' && (dCat.includes('boisson') || dCat.includes('eau') || dCat.includes('jus'))) return true;
+      return false;
+    });
+  }, [dbDishes, selectedCatId, currentCategory]);
+
+  const handleQuickAddDish = (dish: CatalogProduct) => {
+    if (dish.hasVariants) {
+      // Produit avec variantes (tailles/options) -> rediriger vers la page produit pour choisir
+      router.push(`/food/product/${dish.id}?restaurant=${dish.businessId}`);
+      return;
     }
-  >
-    {/* Top Header */}
-    <View style={styles.topHeader}>
-      <View style={styles.headerLeft}>
-        <Pressable
-          style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.7 }]}
-          onPress={() => router.back()}
-        >
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-        </Pressable>
-        <View>
-          <Text style={styles.title}>REDGO Food</Text>
-          <Text style={styles.subtitle}>Restaurants partenaires · M&apos;Saken & Messaadine</Text>
+    addProduct({
+      productId: dish.id,
+      productType: 'food',
+      businessId: dish.businessId,
+      businessName: dish.businessName || 'Restaurant partenaire',
+      productName: dish.name,
+      productImage: dish.imageUrl || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500',
+      unitPriceMillimes: dish.priceMillimes,
+      quantity: 1,
+    });
+  };
+
+  return (
+    <Screen
+      scroll
+      style={styles.screen}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={colors.primary}
+          colors={[colors.primary]}
+        />
+      }
+    >
+      {/* Top Header */}
+      <View style={styles.topHeader}>
+        <View style={styles.headerLeft}>
+          <Pressable
+            style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.7 }]}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+          </Pressable>
+          <View>
+            <Text style={styles.title}>REDGO Food</Text>
+            <Text style={styles.subtitle}>M&apos;Saken & Messaadine · Livraison rapide</Text>
+          </View>
         </View>
+
+        <CartBadge />
       </View>
 
-      <CartBadge />
-    </View>
-
-    {/* Categories Visual Showcase (Photo + Icône Néon découpées depuis la référence) */}
-    <View style={styles.featuredSectionHeader}>
-      <Text style={styles.featuredSectionTitle}>Spécialités & Menus</Text>
-      <Text style={styles.featuredSectionSub}>Sélectionnez une catégorie</Text>
-    </View>
-
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={styles.featuredCardsScroll}
-      contentContainerStyle={styles.featuredCardsContent}
-    >
-      {categories.map((cat) => {
-        const isActive = selectedCatId === cat.id;
-        const foodImg = getCategoryFoodImage(cat.id);
-        return (
-          <Pressable
-            key={`visual-${cat.id}`}
-            style={({ pressed }) => [
-              styles.visualCatCard,
-              isActive && styles.visualCatCardActive,
-              pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
-            ]}
-            onPress={() => setSelectedCatId(cat.id)}
-          >
-            <View style={styles.visualCardImageWrapper}>
-              {foodImg ? (
-                <Image
-                  source={foodImg as any}
-                  style={styles.visualCardImage}
-                  contentFit="cover"
-                />
-              ) : (
-                <View style={styles.visualCardPlaceholder}>
-                  <FoodCategoryNeonBadge
-                    categoryId={cat.id}
-                    isActive={isActive}
-                    badgeSize={36}
-                    iconSize={30}
-                  />
+      {/* Categories Rounded Filter — bulles rondes élégantes & fluides */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.roundCategoriesScroll}
+        contentContainerStyle={styles.roundCategoriesRow}
+      >
+        {categories.map((cat) => {
+          const isActive = selectedCatId === cat.id;
+          const foodImg = getCategoryFoodImage(cat.id);
+          const iconImg = getCategoryIconImage(cat.id);
+          return (
+            <Pressable
+              key={cat.id}
+              style={({ pressed }) => [
+                styles.roundCatItem,
+                pressed && { opacity: 0.8, transform: [{ scale: 0.94 }] },
+              ]}
+              onPress={() => setSelectedCatId(cat.id)}
+            >
+              <View style={styles.roundCatCircleContainer}>
+                <View
+                  style={[
+                    styles.roundCatCircle,
+                    isActive && styles.roundCatCircleActive,
+                  ]}
+                >
+                  {foodImg ? (
+                    <Image
+                      source={foodImg as any}
+                      style={styles.roundCatFoodImage}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <View style={styles.allCatWrapper}>
+                      <Image
+                        source={iconImg as any}
+                        style={styles.roundCatAllIcon}
+                        contentFit="contain"
+                      />
+                    </View>
+                  )}
                 </View>
-              )}
-              <View style={styles.visualCardIconOverlay}>
-                <FoodCategoryNeonBadge
-                  categoryId={cat.id}
-                  isActive={isActive}
-                  badgeSize={28}
-                  iconSize={24}
-                />
+
+                {/* Badge miniature néon en superposition */}
+                {foodImg && (
+                  <View style={[styles.miniIconBadge, isActive && styles.miniIconBadgeActive]}>
+                    <Image
+                      source={iconImg as any}
+                      style={styles.miniIconImg}
+                      contentFit="contain"
+                    />
+                  </View>
+                )}
               </View>
-            </View>
-            <View style={styles.visualCardFooter}>
+
               <Text
-                style={[styles.visualCardTitle, isActive && styles.visualCardTitleActive]}
-                numberOfLines={1}
+                style={[styles.roundCatLabel, isActive && styles.roundCatLabelActive]}
+                numberOfLines={2}
               >
                 {cat.name}
               </Text>
-              {cat.id !== 'all' && (
-                <Text style={styles.visualCardSub}>
-                  {cat.count > 0 ? `${cat.count} resto${cat.count > 1 ? 's' : ''}` : 'Bientôt'}
-                </Text>
-              )}
-            </View>
-          </Pressable>
-        );
-      })}
-    </ScrollView>
+              {isActive ? <View style={styles.roundCatActiveDot} /> : null}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
 
-    {/* Categories Filter — ligne horizontale scrollable ordonnée avec icônes néon */}
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={styles.categoryScroll}
-      contentContainerStyle={styles.categoryRow}
-    >
-      {categories.map((cat) => {
-        const isActive = selectedCatId === cat.id;
-        return (
-          <Pressable
-            key={cat.id}
-            style={[styles.category, isActive && styles.categoryActive]}
-            onPress={() => setSelectedCatId(cat.id)}
-          >
-            <FoodCategoryNeonBadge
-              categoryId={cat.id}
-              isActive={isActive}
-              badgeSize={30}
-              iconSize={24}
-            />
-            <Text style={[styles.categoryText, isActive && styles.categoryTextActive]}>
-              {cat.name}
-            </Text>
-            {cat.id !== 'all' && cat.count > 0 && (
-              <View style={[styles.filterBadge, isActive && styles.filterBadgeActive]}>
-                <Text style={[styles.filterBadgeText, isActive && styles.filterBadgeTextActive]}>
-                  {cat.count}
-                </Text>
+      {/* Loading state */}
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={styles.loadingText}>Synchronisation du menu et des restaurants…</Text>
+        </View>
+      ) : null}
+
+      {/* MODE VUE GLOBALE ('Tous') : Sections Food dédiées (Pizzas, Incontournables, etc.) */}
+      {selectedCatId === 'all' && !isLoading && (
+        <>
+          {/* SECTION : Nos meilleures Pizzas 🍕 */}
+          {popularPizzas.length > 0 && (
+            <View style={styles.foodSection}>
+              <View style={styles.foodSectionHeader}>
+                <View>
+                  <Text style={styles.foodSectionTitle}>Nos Meilleures Pizzas 🍕</Text>
+                  <Text style={styles.foodSectionSub}>Pâte fine, croustillante & généreuse</Text>
+                </View>
+                <Pressable
+                  style={styles.seeAllBtn}
+                  onPress={() => setSelectedCatId('pizzas')}
+                >
+                  <Text style={styles.seeAllText}>Voir tout</Text>
+                  <Ionicons name="chevron-forward" size={14} color="#FF2638" />
+                </Pressable>
               </View>
-            )}
-          </Pressable>
-        );
-      })}
-    </ScrollView>
 
-    {/* Loading state */}
-    {isLoading ? (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="small" color={colors.primary} />
-        <Text style={styles.loadingText}>Synchronisation des restaurants…</Text>
-      </View>
-    ) : null}
-
-    {/* Section Restaurants */}
-    <View style={styles.sectionHeaderRow}>
-      <Text style={styles.section}>
-        {selectedCatId === 'all' ? 'Restaurants ouverts' : `Restaurants : ${currentCategory.name}`}
-      </Text>
-      <Text style={styles.countBadge}>
-        {filteredRestaurants.length} disponible{filteredRestaurants.length > 1 ? 's' : ''}
-      </Text>
-    </View>
-
-    {filteredRestaurants.length === 0 && !isLoading ? (
-      <View style={styles.emptyContainer}>
-        <Ionicons name="restaurant-outline" size={44} color="#71717A" />
-        <Text style={styles.emptyTitle}>
-          {selectedCatId === 'all'
-            ? 'Aucun restaurant pour le moment'
-            : `Aucun restaurant dans "${currentCategory.name}"`}
-        </Text>
-        <Text style={styles.emptySubtitle}>
-          Les restaurants partenaires arrivent très bientôt sur REDGO !
-        </Text>
-        {selectedCatId !== 'all' && (
-          <Pressable style={styles.resetFilterButton} onPress={() => setSelectedCatId('all')}>
-            <Text style={styles.resetFilterText}>Voir tous les restaurants</Text>
-          </Pressable>
-        )}
-      </View>
-    ) : (
-      filteredRestaurants.map((restaurant) => (
-        <Pressable
-          key={restaurant.id}
-          style={({ pressed }) => [styles.restaurant, pressed && { borderColor: colors.primary }]}
-          onPress={() => router.push(`/food/restaurant/${restaurant.id}`)}
-        >
-          <Image
-            source={{ uri: restaurant.image }}
-            style={styles.restaurantImage}
-            contentFit="cover"
-          />
-          <View style={styles.restaurantCopy}>
-            <View style={styles.nameRow}>
-              <Text style={styles.restaurantName} numberOfLines={1}>
-                {restaurant.name}
-              </Text>
-              <View style={styles.ratingBadge}>
-                <Ionicons name="star" size={12} color="#FBBF24" />
-                <Text style={styles.ratingText}>{restaurant.rating}</Text>
-              </View>
-            </View>
-            <Text style={styles.restaurantFood} numberOfLines={2}>
-              {restaurant.food}
-            </Text>
-
-            {/* Tags catégories du restaurant */}
-            {restaurant.categoryNames.length > 0 && (
-              <View style={styles.catTagsRow}>
-                {restaurant.categoryNames.slice(0, 3).map((cn) => (
-                  <View key={cn} style={styles.catTag}>
-                    <Text style={styles.catTagText}>{cn}</Text>
-                  </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.foodSectionScroll}
+              >
+                {popularPizzas.slice(0, 8).map((dish) => (
+                  <FoodDishCard
+                    key={dish.id}
+                    dish={dish}
+                    onPress={() =>
+                      router.push(`/food/product/${dish.id}?restaurant=${dish.businessId}`)
+                    }
+                    onQuickAdd={() => handleQuickAddDish(dish)}
+                  />
                 ))}
-              </View>
-            )}
+              </ScrollView>
+            </View>
+          )}
 
-            <View style={styles.meta}>
-              <View style={styles.metaPill}>
-                <Ionicons name="time-outline" size={13} color={colors.success} />
-                <Text style={styles.metaText}>{restaurant.deliveryTime}</Text>
+          {/* SECTION : Incontournables Fast-Food 🔥 */}
+          {popularFastFood.length > 0 && (
+            <View style={styles.foodSection}>
+              <View style={styles.foodSectionHeader}>
+                <View>
+                  <Text style={styles.foodSectionTitle}>Incontournables Fast-Food 🔥</Text>
+                  <Text style={styles.foodSectionSub}>Makloub, Baguette farcie, Tacos & Burgers</Text>
+                </View>
+                <Pressable
+                  style={styles.seeAllBtn}
+                  onPress={() => setSelectedCatId('ma9loub')}
+                >
+                  <Text style={styles.seeAllText}>Explorer</Text>
+                  <Ionicons name="chevron-forward" size={14} color="#FF2638" />
+                </Pressable>
               </View>
-              <View style={styles.metaPill}>
-                <Ionicons name="bicycle-outline" size={13} color={colors.primary} />
-                <Text style={styles.metaText}>{restaurant.deliveryFee}</Text>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.foodSectionScroll}
+              >
+                {popularFastFood.slice(0, 8).map((dish) => (
+                  <FoodDishCard
+                    key={dish.id}
+                    dish={dish}
+                    onPress={() =>
+                      router.push(`/food/product/${dish.id}?restaurant=${dish.businessId}`)
+                    }
+                    onQuickAdd={() => handleQuickAddDish(dish)}
+                  />
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* SECTION : Plats Tunisiens & Grillades 🍲 */}
+          {popularPlats.length > 0 && (
+            <View style={styles.foodSection}>
+              <View style={styles.foodSectionHeader}>
+                <View>
+                  <Text style={styles.foodSectionTitle}>Plats & Grillades 🍲</Text>
+                  <Text style={styles.foodSectionSub}>Saveurs traditionnelles & plats chauds</Text>
+                </View>
+                <Pressable
+                  style={styles.seeAllBtn}
+                  onPress={() => setSelectedCatId('plats-tunisiens')}
+                >
+                  <Text style={styles.seeAllText}>Voir tout</Text>
+                  <Ionicons name="chevron-forward" size={14} color="#FF2638" />
+                </Pressable>
               </View>
-              <View style={styles.metaPill}>
-                <Ionicons name="location-outline" size={13} color="#9CA3AF" />
-                <Text style={styles.metaText}>M'Saken</Text>
-              </View>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.foodSectionScroll}
+              >
+                {popularPlats.slice(0, 8).map((dish) => (
+                  <FoodDishCard
+                    key={dish.id}
+                    dish={dish}
+                    onPress={() =>
+                      router.push(`/food/product/${dish.id}?restaurant=${dish.businessId}`)
+                    }
+                    onQuickAdd={() => handleQuickAddDish(dish)}
+                  />
+                ))}
+              </ScrollView>
+            </View>
+          )}
+        </>
+      )}
+
+      {/* MODE CATÉGORIE SPÉCIFIQUE (quand selectedCatId !== 'all') : Plats de la catégorie */}
+      {selectedCatId !== 'all' && categoryDishes.length > 0 && !isLoading && (
+        <View style={styles.foodSection}>
+          <View style={styles.foodSectionHeader}>
+            <View>
+              <Text style={styles.foodSectionTitle}>Nos plats : {currentCategory.name}</Text>
+              <Text style={styles.foodSectionSub}>{categoryDishes.length} plat{categoryDishes.length > 1 ? 's' : ''} disponible{categoryDishes.length > 1 ? 's' : ''}</Text>
             </View>
           </View>
-        </Pressable>
-      ))
-    )}
-  </Screen >
-);
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.foodSectionScroll}
+          >
+            {categoryDishes.map((dish) => (
+              <FoodDishCard
+                key={dish.id}
+                dish={dish}
+                onPress={() =>
+                  router.push(`/food/product/${dish.id}?restaurant=${dish.businessId}`)
+                }
+                onQuickAdd={() => handleQuickAddDish(dish)}
+              />
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Section Restaurants */}
+      <View style={styles.sectionHeaderRow}>
+        <View>
+          <Text style={styles.section}>
+            {selectedCatId === 'all' ? 'Restaurants ouverts' : `Restaurants : ${currentCategory.name}`}
+          </Text>
+          <Text style={styles.sectionSub}>M&apos;Saken & Messaadine</Text>
+        </View>
+        <Text style={styles.countBadge}>
+          {filteredRestaurants.length} disponible{filteredRestaurants.length > 1 ? 's' : ''}
+        </Text>
+      </View>
+
+      {filteredRestaurants.length === 0 && !isLoading ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="restaurant-outline" size={44} color="#71717A" />
+          <Text style={styles.emptyTitle}>
+            {selectedCatId === 'all'
+              ? 'Aucun restaurant pour le moment'
+              : `Aucun restaurant dans "${currentCategory.name}"`}
+          </Text>
+          <Text style={styles.emptySubtitle}>
+            Les restaurants partenaires arrivent très bientôt sur REDGO !
+          </Text>
+          {selectedCatId !== 'all' && (
+            <Pressable style={styles.resetFilterButton} onPress={() => setSelectedCatId('all')}>
+              <Text style={styles.resetFilterText}>Voir tous les restaurants</Text>
+            </Pressable>
+          )}
+        </View>
+      ) : (
+        filteredRestaurants.map((restaurant) => (
+          <Pressable
+            key={restaurant.id}
+            style={({ pressed }) => [styles.restaurant, pressed && { borderColor: colors.primary }]}
+            onPress={() => router.push(`/food/restaurant/${restaurant.id}`)}
+          >
+            <Image
+              source={{ uri: restaurant.image }}
+              style={styles.restaurantImage}
+              contentFit="cover"
+            />
+            <View style={styles.restaurantContent}>
+              <View style={styles.restaurantHeaderRow}>
+                <Text style={styles.restaurantName} numberOfLines={1}>
+                  {restaurant.name}
+                </Text>
+                {/* Note dynamique compacte avec étoile */}
+                <View style={styles.ratingBadge}>
+                  <Ionicons name="star" size={13} color="#FBBF24" />
+                  <Text style={styles.ratingText}>{restaurant.rating}</Text>
+                </View>
+              </View>
+
+              <Text style={styles.restaurantFood} numberOfLines={2}>
+                {restaurant.food}
+              </Text>
+
+              {/* Tags de catégories réelles de l'établissement */}
+              {restaurant.categoryNames.length > 0 && (
+                <View style={styles.catTagsRow}>
+                  {restaurant.categoryNames.slice(0, 3).map((cn) => (
+                    <View key={cn} style={styles.catTag}>
+                      <Text style={styles.catTagText}>{cn}</Text>
+                    </View>
+                  ))}
+                  {restaurant.categoryNames.length > 3 && (
+                    <View style={styles.catTag}>
+                      <Text style={styles.catTagText}>+{restaurant.categoryNames.length - 3}</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              <View style={styles.meta}>
+                <View style={styles.metaPill}>
+                  <Ionicons name="time-outline" size={13} color="#9CA3AF" />
+                  <Text style={styles.metaText}>{restaurant.deliveryTime}</Text>
+                </View>
+                <View style={styles.metaPill}>
+                  <Ionicons name="bicycle-outline" size={13} color="#9CA3AF" />
+                  <Text style={styles.metaText}>{restaurant.deliveryFee}</Text>
+                </View>
+              </View>
+            </View>
+          </Pressable>
+        ))
+      )}
+    </Screen>
+  );
 }
 
 const styles = StyleSheet.create({
   screen: {
+    flex: 1,
     paddingHorizontal: 18,
-    paddingBottom: 36,
+    paddingBottom: 32,
   },
   topHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 16,
+    paddingTop: 8,
     paddingBottom: 10,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    flex: 1,
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#181822',
+    backgroundColor: '#1E1E2E',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#2F2F3D',
   },
   title: {
     color: '#FFFFFF',
@@ -494,79 +760,254 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     color: colors.textSecondary,
-    fontSize: 11,
+    fontSize: 12,
+    fontWeight: '600',
     marginTop: 2,
   },
-  categoryScroll: {
-    marginVertical: 14,
+
+  // Bulles rondes de catégories (modernes & "smoothly")
+  roundCategoriesScroll: {
+    marginVertical: 12,
     marginHorizontal: -18,
   },
-  categoryRow: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 2,
+  roundCategoriesRow: {
+    paddingHorizontal: 16,
+    gap: 12,
+    alignItems: 'flex-start',
   },
-  category: {
-    flexDirection: 'row',
+  roundCatItem: {
     alignItems: 'center',
-    gap: 8,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#2A2A38',
-    backgroundColor: '#161622',
-    height: 42,
-    justifyContent: 'center',
-    paddingLeft: 6,
-    paddingRight: 14,
+    width: 78,
   },
-  categoryActive: {
-    backgroundColor: '#260D12',
+  roundCatCircleContainer: {
+    position: 'relative',
+    width: 66,
+    height: 66,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  roundCatCircle: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    backgroundColor: '#161622',
+    borderWidth: 2,
+    borderColor: '#262638',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  roundCatCircleActive: {
+    backgroundColor: '#260B10',
     borderColor: '#FF2638',
+    borderWidth: 2.5,
     shadowColor: '#FF2638',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.85,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  roundCatFoodImage: {
+    width: '100%',
+    height: '100%',
+  },
+  allCatWrapper: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1A1A28',
+  },
+  roundCatAllIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  miniIconBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#0A0A12',
+    borderWidth: 1.5,
+    borderColor: '#FF2638',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#FF2638',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.7,
+    shadowRadius: 4,
     elevation: 4,
   },
-  categoryText: {
-    color: '#D4D4D8',
-    fontSize: 13,
-    fontWeight: '800',
+  miniIconBadgeActive: {
+    backgroundColor: '#FF2638',
+    borderColor: '#FFFFFF',
+    borderWidth: 2,
   },
-  categoryTextActive: {
+  miniIconImg: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+  },
+  roundCatLabel: {
+    color: '#9CA3AF',
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: 6,
+    lineHeight: 14,
+    height: 28,
+  },
+  roundCatLabelActive: {
     color: '#FFFFFF',
     fontWeight: '900',
   },
-  filterBadge: {
-    backgroundColor: '#272738',
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 10,
+  roundCatActiveDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#FF2638',
+    marginTop: 3,
   },
-  filterBadgeActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+
+  // Sections Food horizontales (Pizzas, Fast-Food, etc.)
+  foodSection: {
+    marginTop: 14,
+    marginBottom: 8,
   },
-  filterBadgeText: {
-    color: '#71717A',
-    fontSize: 10,
+  foodSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  foodSectionTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  foodSectionSub: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 1,
+  },
+  seeAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  seeAllText: {
+    color: '#FF2638',
+    fontSize: 12,
     fontWeight: '800',
   },
-  filterBadgeTextActive: {
-    color: '#FFFFFF',
+  foodSectionScroll: {
+    paddingRight: 18,
+    gap: 12,
+    paddingVertical: 2,
   },
-  resetFilterButton: {
-    marginTop: 14,
+
+  // Carte de plat moderne & arrondie
+  dishCard: {
+    width: 165,
+    backgroundColor: '#161622',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#262638',
+    overflow: 'hidden',
+  },
+  dishImageWrapper: {
+    width: '100%',
+    height: 110,
+    backgroundColor: '#0F0F16',
+    position: 'relative',
+  },
+  dishImage: {
+    width: '100%',
+    height: '100%',
+  },
+  dishRestaurantBadge: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    maxWidth: 115,
+    backgroundColor: 'rgba(10, 10, 16, 0.85)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  dishRestaurantText: {
+    color: '#E4E4E7',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  dishVariantsBadge: {
+    position: 'absolute',
+    bottom: 6,
+    left: 6,
+    backgroundColor: 'rgba(255, 38, 56, 0.9)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  dishVariantsText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  dishContent: {
+    padding: 10,
+  },
+  dishName: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  dishCategory: {
+    color: '#71717A',
+    fontSize: 10,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  dishFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dishPrice: {
+    color: '#FF4D5E',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  dishAddBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FF2638',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#FF2638',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  dishOptionsBtn: {
     backgroundColor: '#272738',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#3F3F56',
+    shadowOpacity: 0.1,
   },
-  resetFilterText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
+
+  // Loading
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -577,11 +1018,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
   },
+
+  // Section Restaurants
   sectionHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     justifyContent: 'space-between',
-    marginTop: 18,
+    marginTop: 20,
     marginBottom: 12,
   },
   section: {
@@ -589,11 +1032,19 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '900',
   },
+  sectionSub: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 1,
+  },
   countBadge: {
     fontSize: 11,
     color: colors.textSecondary,
     fontWeight: '600',
   },
+
+  // Empty state
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -614,6 +1065,20 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 6,
   },
+  resetFilterButton: {
+    marginTop: 14,
+    backgroundColor: '#272738',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  resetFilterText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  // Cartes restaurants
   restaurant: {
     borderRadius: 20,
     overflow: 'hidden',
@@ -627,18 +1092,18 @@ const styles = StyleSheet.create({
     height: 160,
     backgroundColor: '#121218',
   },
-  restaurantCopy: {
+  restaurantContent: {
     padding: 14,
   },
-  nameRow: {
+  restaurantHeaderRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
   },
   restaurantName: {
     color: '#FFFFFF',
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '900',
     flex: 1,
   },
@@ -646,12 +1111,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#1E1E2E',
+    backgroundColor: '#201A10',
+    borderWidth: 1,
+    borderColor: '#4A3B18',
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#2D2D3D',
+    borderRadius: 10,
   },
   ratingText: {
     color: '#FBBF24',
@@ -662,6 +1127,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 12,
     marginTop: 4,
+    lineHeight: 16,
   },
   catTagsRow: {
     flexDirection: 'row',
@@ -700,92 +1166,5 @@ const styles = StyleSheet.create({
     color: '#D4D4D8',
     fontSize: 11,
     fontWeight: '700',
-  },
-  featuredSectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    marginTop: 14,
-    marginBottom: 8,
-  },
-  featuredSectionTitle: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  featuredSectionSub: {
-    color: colors.textSecondary,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  featuredCardsScroll: {
-    marginHorizontal: -18,
-    marginBottom: 8,
-  },
-  featuredCardsContent: {
-    paddingHorizontal: 18,
-    gap: 10,
-    paddingVertical: 4,
-  },
-  visualCatCard: {
-    width: 105,
-    backgroundColor: '#161622',
-    borderRadius: 16,
-    overflow: 'hidden',
-    borderWidth: 1.5,
-    borderColor: '#262636',
-  },
-  visualCatCardActive: {
-    borderColor: '#FF2638',
-    backgroundColor: '#220B10',
-    shadowColor: '#FF2638',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.5,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  visualCardImageWrapper: {
-    width: '100%',
-    height: 75,
-    backgroundColor: '#0F0F16',
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  visualCardImage: {
-    width: '100%',
-    height: '100%',
-  },
-  visualCardPlaceholder: {
-    width: '100%',
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#14141E',
-  },
-  visualCardIconOverlay: {
-    position: 'absolute',
-    top: 6,
-    left: 6,
-  },
-  visualCardFooter: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    alignItems: 'center',
-  },
-  visualCardTitle: {
-    color: '#E4E4E7',
-    fontSize: 12,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  visualCardTitleActive: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-  },
-  visualCardSub: {
-    color: '#A1A1AA',
-    fontSize: 10,
-    fontWeight: '600',
-    marginTop: 2,
   },
 });
