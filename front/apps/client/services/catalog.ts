@@ -447,6 +447,37 @@ export type CatalogCategory = {
 /**
  * Récupère les catégories assignées au menu d'un restaurant spécifique.
  */
+/**
+ * Ordre de priorité canonique des catégories de restauration en Tunisie.
+ * Utilisé en priorité par défaut et en cas de fallback (Pizzas d'abord, Boissons à la fin).
+ */
+export function getCategoryFallbackOrder(name: string): number {
+  const norm = name.toLowerCase().trim();
+  if (norm.includes('pizza')) return 10;
+  if (norm.includes('makloub') || norm.includes('ma9loub')) return 20;
+  if (norm.includes('burger')) return 30;
+  if (norm.includes('tacos')) return 40;
+  if (norm.includes('baguette') || norm.includes('baquette')) return 50;
+  if (norm.includes('chapati') || norm.includes('chappati')) return 60;
+  if (norm.includes('mtabga')) return 65;
+  if (norm.includes('tabouna')) return 70;
+  if (norm.includes('panini')) return 80;
+  if (norm.includes('cornet')) return 85;
+  if (norm.includes('calzone')) return 88;
+  if (norm.includes('fleur')) return 90;
+  if (norm.includes('sandwich')) return 95;
+  if (norm.includes('plat') || norm.includes('grillade') || norm.includes('tunisien')) return 100;
+  if (norm.includes('pâte') || norm.includes('pasta')) return 105;
+  if (norm.includes('salade')) return 108;
+  if (norm.includes('dessert') || norm.includes('sucré') || norm.includes('glace')) return 110;
+  if (norm.includes('boisson') || norm.includes('eau') || norm.includes('jus') || norm.includes('soda')) return 120;
+  return 99;
+}
+
+/**
+ * Récupère les catégories assignées à un établissement (via business_categories).
+ * Respecte l'ordre configuré dans l'admin (sort_order) avec priorité Pizzas -> Boissons.
+ */
 export async function fetchBusinessCategories(businessId: string): Promise<CatalogCategory[]> {
   try {
     const client = requireSupabase();
@@ -468,6 +499,13 @@ export async function fetchBusinessCategories(businessId: string): Promise<Catal
     for (const row of data) {
       const cat = (row as any).categories;
       if (cat && cat.is_active !== false) {
+        const effectiveOrder =
+          typeof row.sort_order === 'number' && row.sort_order > 0
+            ? row.sort_order
+            : typeof cat.sort_order === 'number' && cat.sort_order > 0
+              ? cat.sort_order
+              : getCategoryFallbackOrder(cat.name);
+
         categories.push({
           id: cat.id,
           name: cat.name,
@@ -476,7 +514,7 @@ export async function fetchBusinessCategories(businessId: string): Promise<Catal
           imageUrl: cat.image_url,
           parentId: cat.parent_id,
           activityTypes: cat.activity_types || [],
-          sortOrder: row.sort_order ?? cat.sort_order ?? 0,
+          sortOrder: effectiveOrder,
           isActive: true,
         });
       }
@@ -541,8 +579,9 @@ export async function fetchRestaurantsWithCategories(): Promise<CatalogBusinessW
         *,
         business_categories(
           category_id,
+          sort_order,
           is_active,
-          categories(id, name, slug, is_active)
+          categories(id, name, slug, sort_order, is_active)
         )
       `)
       .eq('kind', 'restaurant')
@@ -558,8 +597,22 @@ export async function fetchRestaurantsWithCategories(): Promise<CatalogBusinessW
       const bizCats: any[] = b.business_categories ?? [];
       const activeCats = bizCats
         .filter((bc: any) => bc.is_active !== false && bc.categories?.is_active !== false)
-        .map((bc: any) => bc.categories)
-        .filter(Boolean);
+        .map((bc: any) => {
+          const cat = bc.categories;
+          const order =
+            typeof bc.sort_order === 'number' && bc.sort_order > 0
+              ? bc.sort_order
+              : typeof cat.sort_order === 'number' && cat.sort_order > 0
+                ? cat.sort_order
+                : getCategoryFallbackOrder(cat.name);
+          return {
+            id: cat.id as string,
+            name: cat.name as string,
+            slug: cat.slug as string,
+            sortOrder: order,
+          };
+        })
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'fr'));
 
       return {
         id: b.id,
@@ -572,8 +625,8 @@ export async function fetchRestaurantsWithCategories(): Promise<CatalogBusinessW
         longitude: b.longitude,
         coverImageUrl: b.cover_image_url,
         isActive: b.is_active,
-        categoryIds: activeCats.map((c: any) => c.id as string),
-        categoryNames: activeCats.map((c: any) => c.name as string),
+        categoryIds: activeCats.map((c) => c.id),
+        categoryNames: activeCats.map((c) => c.name),
       };
     });
   } catch (err) {

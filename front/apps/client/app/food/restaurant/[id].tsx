@@ -25,6 +25,7 @@ import {
   fetchBusinessCategories,
   fetchProductVariants,
   fetchRestaurantProducts,
+  getCategoryFallbackOrder,
 } from '../../../services/catalog';
 
 type DishItem = {
@@ -46,10 +47,17 @@ function getRestaurantCategoryIcon(cat: string): keyof typeof Ionicons.glyphMap 
   if (
     lower.includes('sandwich') ||
     lower.includes('makloub') ||
+    lower.includes('ma9loub') ||
     lower.includes('mlawi') ||
     lower.includes('cornet') ||
     lower.includes('baguette') ||
-    lower.includes('chapati')
+    lower.includes('chapati') ||
+      lower.includes('chappati') ||
+      lower.includes('mtabga') ||
+      lower.includes('tabouna') ||
+      lower.includes('panini') ||
+      lower.includes('tacos') ||
+      lower.includes('calzone')
   ) {
     return 'nutrition-outline';
   }
@@ -73,7 +81,7 @@ function getRestaurantCategoryIcon(cat: string): keyof typeof Ionicons.glyphMap 
   if (lower.includes('dessert') || lower.includes('sucre') || lower.includes('glace') || lower.includes('crepe')) {
     return 'ice-cream-outline';
   }
-  return 'pricetag-outline';
+  return 'restaurant-outline';
 }
 
 export default function RestaurantScreen() {
@@ -143,32 +151,49 @@ export default function RestaurantScreen() {
     }
 
     if (dbCategories.length > 0) {
-      // Use configured categories from DB for this restaurant
+      // Use configured categories from DB for this restaurant, ordered by sort_order
       const list = dbCategories.map((c) => ({
         id: c.id,
         name: c.name,
         count: map.get(c.name) ?? 0,
         imageUrl: c.imageUrl,
+        sortOrder: typeof c.sortOrder === 'number' && c.sortOrder > 0 ? c.sortOrder : getCategoryFallbackOrder(c.name),
       }));
 
       // Add any dish categories that might not be in dbCategories (fallback safeguard)
       for (const [catName, count] of map.entries()) {
         if (!list.some((c) => c.name.toLowerCase() === catName.toLowerCase())) {
-          list.push({ id: catName, name: catName, count, imageUrl: null });
+          list.push({
+            id: catName,
+            name: catName,
+            count,
+            imageUrl: null,
+            sortOrder: getCategoryFallbackOrder(catName),
+          });
         }
       }
 
+      // Sort categories: Pizzas first (10), Makloub (20), Burgers (30), Tacos (40)... Boissons at the end (120)
+      list.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'fr'));
+
       return [
-        { id: 'all', name: 'Tous', count: dishes.length, imageUrl: null },
+        { id: 'all', name: 'Tous', count: dishes.length, imageUrl: null, sortOrder: 0 },
         ...list,
       ];
     }
 
-    // Fallback: derived directly from dishes
-    const list = Array.from(map.keys()).sort((a, b) => a.localeCompare(b, 'fr'));
+    // Fallback: derived directly from dishes with canonical fast-food order
+    const list = Array.from(map.keys()).map((c) => ({
+      id: c,
+      name: c,
+      count: map.get(c) ?? 0,
+      imageUrl: null,
+      sortOrder: getCategoryFallbackOrder(c),
+    }));
+    list.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'fr'));
     return [
-      { id: 'all', name: 'Tous', count: dishes.length, imageUrl: null },
-      ...list.map((c) => ({ id: c, name: c, count: map.get(c) ?? 0, imageUrl: null })),
+      { id: 'all', name: 'Tous', count: dishes.length, imageUrl: null, sortOrder: 0 },
+      ...list,
     ];
   }, [dbCategories, dishes]);
 
@@ -462,71 +487,71 @@ export default function RestaurantScreen() {
                             router.push(`/food/product/${dish.id}${id ? `?restaurant=${id}` : ''}`)
                           }
                         >
-                      <Image
-                        source={{ uri: dish.image }}
-                        style={styles.productImage}
-                        contentFit="cover"
-                      />
+                          <Image
+                            source={{ uri: dish.image }}
+                            style={styles.productImage}
+                            contentFit="cover"
+                          />
 
-                      <View style={styles.productBody}>
-                        <Text style={styles.productName} numberOfLines={1}>
-                          {dish.name}
-                        </Text>
-                        <Text style={styles.productDesc} numberOfLines={2}>
-                          {dish.description}
-                        </Text>
-                        <View style={styles.productPriceRow}>
-                          {dish.hasVariants ? (
-                            <>
-                              <Text style={styles.productPriceFrom}>À partir de</Text>
-                              <Text style={styles.productPrice}>
-                                {formatMillimes(dish.priceMillimes)}
-                              </Text>
-                              <View style={styles.variantsBadge}>
-                                <Ionicons
-                                  name="options-outline"
-                                  size={10}
-                                  color={colors.primary}
-                                />
-                                <Text style={styles.variantsBadgeText}>Choix requis</Text>
-                              </View>
-                            </>
-                          ) : (
-                            <Text style={styles.productPrice}>
-                              {formatMillimes(dish.priceMillimes)}
+                          <View style={styles.productBody}>
+                            <Text style={styles.productName} numberOfLines={1}>
+                              {dish.name}
                             </Text>
-                          )}
-                        </View>
-                      </View>
+                            <Text style={styles.productDesc} numberOfLines={2}>
+                              {dish.description}
+                            </Text>
+                            <View style={styles.productPriceRow}>
+                              {dish.hasVariants ? (
+                                <>
+                                  <Text style={styles.productPriceFrom}>À partir de</Text>
+                                  <Text style={styles.productPrice}>
+                                    {formatMillimes(dish.priceMillimes)}
+                                  </Text>
+                                  <View style={styles.variantsBadge}>
+                                    <Ionicons
+                                      name="options-outline"
+                                      size={10}
+                                      color={colors.primary}
+                                    />
+                                    <Text style={styles.variantsBadgeText}>Choix requis</Text>
+                                  </View>
+                                </>
+                              ) : (
+                                <Text style={styles.productPrice}>
+                                  {formatMillimes(dish.priceMillimes)}
+                                </Text>
+                              )}
+                            </View>
+                          </View>
 
-                      {/* Bouton + rouge : le + reste présent, redirige vers la page si variant requis */}
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.addButton,
-                          pressed && { transform: [{ scale: 0.9 }] },
-                        ]}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          handleQuickAdd(dish);
-                        }}
-                        hitSlop={10}
-                        accessibilityLabel={`Ajouter ${dish.name} au panier`}
-                      >
-                        <Ionicons name="add" size={24} color="#FFFFFF" />
-                      </Pressable>
-                    </Pressable>
+                          {/* Bouton + rouge : le + reste présent, redirige vers la page si variant requis */}
+                          <Pressable
+                            style={({ pressed }) => [
+                              styles.addButton,
+                              pressed && { transform: [{ scale: 0.9 }] },
+                            ]}
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              handleQuickAdd(dish);
+                            }}
+                            hitSlop={10}
+                            accessibilityLabel={`Ajouter ${dish.name} au panier`}
+                          >
+                            <Ionicons name="add" size={24} color="#FFFFFF" />
+                          </Pressable>
+                        </Pressable>
                       ))}
+                    </View>
                   </View>
-                  </View>
-          );
+                );
               })
             )}
-        </View>
-    </>
-  )
-}
-  </Screen >
-);
+          </View>
+        </>
+      )
+      }
+    </Screen >
+  );
 }
 
 const styles = StyleSheet.create({

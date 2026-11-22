@@ -16,7 +16,10 @@ import { Screen } from '../../components/Screen';
 import { colors } from '../../constants/theme';
 import {
   CatalogBusinessWithCategories,
+  CatalogCategory,
+  fetchAllActiveCategories,
   fetchRestaurantsWithCategories,
+  getCategoryFallbackOrder,
 } from '../../services/catalog';
 
 type DisplayRestaurant = {
@@ -27,22 +30,89 @@ type DisplayRestaurant = {
   deliveryFee: string;
   rating: string;
   image: string;
-  categoryNames: string[]; // catégories réelles assignées dans la DB
+  categoryIds: string[];
+  categoryNames: string[];
 };
 
-// Catégories populaires affichées sur l'écran d'accueil Food
-// Seules celles qui ont au moins 1 restaurant assigné seront visibles
-const POPULAR_CATEGORY_SLUGS = [
-  'Tous',
-  'Pizzas',
-  'Burgers',
-  'Sandwichs',
-  'Plats Tunisiens',
-  'Grillades',
-  'Pâtes',
-  'Desserts',
-  'Boissons',
+  type CategoryFilter = {
+    id: string;
+    name: string;
+    sortOrder: number;
+    count: number;
+  };
+
+// Filtres majeurs rapides dans l'ordre canonique (Pizzas d'abord -> Boissons à la fin)
+const CANONICAL_FOOD_FILTERS = [
+  { id: 'all', name: 'Tous', sortOrder: 0 },
+  { id: 'pizzas', name: 'Pizzas', sortOrder: 10 },
+  { id: 'ma9loub', name: 'Makloub', sortOrder: 20 },
+  { id: 'burgers', name: 'Burgers', sortOrder: 30 },
+  { id: 'tacos', name: 'Tacos', sortOrder: 40 },
+  { id: 'baquette-farcie', name: 'Baguette farcie', sortOrder: 50 },
+  { id: 'chappati', name: 'Chapati', sortOrder: 60 },
+  { id: 'mtabga', name: 'Mtabga', sortOrder: 65 },
+  { id: 'tabouna', name: 'Tabouna', sortOrder: 70 },
+  { id: 'panini', name: 'Panini', sortOrder: 80 },
+  { id: 'plats-tunisiens', name: 'Plats Tunisiens', sortOrder: 100 },
+  { id: 'desserts', name: 'Desserts', sortOrder: 110 },
+  { id: 'boissons-eaux', name: 'Boissons', sortOrder: 120 },
 ];
+
+// Vérifie si un restaurant correspond à une catégorie donnée
+function matchesRestaurantCategory(
+  restaurant: DisplayRestaurant,
+  targetId: string,
+  targetName: string
+): boolean {
+  if (targetId === 'all' || targetName === 'Tous') return true;
+
+  const targetIdLower = targetId.toLowerCase().trim();
+  const targetNameLower = targetName.toLowerCase().trim();
+
+  // 1. Correspondance directe par ID
+  if (restaurant.categoryIds.some((cid) => cid.toLowerCase() === targetIdLower)) {
+    return true;
+  }
+
+  // 2. Correspondance par alias d'identifiants
+  for (const cId of restaurant.categoryIds) {
+    const cidNorm = cId.toLowerCase();
+    if (targetIdLower === 'ma9loub' && (cidNorm.includes('makloub') || cidNorm.includes('ma9loub') || cidNorm.includes('sandwich'))) return true;
+    if (targetIdLower === 'chappati' && (cidNorm.includes('chapati') || cidNorm.includes('chappati'))) return true;
+    if (targetIdLower === 'baquette-farcie' && (cidNorm.includes('baguette') || cidNorm.includes('baquette'))) return true;
+    if (targetIdLower === 'desserts' && (cidNorm.includes('dessert') || cidNorm.includes('sucre'))) return true;
+    if (targetIdLower === 'boissons-eaux' && (cidNorm.includes('boisson') || cidNorm.includes('eau'))) return true;
+    if (targetIdLower === 'plats-tunisiens' && (cidNorm.includes('plat') || cidNorm.includes('grillade'))) return true;
+  }
+
+  // 3. Correspondance textuelle souple sur les noms de catégories assignées
+  for (const cn of restaurant.categoryNames) {
+    const cnLower = cn.toLowerCase().trim();
+    if (cnLower === targetNameLower) return true;
+    if (cnLower.includes(targetNameLower) || targetNameLower.includes(cnLower)) return true;
+
+    // Synonymes tunisiens courants
+    if (targetNameLower === 'chapati' && (cnLower.includes('chapati') || cnLower.includes('chappati'))) return true;
+    if (targetNameLower === 'makloub' && (cnLower.includes('makloub') || cnLower.includes('ma9loub') || cnLower.includes('sandwich'))) return true;
+    if (targetNameLower === 'baguette farcie' && (cnLower.includes('baguette') || cnLower.includes('baquette'))) return true;
+    if (targetNameLower === 'tabouna' && cnLower.includes('tabouna')) return true;
+    if (targetNameLower === 'mtabga' && cnLower.includes('mtabga')) return true;
+    if (targetNameLower === 'desserts' && (cnLower.includes('dessert') || cnLower.includes('sucré'))) return true;
+    if (targetNameLower === 'boissons' && (cnLower.includes('boisson') || cnLower.includes('eau'))) return true;
+    if (targetNameLower === 'plats tunisiens' && (cnLower.includes('plat') || cnLower.includes('grillade') || cnLower.includes('tunisien'))) return true;
+  }
+
+  // 4. Fallback sur le titre ou la description du restaurant
+  const fullText = `${restaurant.name} ${restaurant.food}`.toLowerCase();
+  if (targetNameLower === 'chapati' && (fullText.includes('chapati') || fullText.includes('chappati'))) return true;
+  if (targetNameLower === 'mtabga' && fullText.includes('mtabga')) return true;
+  if (targetNameLower === 'tabouna' && fullText.includes('tabouna')) return true;
+  if (targetNameLower === 'makloub' && (fullText.includes('makloub') || fullText.includes('ma9loub'))) return true;
+  if (targetNameLower === 'pizzas' && fullText.includes('pizza')) return true;
+  if (targetNameLower === 'burgers' && fullText.includes('burger')) return true;
+
+  return false;
+}
 
 // Calcul d'une note dynamique basée sur l'identifiant pour chaque restaurant
 function getRestaurantRating(id: string): string {
@@ -57,14 +127,19 @@ function getRestaurantRating(id: string): string {
 }
 
 export default function FoodHome() {
-  const [selectedCat, setSelectedCat] = useState('Tous');
+  const [selectedCatId, setSelectedCatId] = useState('all');
   const [dbRestaurants, setDbRestaurants] = useState<CatalogBusinessWithCategories[]>([]);
+  const [dbCategories, setDbCategories] = useState<CatalogCategory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
-    const list = await fetchRestaurantsWithCategories();
-    setDbRestaurants(list);
+    const [restaurantsList, categoriesList] = await Promise.all([
+      fetchRestaurantsWithCategories(),
+      fetchAllActiveCategories('restaurant'),
+    ]);
+    setDbRestaurants(restaurantsList);
+    setDbCategories(categoriesList);
     setIsLoading(false);
     setRefreshing(false);
   }, []);
@@ -90,175 +165,224 @@ export default function FoodHome() {
       image:
         b.coverImageUrl ||
         'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800',
-      categoryNames: b.categoryNames,
+      categoryIds: b.categoryIds || [],
+      categoryNames: b.categoryNames || [],
     }));
   }, [dbRestaurants]);
 
-  // Catégories populaires : on garde uniquement celles qui ont au moins 1 restaurant assigné
-  const categories = useMemo(() => {
-    if (dbRestaurants.length === 0) return POPULAR_CATEGORY_SLUGS;
+    // Catégories dynamiques : fusion de la base de données et des filtres canoniques
+    const categories: CategoryFilter[] = useMemo(() => {
+      const baseList: { id: string; name: string; sortOrder: number }[] = CANONICAL_FOOD_FILTERS.map((f) => ({
+        id: f.id,
+        name: f.name,
+        sortOrder: f.sortOrder,
+      }));
 
-    const usedCatNames = new Set<string>();
-    for (const r of restaurants) {
-      for (const cn of r.categoryNames) {
-        usedCatNames.add(cn);
-      }
-    }
+          // Intégrer les catégories supplémentaires de la base qui ne sont pas encore dans baseList
+          for (const dbCat of dbCategories) {
+            const alreadyRepresented = baseList.some(
+              (f) =>
+                f.id === dbCat.id ||
+                f.name.toLowerCase() === dbCat.name.toLowerCase() ||
+                (f.id === 'chappati' && dbCat.id === 'chappati') ||
+                (f.id === 'ma9loub' && dbCat.id === 'ma9loub') ||
+                (f.id === 'baquette-farcie' && dbCat.id === 'baquette-farcie') ||
+                (f.id === 'boissons-eaux' && dbCat.id === 'boissons-eaux')
+            );
+            if (!alreadyRepresented) {
+              baseList.push({
+                id: dbCat.id,
+                name: dbCat.name,
+                sortOrder: typeof dbCat.sortOrder === 'number' && dbCat.sortOrder > 0 ? dbCat.sortOrder : getCategoryFallbackOrder(dbCat.name),
+              });
+            }
+          }
 
-    const filtered = POPULAR_CATEGORY_SLUGS.filter(
-      (c) => c === 'Tous' || usedCatNames.has(c)
-    );
-    // Si aucune catégorie trouvée (restaus sans catégories assignées), afficher la liste complète
-    return filtered.length > 1 ? filtered : POPULAR_CATEGORY_SLUGS;
-  }, [dbRestaurants, restaurants]);
+    // Calculer le nombre de restaurants correspondants pour chaque filtre
+    const withCounts = baseList.map((cat) => {
+      const count =
+        cat.id === 'all'
+          ? restaurants.length
+          : restaurants.filter((r) => matchesRestaurantCategory(r, cat.id, cat.name)).length;
+      return { ...cat, count };
+    });
+
+    // Garder seulement les catégories qui ont au moins 1 restaurant (plus 'Tous')
+    const activeFilters = withCounts.filter((c) => c.id === 'all' || c.count > 0);
+
+    // Ordonner : Pizzas d'abord (10), Makloub (20), Burgers (30)... Boissons à la fin (120)
+    activeFilters.sort((a, b) => a.sortOrder - b.sortOrder);
+
+    return activeFilters;
+  }, [dbCategories, restaurants]);
 
   // Filtre par catégorie réelle (table business_categories)
   const filteredRestaurants = useMemo(() => {
-    if (selectedCat === 'Tous') return restaurants;
-    return restaurants.filter((r) =>
-          r.categoryNames.some(
-            (cn) => cn.toLowerCase() === selectedCat.toLowerCase()
-          )
-        );
-  }, [restaurants, selectedCat]);
+  if (selectedCatId === 'all') return restaurants;
+  const cat = categories.find((c) => c.id === selectedCatId);
+  if (!cat) return restaurants;
+  return restaurants.filter((r) => matchesRestaurantCategory(r, cat.id, cat.name));
+}, [restaurants, selectedCatId, categories]);
 
-  return (
-    <Screen
-      scroll
-      style={styles.screen}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor={colors.primary}
-          colors={[colors.primary]}
-        />
-      }
-    >
-      {/* Top Header */}
-      <View style={styles.topHeader}>
-        <View style={styles.headerLeft}>
-          <Pressable
-            style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.7 }]}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-          </Pressable>
-          <View>
-            <Text style={styles.title}>REDGO Food</Text>
-            <Text style={styles.subtitle}>Restaurants partenaires · M'Saken & Messaadine</Text>
-          </View>
+const currentCategory = useMemo(() => {
+  return categories.find((c) => c.id === selectedCatId) || categories[0] || { id: 'all', name: 'Tous', count: 0, sortOrder: 0 };
+}, [categories, selectedCatId]);
+
+return (
+  <Screen
+    scroll
+    style={styles.screen}
+    refreshControl={
+      <RefreshControl
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        tintColor={colors.primary}
+        colors={[colors.primary]}
+      />
+    }
+  >
+    {/* Top Header */}
+    <View style={styles.topHeader}>
+      <View style={styles.headerLeft}>
+        <Pressable
+          style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.7 }]}
+          onPress={() => router.back()}
+        >
+          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+        </Pressable>
+        <View>
+          <Text style={styles.title}>REDGO Food</Text>
+          <Text style={styles.subtitle}>Restaurants partenaires · M&apos;Saken & Messaadine</Text>
         </View>
-
-        <CartBadge />
       </View>
 
-      {/* Categories Filter — ligne horizontale scrollable */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.categoryScroll}
-        contentContainerStyle={styles.categoryRow}
-      >
-        {categories.map((category) => {
-          const isActive = selectedCat === category;
-          return (
-            <Pressable
-              key={category}
-              style={[styles.category, isActive && styles.categoryActive]}
-              onPress={() => setSelectedCat(category)}
-            >
-              <Text style={[styles.categoryText, isActive && styles.categoryTextActive]}>
-                {category}
-              </Text>
-            </Pressable>
-          );
-        })}
+      <CartBadge />
+    </View>
+
+    {/* Categories Filter — ligne horizontale scrollable ordonnée */}
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.categoryScroll}
+      contentContainerStyle={styles.categoryRow}
+    >
+        {
+          categories.map((cat) => {
+            const isActive = selectedCatId === cat.id;
+            return (
+              <Pressable
+                key={cat.id}
+                style={[styles.category, isActive && styles.categoryActive]}
+                onPress={() => setSelectedCatId(cat.id)}
+              >
+                <Text style={[styles.categoryText, isActive && styles.categoryTextActive]}>
+                  {cat.name}
+                </Text>
+                {cat.id !== 'all' && cat.count > 0 && (
+                  <View style={[styles.filterBadge, isActive && styles.filterBadgeActive]}>
+                    <Text style={[styles.filterBadgeText, isActive && styles.filterBadgeTextActive]}>
+                      {cat.count}
+                    </Text>
+                  </View>
+                )}
+              </Pressable>
+            );
+          })
+        }
       </ScrollView>
 
-      {/* Loading state */}
-      {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="small" color={colors.primary} />
-          <Text style={styles.loadingText}>Synchronisation des restaurants…</Text>
-        </View>
-      ) : null}
-
-      {/* Section Restaurants */}
-      <View style={styles.sectionHeaderRow}>
-        <Text style={styles.section}>Restaurants ouverts</Text>
-        <Text style={styles.countBadge}>
-          {filteredRestaurants.length} disponible{filteredRestaurants.length > 1 ? 's' : ''}
-        </Text>
+    {/* Loading state */}
+    {isLoading ? (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="small" color={colors.primary} />
+        <Text style={styles.loadingText}>Synchronisation des restaurants…</Text>
       </View>
+    ) : null}
 
-      {filteredRestaurants.length === 0 && !isLoading ? (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="restaurant-outline" size={44} color="#71717A" />
-          <Text style={styles.emptyTitle}>
-            {selectedCat === 'Tous' ? 'Aucun restaurant pour le moment' : `Aucun restaurant dans "${selectedCat}"`}
-          </Text>
-          <Text style={styles.emptySubtitle}>
-            Les restaurants partenaires arrivent très bientôt sur REDGO !
-          </Text>
-        </View>
-      ) : (
-        filteredRestaurants.map((restaurant) => (
-          <Pressable
-            key={restaurant.id}
-            style={({ pressed }) => [styles.restaurant, pressed && { borderColor: colors.primary }]}
-            onPress={() => router.push(`/food/restaurant/${restaurant.id}`)}
-          >
-            <Image
-              source={{ uri: restaurant.image }}
-              style={styles.restaurantImage}
-              contentFit="cover"
-            />
-            <View style={styles.restaurantCopy}>
-              <View style={styles.nameRow}>
-                <Text style={styles.restaurantName} numberOfLines={1}>
-                  {restaurant.name}
-                </Text>
-                <View style={styles.ratingBadge}>
-                  <Ionicons name="star" size={12} color="#FBBF24" />
-                  <Text style={styles.ratingText}>{restaurant.rating}</Text>
-                </View>
-              </View>
-              <Text style={styles.restaurantFood} numberOfLines={2}>
-                {restaurant.food}
+    {/* Section Restaurants */}
+    <View style={styles.sectionHeaderRow}>
+      <Text style={styles.section}>
+        {selectedCatId === 'all' ? 'Restaurants ouverts' : `Restaurants : ${currentCategory.name}`}
+      </Text>
+      <Text style={styles.countBadge}>
+        {filteredRestaurants.length} disponible{filteredRestaurants.length > 1 ? 's' : ''}
+      </Text>
+    </View>
+
+    {filteredRestaurants.length === 0 && !isLoading ? (
+      <View style={styles.emptyContainer}>
+        <Ionicons name="restaurant-outline" size={44} color="#71717A" />
+        <Text style={styles.emptyTitle}>
+          {selectedCatId === 'all'
+            ? 'Aucun restaurant pour le moment'
+            : `Aucun restaurant dans "${currentCategory.name}"`}
+        </Text>
+        <Text style={styles.emptySubtitle}>
+          Les restaurants partenaires arrivent très bientôt sur REDGO !
+        </Text>
+        {selectedCatId !== 'all' && (
+          <Pressable style={styles.resetFilterButton} onPress={() => setSelectedCatId('all')}>
+            <Text style={styles.resetFilterText}>Voir tous les restaurants</Text>
+          </Pressable>
+        )}
+      </View>
+    ) : (
+      filteredRestaurants.map((restaurant) => (
+        <Pressable
+          key={restaurant.id}
+          style={({ pressed }) => [styles.restaurant, pressed && { borderColor: colors.primary }]}
+          onPress={() => router.push(`/food/restaurant/${restaurant.id}`)}
+        >
+          <Image
+            source={{ uri: restaurant.image }}
+            style={styles.restaurantImage}
+            contentFit="cover"
+          />
+          <View style={styles.restaurantCopy}>
+            <View style={styles.nameRow}>
+              <Text style={styles.restaurantName} numberOfLines={1}>
+                {restaurant.name}
               </Text>
-
-              {/* Tags catégories du restaurant */}
-              {restaurant.categoryNames.length > 0 && (
-                <View style={styles.catTagsRow}>
-                  {restaurant.categoryNames.slice(0, 3).map((cn) => (
-                    <View key={cn} style={styles.catTag}>
-                      <Text style={styles.catTagText}>{cn}</Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              <View style={styles.meta}>
-                <View style={styles.metaPill}>
-                  <Ionicons name="time-outline" size={13} color={colors.success} />
-                  <Text style={styles.metaText}>{restaurant.deliveryTime}</Text>
-                </View>
-                <View style={styles.metaPill}>
-                  <Ionicons name="bicycle-outline" size={13} color={colors.primary} />
-                  <Text style={styles.metaText}>{restaurant.deliveryFee}</Text>
-                </View>
-                <View style={styles.metaPill}>
-                  <Ionicons name="location-outline" size={13} color="#9CA3AF" />
-                  <Text style={styles.metaText}>M'Saken</Text>
-                </View>
+              <View style={styles.ratingBadge}>
+                <Ionicons name="star" size={12} color="#FBBF24" />
+                <Text style={styles.ratingText}>{restaurant.rating}</Text>
               </View>
             </View>
-          </Pressable>
-        ))
-      )}
-    </Screen >
-  );
+            <Text style={styles.restaurantFood} numberOfLines={2}>
+              {restaurant.food}
+            </Text>
+
+            {/* Tags catégories du restaurant */}
+            {restaurant.categoryNames.length > 0 && (
+              <View style={styles.catTagsRow}>
+                {restaurant.categoryNames.slice(0, 3).map((cn) => (
+                  <View key={cn} style={styles.catTag}>
+                    <Text style={styles.catTagText}>{cn}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            <View style={styles.meta}>
+              <View style={styles.metaPill}>
+                <Ionicons name="time-outline" size={13} color={colors.success} />
+                <Text style={styles.metaText}>{restaurant.deliveryTime}</Text>
+              </View>
+              <View style={styles.metaPill}>
+                <Ionicons name="bicycle-outline" size={13} color={colors.primary} />
+                <Text style={styles.metaText}>{restaurant.deliveryFee}</Text>
+              </View>
+              <View style={styles.metaPill}>
+                <Ionicons name="location-outline" size={13} color="#9CA3AF" />
+                <Text style={styles.metaText}>M'Saken</Text>
+              </View>
+            </View>
+          </View>
+        </Pressable>
+      ))
+    )}
+  </Screen >
+);
 }
 
 const styles = StyleSheet.create({
@@ -310,6 +434,9 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   category: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: '#2A2A38',
@@ -329,6 +456,35 @@ const styles = StyleSheet.create({
   },
   categoryTextActive: {
     color: '#FFFFFF',
+  },
+  filterBadge: {
+    backgroundColor: '#272738',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 10,
+  },
+  filterBadgeActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  filterBadgeText: {
+    color: '#71717A',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  filterBadgeTextActive: {
+    color: '#FFFFFF',
+  },
+  resetFilterButton: {
+    marginTop: 14,
+    backgroundColor: '#272738',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  resetFilterText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
   loadingContainer: {
     flexDirection: 'row',
