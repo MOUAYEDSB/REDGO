@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { CartBadge } from '../../../components/CartBadge';
+import { FoodCategoryNeonBadge } from '../../../components/FoodCategoryNeonIcon';
 import { Screen } from '../../../components/Screen';
 import { colors } from '../../../constants/theme';
 import { useCart } from '../../../context/CartContext';
@@ -379,17 +380,17 @@ export default function RestaurantScreen() {
             {categories.map((cat) => {
               const isSelected =
                 selectedCategory.toLowerCase() === cat.name.toLowerCase();
-              const iconName = getRestaurantCategoryIcon(cat.name);
               return (
                 <Pressable
                   key={cat.name}
                   style={[styles.categoryPill, isSelected && styles.categoryPillActive]}
                   onPress={() => setSelectedCategory(cat.name)}
                 >
-                  <Ionicons
-                    name={iconName}
-                    size={16}
-                    color={isSelected ? '#FFFFFF' : '#A1A1AA'}
+                  <FoodCategoryNeonBadge
+                    categoryId={cat.name}
+                    isActive={isSelected}
+                    badgeSize={26}
+                    iconSize={22}
                   />
                   <Text
                     style={[
@@ -456,15 +457,17 @@ export default function RestaurantScreen() {
               </View>
             ) : (
               groupedSections.map((section) => {
-                const iconName = getRestaurantCategoryIcon(section.categoryName);
                 return (
                   <View key={section.categoryName} style={styles.menuSectionBlock}>
                     {/* En-tête de la section catégorie (ex: Pizzas, Chapati, Makloub) */}
                     <View style={styles.sectionCategoryHeader}>
                       <View style={styles.sectionCategoryTitleWrapper}>
-                        <View style={styles.sectionCategoryIconBadge}>
-                          <Ionicons name={iconName} size={15} color={colors.primary} />
-                        </View>
+                        <FoodCategoryNeonBadge
+                          categoryId={section.categoryName}
+                          isActive={false}
+                          badgeSize={32}
+                          iconSize={26}
+                        />
                         <Text style={styles.sectionCategoryTitle}>{section.categoryName}</Text>
                       </View>
                       <View style={styles.sectionCategoryCountBadge}>
@@ -665,16 +668,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#181820',
-    borderRadius: 12,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: '#2D2D3B',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 6,
+    paddingLeft: 6,
+    paddingRight: 12,
+    paddingVertical: 6,
+    gap: 8,
   },
   categoryPillActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: '#260D12',
+    borderColor: '#FF2638',
   },
   categoryPillText: {
     color: '#A1A1AA',

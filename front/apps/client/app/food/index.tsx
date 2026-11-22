@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { CartBadge } from '../../components/CartBadge';
+import { FoodCategoryNeonBadge, getCategoryFoodImage } from '../../components/FoodCategoryNeonIcon';
 import { Screen } from '../../components/Screen';
 import { colors } from '../../constants/theme';
 import {
@@ -259,37 +260,110 @@ return (
       <CartBadge />
     </View>
 
-    {/* Categories Filter — ligne horizontale scrollable ordonnée */}
+    {/* Categories Visual Showcase (Photo + Icône Néon découpées depuis la référence) */}
+    <View style={styles.featuredSectionHeader}>
+      <Text style={styles.featuredSectionTitle}>Spécialités & Menus</Text>
+      <Text style={styles.featuredSectionSub}>Sélectionnez une catégorie</Text>
+    </View>
+
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.featuredCardsScroll}
+      contentContainerStyle={styles.featuredCardsContent}
+    >
+      {categories.map((cat) => {
+        const isActive = selectedCatId === cat.id;
+        const foodImg = getCategoryFoodImage(cat.id);
+        return (
+          <Pressable
+            key={`visual-${cat.id}`}
+            style={({ pressed }) => [
+              styles.visualCatCard,
+              isActive && styles.visualCatCardActive,
+              pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
+            ]}
+            onPress={() => setSelectedCatId(cat.id)}
+          >
+            <View style={styles.visualCardImageWrapper}>
+              {foodImg ? (
+                <Image
+                  source={foodImg as any}
+                  style={styles.visualCardImage}
+                  contentFit="cover"
+                />
+              ) : (
+                <View style={styles.visualCardPlaceholder}>
+                  <FoodCategoryNeonBadge
+                    categoryId={cat.id}
+                    isActive={isActive}
+                    badgeSize={36}
+                    iconSize={30}
+                  />
+                </View>
+              )}
+              <View style={styles.visualCardIconOverlay}>
+                <FoodCategoryNeonBadge
+                  categoryId={cat.id}
+                  isActive={isActive}
+                  badgeSize={28}
+                  iconSize={24}
+                />
+              </View>
+            </View>
+            <View style={styles.visualCardFooter}>
+              <Text
+                style={[styles.visualCardTitle, isActive && styles.visualCardTitleActive]}
+                numberOfLines={1}
+              >
+                {cat.name}
+              </Text>
+              {cat.id !== 'all' && (
+                <Text style={styles.visualCardSub}>
+                  {cat.count > 0 ? `${cat.count} resto${cat.count > 1 ? 's' : ''}` : 'Bientôt'}
+                </Text>
+              )}
+            </View>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+
+    {/* Categories Filter — ligne horizontale scrollable ordonnée avec icônes néon */}
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
       style={styles.categoryScroll}
       contentContainerStyle={styles.categoryRow}
     >
-        {
-          categories.map((cat) => {
-            const isActive = selectedCatId === cat.id;
-            return (
-              <Pressable
-                key={cat.id}
-                style={[styles.category, isActive && styles.categoryActive]}
-                onPress={() => setSelectedCatId(cat.id)}
-              >
-                <Text style={[styles.categoryText, isActive && styles.categoryTextActive]}>
-                  {cat.name}
+      {categories.map((cat) => {
+        const isActive = selectedCatId === cat.id;
+        return (
+          <Pressable
+            key={cat.id}
+            style={[styles.category, isActive && styles.categoryActive]}
+            onPress={() => setSelectedCatId(cat.id)}
+          >
+            <FoodCategoryNeonBadge
+              categoryId={cat.id}
+              isActive={isActive}
+              badgeSize={30}
+              iconSize={24}
+            />
+            <Text style={[styles.categoryText, isActive && styles.categoryTextActive]}>
+              {cat.name}
+            </Text>
+            {cat.id !== 'all' && cat.count > 0 && (
+              <View style={[styles.filterBadge, isActive && styles.filterBadgeActive]}>
+                <Text style={[styles.filterBadgeText, isActive && styles.filterBadgeTextActive]}>
+                  {cat.count}
                 </Text>
-                {cat.id !== 'all' && cat.count > 0 && (
-                  <View style={[styles.filterBadge, isActive && styles.filterBadgeActive]}>
-                    <Text style={[styles.filterBadgeText, isActive && styles.filterBadgeTextActive]}>
-                      {cat.count}
-                    </Text>
-                  </View>
-                )}
-              </Pressable>
-            );
-          })
-        }
-      </ScrollView>
+              </View>
+            )}
+          </Pressable>
+        );
+      })}
+    </ScrollView>
 
     {/* Loading state */}
     {isLoading ? (
@@ -436,26 +510,33 @@ const styles = StyleSheet.create({
   category: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    borderRadius: 18,
+    gap: 8,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: '#2A2A38',
-    backgroundColor: '#181822',
-    height: 36,
+    backgroundColor: '#161622',
+    height: 42,
     justifyContent: 'center',
-    paddingHorizontal: 14,
+    paddingLeft: 6,
+    paddingRight: 14,
   },
   categoryActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: '#260D12',
+    borderColor: '#FF2638',
+    shadowColor: '#FF2638',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 4,
   },
   categoryText: {
-    color: '#A1A1AA',
-    fontSize: 12,
+    color: '#D4D4D8',
+    fontSize: 13,
     fontWeight: '800',
   },
   categoryTextActive: {
     color: '#FFFFFF',
+    fontWeight: '900',
   },
   filterBadge: {
     backgroundColor: '#272738',
@@ -619,5 +700,92 @@ const styles = StyleSheet.create({
     color: '#D4D4D8',
     fontSize: 11,
     fontWeight: '700',
+  },
+  featuredSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  featuredSectionTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  featuredSectionSub: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  featuredCardsScroll: {
+    marginHorizontal: -18,
+    marginBottom: 8,
+  },
+  featuredCardsContent: {
+    paddingHorizontal: 18,
+    gap: 10,
+    paddingVertical: 4,
+  },
+  visualCatCard: {
+    width: 105,
+    backgroundColor: '#161622',
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: '#262636',
+  },
+  visualCatCardActive: {
+    borderColor: '#FF2638',
+    backgroundColor: '#220B10',
+    shadowColor: '#FF2638',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  visualCardImageWrapper: {
+    width: '100%',
+    height: 75,
+    backgroundColor: '#0F0F16',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  visualCardImage: {
+    width: '100%',
+    height: '100%',
+  },
+  visualCardPlaceholder: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#14141E',
+  },
+  visualCardIconOverlay: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+  },
+  visualCardFooter: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    alignItems: 'center',
+  },
+  visualCardTitle: {
+    color: '#E4E4E7',
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  visualCardTitleActive: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+  },
+  visualCardSub: {
+    color: '#A1A1AA',
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 2,
   },
 });
