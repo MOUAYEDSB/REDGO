@@ -42,7 +42,7 @@ export function LiveTrackingMap({
 
   // Progression et mouvement fluide du scooter le long du tracé routier
   useEffect(() => {
-    if (routeCoordinates.length < 2 || !driver) return;
+    if (routeCoordinates.length < 2 || !driver || activeDriverLocation) return;
 
     const interval = setInterval(() => {
       setLiveScooterCoords((curr) => {

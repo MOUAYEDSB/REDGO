@@ -13,7 +13,6 @@ module.exports = ({ config }) => {
   'expo-router',
   'expo-secure-store',
   'expo-status-bar',
-  '@maplibre/maplibre-react-native',
 ];
 
   const existingPluginNames = plugins.map((plugin) =>
