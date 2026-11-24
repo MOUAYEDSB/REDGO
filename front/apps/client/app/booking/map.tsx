@@ -2,52 +2,22 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Map, Camera, Marker, GeoJSONSource, Layer, type CameraRef } from '@maplibre/maplibre-react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import MapView, { Circle, Marker, Polyline, Region, UrlTile } from 'react-native-maps';
 import { Button } from '../../components/ui';
 import { colors } from '../../constants/theme';
 import { formatHumanReadableAddress } from '../../services/geocoding';
 
 const MSaken = { latitude: 35.7273, longitude: 10.5815 };
 const Messaadine = { latitude: 35.7551, longitude: 10.5921 };
-const DEFAULT_CENTER: [number, number] = [10.5868, 35.7412];
-const MAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
+const DEFAULT_REGION: Region = {
+  latitude: 35.7412,
+  longitude: 10.5868,
+  latitudeDelta: 0.065,
+  longitudeDelta: 0.065,
+};
 
 type Point = { latitude: number; longitude: number };
-
-const createCoverageCircle = (center: Point, radiusKm: number) => {
-  const coordinates: [number, number][] = [];
-
-  for (let index = 0; index <= 64; index++) {
-    const angle = (index / 64) * Math.PI * 2;
-    const latitudeOffset = (radiusKm / 111.32) * Math.cos(angle);
-    const longitudeOffset =
-      (radiusKm / (111.32 * Math.cos((center.latitude * Math.PI) / 180))) *
-      Math.sin(angle);
-
-    coordinates.push([
-      center.longitude + longitudeOffset,
-      center.latitude + latitudeOffset,
-    ]);
-  }
-
-  return {
-    type: 'Feature' as const,
-    properties: {},
-    geometry: {
-      type: 'Polygon' as const,
-      coordinates: [coordinates],
-    },
-  };
-};
-
-const coverageGeoJSON = {
-  type: 'FeatureCollection' as const,
-  features: [
-    createCoverageCircle(MSaken, 2.6),
-    createCoverageCircle(Messaadine, 2.2),
-  ],
-};
 
 const distanceInKm = (from: Point, to: Point) => {
   const earthRadiusKm = 6371;
@@ -78,7 +48,7 @@ const destinationFromAddress = (value?: string): Point => {
 };
 
 export default function BookingMap() {
-  const cameraRef = useRef<CameraRef>(null);
+  const mapRef = useRef<MapView>(null);
   const {
     mode = 'pickup',
     flow = 'ride',
@@ -128,20 +98,6 @@ export default function BookingMap() {
   const [activeSelection, setActiveSelection] = useState<'pickup' | 'destination'>('pickup');
   const selectedDestinationAddress = `Destination choisie (${destinationPoint.latitude.toFixed(5)}, ${destinationPoint.longitude.toFixed(5)})`;
 
-  const routeGeoJSON = {
-    type: 'FeatureCollection' as const,
-    features: route.length > 1
-      ? [{
-          type: 'Feature' as const,
-          properties: {},
-          geometry: {
-            type: 'LineString' as const,
-            coordinates: route.map((point) => [point.longitude, point.latitude]),
-          },
-        }]
-      : [],
-  };
-
   useEffect(() => {
     (async () => {
       try {
@@ -167,12 +123,12 @@ export default function BookingMap() {
         if (mode === 'itinerary') {
           setActiveSelection('destination');
           const mapCenter = savedPickupPoint || point;
-          cameraRef.current?.easeTo({ center: [mapCenter.longitude, mapCenter.latitude], zoom: 14, duration: 600 });
+          mapRef.current?.animateToRegion({ ...mapCenter, latitudeDelta: 0.045, longitudeDelta: 0.045 });
         } else if (mode === 'delivery') {
           const mapCenter = savedDeliveryPoint || point;
-          cameraRef.current?.easeTo({ center: [mapCenter.longitude, mapCenter.latitude], zoom: 14, duration: 600 });
+          mapRef.current?.animateToRegion({ ...mapCenter, latitudeDelta: 0.045, longitudeDelta: 0.045 });
         } else {
-          cameraRef.current?.easeTo({ center: [point.longitude, point.latitude], zoom: 14, duration: 600 });
+          mapRef.current?.animateToRegion({ ...point, latitudeDelta: 0.045, longitudeDelta: 0.045 });
         }
       } catch {
         setLocationMessage(
@@ -336,13 +292,15 @@ export default function BookingMap() {
 
   return (
     <View style={styles.container}>
-      <Map
+      <MapView
+        ref={mapRef}
         style={styles.map}
-        mapStyle={MAP_STYLE_URL}
+        mapType={Platform.OS === 'android' ? 'none' : 'standard'}
+        initialRegion={DEFAULT_REGION}
+        showsUserLocation
+        showsMyLocationButton
         onPress={(event) => {
-          const [longitude, latitude] = event.nativeEvent.lngLat;
-          const point = { latitude, longitude };
-
+          const point = event.nativeEvent.coordinate;
           if (mode === 'pickup' || (mode === 'itinerary' && activeSelection === 'pickup')) {
             setPickupPoint(point);
             if (mode === 'itinerary') {
@@ -359,89 +317,27 @@ export default function BookingMap() {
           }
         }}
       >
-        <Camera
-          ref={cameraRef}
-          initialViewState={{
-            center: DEFAULT_CENTER,
-            zoom: 12,
-          }}
+        <UrlTile
+          urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+          maximumZ={19}
+          tileSize={256}
+          zIndex={-1}
         />
-
-        <GeoJSONSource id="coverage-source" data={coverageGeoJSON as any}>
-          <Layer
-            id="coverage-fill"
-            source="coverage-source"
-            type="fill"
-            paint={{
-              'fill-color': '#FF2638',
-              'fill-opacity': 0.08,
-            }}
-          />
-          <Layer
-            id="coverage-outline"
-            source="coverage-source"
-            type="line"
-            paint={{
-              'line-color': '#FF2638',
-              'line-width': 2,
-              'line-opacity': 0.45,
-            }}
-          />
-        </GeoJSONSource>
-
+        <Circle center={MSaken} radius={2600} fillColor="rgba(255,38,56,.08)" strokeColor="rgba(255,38,56,.45)" />
+        <Circle center={Messaadine} radius={2200} fillColor="rgba(255,38,56,.08)" strokeColor="rgba(255,38,56,.45)" />
         {mode === 'delivery' ? (
-          <Marker lngLat={[destinationPoint.longitude, destinationPoint.latitude]}>
-            <View style={[styles.mapMarker, { backgroundColor: colors.primary }]}>
-              <Ionicons name="location" size={19} color="#FFFFFF" />
-            </View>
-          </Marker>
+          <Marker coordinate={destinationPoint} title="Adresse de livraison" pinColor={colors.primary} />
         ) : mode === 'pickup' ? (
-          <Marker lngLat={[pickupPoint.longitude, pickupPoint.latitude]}>
-            <View style={[styles.mapMarker, { backgroundColor: colors.success }]}>
-              <Ionicons name="radio-button-on" size={17} color="#FFFFFF" />
-            </View>
-          </Marker>
+          <Marker coordinate={pickupPoint} title="Départ" pinColor={colors.success} />
         ) : (
           <>
-            <Marker lngLat={[pickupPoint.longitude, pickupPoint.latitude]}>
-              <View style={[styles.mapMarker, { backgroundColor: colors.success }]}>
-                <Ionicons name="radio-button-on" size={17} color="#FFFFFF" />
-              </View>
-            </Marker>
-            <Marker lngLat={[destinationPoint.longitude, destinationPoint.latitude]}>
-              <View style={[styles.mapMarker, { backgroundColor: colors.primary }]}>
-                <Ionicons name="location" size={19} color="#FFFFFF" />
-              </View>
-            </Marker>
+            <Marker coordinate={pickupPoint} title="Départ" pinColor={colors.success} />
+            <Marker coordinate={destinationPoint} title="Destination" pinColor={colors.primary} />
           </>
         )}
-
-        {currentPoint && mode !== 'delivery' ? (
-          <Marker lngLat={[currentPoint.longitude, currentPoint.latitude]}>
-            <View style={[styles.mapMarker, styles.currentMapMarker]}>
-              <Ionicons name="navigate" size={16} color="#FFFFFF" />
-            </View>
-          </Marker>
-        ) : null}
-
-        {route.length > 1 ? (
-          <GeoJSONSource id="route-source" data={routeGeoJSON as any}>
-            <Layer
-              id="route-line"
-              source="route-source"
-              type="line"
-              layout={{
-                'line-cap': 'round',
-                'line-join': 'round',
-              }}
-              paint={{
-                'line-color': colors.primary,
-                'line-width': 5,
-              }}
-            />
-          </GeoJSONSource>
-        ) : null}
-      </Map>
+        {currentPoint && mode !== 'delivery' ? <Marker coordinate={currentPoint} title="Ma position" pinColor="#FFFFFF" /> : null}
+        {route.length > 0 ? <Polyline coordinates={route} strokeColor={colors.primary} strokeWidth={5} /> : null}
+      </MapView>
 
       {loadingLocation || loadingRoute ? <View style={styles.loader}><ActivityIndicator color={colors.primary} /></View> : null}
       <Pressable style={styles.back} onPress={() => router.back()}><Ionicons name="chevron-back" size={24} color={colors.text} /></Pressable>
@@ -507,7 +403,7 @@ export default function BookingMap() {
                 setHasSelectedPickup(true);
                 setActiveSelection('destination');
               }
-              cameraRef.current?.easeTo({ center: [currentPoint.longitude, currentPoint.latitude], zoom: 14, duration: 600 });
+              mapRef.current?.animateToRegion({ ...currentPoint, latitudeDelta: 0.045, longitudeDelta: 0.045 });
             }}
           >
             <Ionicons name="locate" size={18} color={colors.success} />
@@ -532,18 +428,6 @@ export default function BookingMap() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background }, map: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
-  mapMarker: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  currentMapMarker: {
-    backgroundColor: '#2563EB',
-  },
   loader: { position: 'absolute', top: 70, alignSelf: 'center', width: 46, height: 46, borderRadius: 23, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },
   back: { position: 'absolute', top: 52, left: 16, width: 44, height: 44, borderRadius: 22, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },
   sheet: { position: 'absolute', left: 16, right: 16, bottom: 24, backgroundColor: colors.card, borderRadius: 24, padding: 18, borderWidth: 1, borderColor: colors.border }, handle: { width: 38, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginBottom: 14 },
