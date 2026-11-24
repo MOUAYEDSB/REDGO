@@ -14,10 +14,7 @@ export default function Index() {
   if (!authEnabled) return <Redirect href="/welcome" />;
   if (!user && pendingVerification) return <Redirect href="/(auth)/verify-otp" />;
   if (!user) return <Redirect href="/welcome" />;
-  if (activeRole === 'client' && roles.includes('client')) return <Redirect href="/(tabs)/home" />;
-  if (activeRole === 'driver' && roles.includes('driver')) return <Redirect href="/driver/home" />;
-  if (roles.includes('client') && roles.length === 1) return <Redirect href="/(tabs)/home" />;
-  if (roles.includes('driver') && roles.length === 1) return <Redirect href="/driver/home" />;
+  if (roles.includes('driver')) return <Redirect href="/driver/home" />;
   if (
     driverApplicationStatus === 'pending'
     || (user.user_metadata?.requested_role === 'driver' && !roles.includes('driver') && driverApplicationStatus !== 'rejected' && driverApplicationStatus !== 'suspended')
@@ -27,7 +24,8 @@ export default function Index() {
   if (driverApplicationStatus === 'rejected' || driverApplicationStatus === 'suspended') {
     return <Redirect href="/driver-auth/account-status" />;
   }
-  if (roles.length > 1 || roles.length === 0) return <Redirect href="/role-selection" />;
+  if (activeRole === 'client' && roles.includes('client')) return <Redirect href="/(tabs)/home" />;
+  if (roles.includes('client')) return <Redirect href="/(tabs)/home" />;
   return <Redirect href="/role-selection" />;
 }
 

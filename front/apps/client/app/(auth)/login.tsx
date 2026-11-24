@@ -33,7 +33,8 @@ export default function Login() {
       setError(result.error);
       return;
     }
-    if (result.destination) router.replace(destinations[result.destination]);
+    // Stack.Protected dans _layout.tsx redirige automatiquement vers "/" -> index.tsx
+    // qui oriente vers l'espace chauffeur ou client sans conflit de navigation.
   };
 
   return (

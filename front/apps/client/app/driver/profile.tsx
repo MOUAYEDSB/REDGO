@@ -70,14 +70,14 @@ export default function DriverProfileScreen() {
         <ProfileItem key={item.label} icon={item.icon} label={item.label} />
       ))}
 
-      {(!authEnabled || (roles.includes('client') && roles.includes('driver'))) ? (
-        <Pressable accessibilityRole="button" onPress={() => void changeSpace()} style={styles.switchSpace}>
-          <Ionicons name="swap-horizontal-outline" size={19} color={colors.primary} />
-          <Text style={styles.switchSpaceText}>
-            Passer à l’espace {previewRole === 'client' || activeRole === 'client' ? 'chauffeur' : 'client'}
-          </Text>
-          <Ionicons name="chevron-forward" size={18} color={colors.primary} />
-        </Pressable>
+        {!authEnabled ? (
+      <Pressable accessibilityRole="button" onPress={() => void changeSpace()} style={styles.switchSpace}>
+        <Ionicons name="swap-horizontal-outline" size={19} color={colors.primary} />
+        <Text style={styles.switchSpaceText}>
+          Passer à l’espace {previewRole === 'client' || activeRole === 'client' ? 'chauffeur' : 'client'}
+        </Text>
+        <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+      </Pressable>
       ) : null}
 
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}

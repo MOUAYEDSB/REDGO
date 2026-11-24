@@ -100,9 +100,19 @@ export function RedgoAuthProvider({ children }: { children: ReactNode }) {
     setDriverApplicationStatus(appStatus);
     setDriverApplicationReviewNote(access.driverApplication?.review_note ?? null);
 
+    const isDriverAccount =
+      access.roles.includes('driver')
+      || access.driverApplication !== null
+      || nextUser.user_metadata?.requested_role === 'driver';
+
+    if (isDriverAccount) {
+      setActiveRole(access.roles.includes('driver') ? 'driver' : null);
+      return;
+    }
+
     const storedRole = await AsyncStorage.getItem(`${SPACE_STORAGE_KEY}:${nextUser.id}`);
     const restoredRole = isAppRole(storedRole) && access.roles.includes(storedRole) ? storedRole : null;
-    setActiveRole(restoredRole ?? (access.roles.length === 1 ? access.roles[0] : (access.roles.includes('client') ? 'client' : null)));
+    setActiveRole(restoredRole ?? (access.roles.includes('client') ? 'client' : null));
   }, []);
 
   useEffect(() => {
@@ -187,57 +197,67 @@ export function RedgoAuthProvider({ children }: { children: ReactNode }) {
   }, [applyAccess, user]);
 
   const continueWithRole = useCallback(async (nextUser: User, role: AppRole): Promise<AuthDestination> => {
-    if (role === 'client') {
-      try {
-        await requestRoleAccess(role);
-      } catch {
-        // Ignored if client role is already granted or trigger completed
+      let access = await loadRedgoAccess(nextUser.id);
+      if (!access.profile) {
+        throw new Error('Le profil utilisateur est introuvable. Vérifiez votre connexion puis réessayez.');
       }
-    }
-    const access = await loadRedgoAccess(nextUser.id);
-    if (!access.profile) {
-      throw new Error('Le profil utilisateur est introuvable. Vérifiez votre connexion puis réessayez.');
-    }
 
-    let destination: AuthDestination;
-    let targetActiveRole: AppRole | null = null;
-    let finalApplicationStatus: DriverApplicationStatus | null = access.driverApplication?.status ?? null;
+      // Un compte chauffeur/livreur ne peut jamais devenir client avec le même compte.
+      const isDriverAccount =
+        access.roles.includes('driver')
+        || access.driverApplication !== null
+        || nextUser.user_metadata?.requested_role === 'driver';
 
-    if (role === 'client') {
-      targetActiveRole = 'client';
-      destination = 'client';
-      await AsyncStorage.setItem(`${SPACE_STORAGE_KEY}:${nextUser.id}`, 'client');
-    } else {
-      // Driver flow
-      const isApproved = access.roles.includes('driver') || access.driverApplication?.status === 'approved';
-      const isRejected = access.driverApplication?.status === 'rejected' || access.driverApplication?.status === 'suspended';
+      const effectiveRole: AppRole = isDriverAccount ? 'driver' : role;
 
-      if (isApproved) {
-        targetActiveRole = 'driver';
-        destination = 'driver';
-        finalApplicationStatus = 'approved';
-        await AsyncStorage.setItem(`${SPACE_STORAGE_KEY}:${nextUser.id}`, 'driver');
-      } else if (isRejected) {
-        destination = 'account-status';
-        finalApplicationStatus = access.driverApplication?.status ?? 'rejected';
-      } else {
-        // Pending: status is 'pending' or newly registered driver awaiting review
-        destination = 'pending';
-        finalApplicationStatus = 'pending';
+      if (effectiveRole === 'client') {
+        try {
+          await requestRoleAccess('client');
+          access = await loadRedgoAccess(nextUser.id);
+        } catch {
+          // Ignored if client role is already granted or trigger completed
+        }
       }
-    }
 
-    await AsyncStorage.removeItem(PENDING_VERIFICATION_KEY);
-    setProfile(access.profile);
-    setRoles(access.roles);
-    setDriverApplicationStatus(finalApplicationStatus);
-    setDriverApplicationReviewNote(access.driverApplication?.review_note ?? null);
-    setPendingVerification(null);
-    setPreviewRole(null);
-    setActiveRole(targetActiveRole);
-    setUser(nextUser);
-    return destination;
-  }, []);
+      let destination: AuthDestination;
+      let targetActiveRole: AppRole | null = null;
+      let finalApplicationStatus: DriverApplicationStatus | null = access.driverApplication?.status ?? null;
+
+        if (effectiveRole === 'client') {
+          targetActiveRole = 'client';
+          destination = 'client';
+          await AsyncStorage.setItem(`${SPACE_STORAGE_KEY}:${nextUser.id}`, 'client');
+        } else {
+          // Driver flow
+          const isApproved = access.roles.includes('driver') || access.driverApplication?.status === 'approved';
+          const isRejected = access.driverApplication?.status === 'rejected' || access.driverApplication?.status === 'suspended';
+
+          if (isApproved) {
+            targetActiveRole = 'driver';
+            destination = 'driver';
+            finalApplicationStatus = 'approved';
+            await AsyncStorage.setItem(`${SPACE_STORAGE_KEY}:${nextUser.id}`, 'driver');
+          } else if (isRejected) {
+            destination = 'account-status';
+            finalApplicationStatus = access.driverApplication?.status ?? 'rejected';
+          } else {
+            // Pending: status is 'pending' or newly registered driver awaiting review
+            destination = 'pending';
+            finalApplicationStatus = 'pending';
+          }
+        }
+
+        await AsyncStorage.removeItem(PENDING_VERIFICATION_KEY);
+        setProfile(access.profile);
+        setRoles(access.roles);
+        setDriverApplicationStatus(finalApplicationStatus);
+        setDriverApplicationReviewNote(access.driverApplication?.review_note ?? null);
+        setPendingVerification(null);
+        setPreviewRole(null);
+        setActiveRole(targetActiveRole);
+        setUser(nextUser);
+        return destination;
+      }, []);
 
   const signIn = useCallback(async (identifier: string, password: string): Promise<AuthResult> => {
     setIsSubmitting(true);
@@ -376,88 +396,92 @@ export function RedgoAuthProvider({ children }: { children: ReactNode }) {
 
   const selectRole = useCallback(async (role: AppRole) => {
     if (!user || !roles.includes(role)) return false;
+    // Un compte chauffeur ne peut jamais basculer vers l'espace client
+    if (role === 'client' && (roles.includes('driver') || driverApplicationStatus !== null)) {
+      return false;
+    }
     setActiveRole(role);
     setAuthError(null);
     await AsyncStorage.setItem(`${SPACE_STORAGE_KEY}:${user.id}`, role);
     return true;
-  }, [roles, user]);
+}, [driverApplicationStatus, roles, user]);
 
-  const startPreview = useCallback((role: AppRole) => {
-    if (!authEnabled || __DEV__) setPreviewRole(role);
-  }, []);
+const startPreview = useCallback((role: AppRole) => {
+  if (!authEnabled || __DEV__) setPreviewRole(role);
+}, []);
 
-  const endPreview = useCallback(() => setPreviewRole(null), []);
+const endPreview = useCallback(() => setPreviewRole(null), []);
 
-  const signOut = useCallback(async () => {
-    setAuthError(null);
-    await signOutFromRedgo();
-    await AsyncStorage.removeItem(PENDING_VERIFICATION_KEY);
-    setUser(null);
-    setProfile(null);
-    setRoles([]);
-    setDriverApplicationStatus(null);
-    setDriverApplicationReviewNote(null);
-    setActiveRole(null);
-    setPendingVerification(null);
-    setPreviewRole(null);
-  }, []);
+const signOut = useCallback(async () => {
+  setAuthError(null);
+  await signOutFromRedgo();
+  await AsyncStorage.removeItem(PENDING_VERIFICATION_KEY);
+  setUser(null);
+  setProfile(null);
+  setRoles([]);
+  setDriverApplicationStatus(null);
+  setDriverApplicationReviewNote(null);
+  setActiveRole(null);
+  setPendingVerification(null);
+  setPreviewRole(null);
+}, []);
 
-  const value = useMemo<RedgoAuthContextValue>(() => ({
-    user,
-    profile,
-    roles,
-    driverApplicationStatus,
-    driverApplicationReviewNote,
-    activeRole,
-    requestedRole,
-    previewRole,
-    pendingVerification,
-    clearPendingVerification,
-    isLoading,
-    isSubmitting,
-    authError,
-    chooseRole: setRequestedRole,
-    startPreview,
-    endPreview,
-    signIn,
-    register,
-    verifyCode,
-    resendCode,
-    sendPasswordReset,
-    completePasswordReset,
-    requestAccess,
-    refreshAccess,
-    selectRole,
-    signOut,
-  }), [
-    user,
-    profile,
-    roles,
-    driverApplicationStatus,
-    driverApplicationReviewNote,
-    activeRole,
-    requestedRole,
-    previewRole,
-    pendingVerification,
-    clearPendingVerification,
-    isLoading,
-    isSubmitting,
-    authError,
-    signIn,
-    register,
-    verifyCode,
-    resendCode,
-    sendPasswordReset,
-    completePasswordReset,
-    requestAccess,
-    refreshAccess,
-    selectRole,
-    startPreview,
-    endPreview,
-    signOut,
-  ]);
+const value = useMemo<RedgoAuthContextValue>(() => ({
+  user,
+  profile,
+  roles,
+  driverApplicationStatus,
+  driverApplicationReviewNote,
+  activeRole,
+  requestedRole,
+  previewRole,
+  pendingVerification,
+  clearPendingVerification,
+  isLoading,
+  isSubmitting,
+  authError,
+  chooseRole: setRequestedRole,
+  startPreview,
+  endPreview,
+  signIn,
+  register,
+  verifyCode,
+  resendCode,
+  sendPasswordReset,
+  completePasswordReset,
+  requestAccess,
+  refreshAccess,
+  selectRole,
+  signOut,
+}), [
+  user,
+  profile,
+  roles,
+  driverApplicationStatus,
+  driverApplicationReviewNote,
+  activeRole,
+  requestedRole,
+  previewRole,
+  pendingVerification,
+  clearPendingVerification,
+  isLoading,
+  isSubmitting,
+  authError,
+  signIn,
+  register,
+  verifyCode,
+  resendCode,
+  sendPasswordReset,
+  completePasswordReset,
+  requestAccess,
+  refreshAccess,
+  selectRole,
+  startPreview,
+  endPreview,
+  signOut,
+]);
 
-  return <RedgoAuthContext.Provider value={value}>{children}</RedgoAuthContext.Provider>;
+return <RedgoAuthContext.Provider value={value}>{children}</RedgoAuthContext.Provider>;
 }
 
 export function useRedgoAuth() {

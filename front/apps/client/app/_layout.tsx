@@ -17,11 +17,16 @@ export default function RootLayout() {
 
 function RoleAwareStack() {
   const { user, roles, activeRole, driverApplicationStatus, previewRole, pendingVerification, isLoading } = useRedgoAuth();
+  const isDriverAccount = Boolean(user) && (
+    roles.includes('driver')
+    || driverApplicationStatus !== null
+    || user?.user_metadata?.requested_role === 'driver'
+  );
   const canShowOnboarding = !isLoading && !user;
   const canAccessAuth = !isLoading && (!user || Boolean(pendingVerification));
-  const canSelectRole = !authEnabled || canShowOnboarding || (Boolean(user) && (roles.length === 0 || roles.length > 1));
+  const canSelectRole = !authEnabled || canShowOnboarding || (Boolean(user) && !isDriverAccount && roles.length === 0);
   const canUseClient = !authEnabled
-    || (Boolean(user) && roles.includes('client') && activeRole === 'client')
+    || (Boolean(user) && !isDriverAccount && roles.includes('client') && activeRole === 'client')
     || previewRole === 'client';
   const canUseDriver = !authEnabled
     || (Boolean(user) && roles.includes('driver') && activeRole === 'driver')

@@ -13,7 +13,7 @@ export default function DriverSpaceScreen() {
       isPreview={isPreview}
       isLoading={auth.isLoading}
       sessionError={auth.authError}
-      canSwitchSpace={!authEnabled || (auth.roles.includes('client') && auth.roles.includes('driver'))}
+      canSwitchSpace={!authEnabled}
       onSwitchSpace={() => {
         if (!authEnabled) {
           auth.startPreview('client');
