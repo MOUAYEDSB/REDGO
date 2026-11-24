@@ -8,6 +8,8 @@ import { Button } from '../../components/ui';
 import { colors } from '../../constants/theme';
 import { formatHumanReadableAddress } from '../../services/geocoding';
 
+const canRenderNativeMap =
+  Platform.OS === 'ios' || Boolean(process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY);
 const MSaken = { latitude: 35.7273, longitude: 10.5815 };
 const Messaadine = { latitude: 35.7551, longitude: 10.5921 };
 const DEFAULT_REGION: Region = {
@@ -292,54 +294,61 @@ export default function BookingMap() {
 
   return (
     <View style={styles.container}>
-      <MapView
-        ref={mapRef}
-        style={styles.map}
-        mapType={Platform.OS === 'android' ? 'none' : 'standard'}
-        initialRegion={DEFAULT_REGION}
-        showsUserLocation
-        showsMyLocationButton
-        onPress={(event) => {
-          const point = event.nativeEvent.coordinate;
-          if (mode === 'pickup' || (mode === 'itinerary' && activeSelection === 'pickup')) {
-            setPickupPoint(point);
-            if (mode === 'itinerary') {
-              setHasSelectedPickup(true);
-              setActiveSelection('destination');
-            }
-          } else {
-            setDestinationPoint(point);
-            if (mode === 'delivery') {
-              setHasSelectedDelivery(true);
-              setIsCurrentPositionSelected(false);
-            }
-            if (mode === 'itinerary') setHasSelectedDestination(true);
-          }
-        }}
-      >
-        <UrlTile
-          urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-          maximumZ={19}
-          tileSize={256}
-          zIndex={-1}
-        />
-        <Circle center={MSaken} radius={2600} fillColor="rgba(255,38,56,.08)" strokeColor="rgba(255,38,56,.45)" />
-        <Circle center={Messaadine} radius={2200} fillColor="rgba(255,38,56,.08)" strokeColor="rgba(255,38,56,.45)" />
-        {mode === 'delivery' ? (
-          <Marker coordinate={destinationPoint} title="Adresse de livraison" pinColor={colors.primary} />
-        ) : mode === 'pickup' ? (
-          <Marker coordinate={pickupPoint} title="Départ" pinColor={colors.success} />
+        {canRenderNativeMap ? (
+          <MapView
+            ref={mapRef}
+            style={styles.map}
+            mapType={Platform.OS === 'android' ? 'none' : 'standard'}
+            initialRegion={DEFAULT_REGION}
+            showsUserLocation
+            showsMyLocationButton
+            onPress={(event) => {
+              const point = event.nativeEvent.coordinate;
+              if (mode === 'pickup' || (mode === 'itinerary' && activeSelection === 'pickup')) {
+                setPickupPoint(point);
+                if (mode === 'itinerary') {
+                  setHasSelectedPickup(true);
+                  setActiveSelection('destination');
+                }
+              } else {
+                setDestinationPoint(point);
+                if (mode === 'delivery') {
+                  setHasSelectedDelivery(true);
+                  setIsCurrentPositionSelected(false);
+                }
+                if (mode === 'itinerary') setHasSelectedDestination(true);
+              }
+            }}
+          >
+            <UrlTile
+              urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+              maximumZ={19}
+              tileSize={256}
+              zIndex={-1}
+            />
+            <Circle center={MSaken} radius={2600} fillColor="rgba(255,38,56,.08)" strokeColor="rgba(255,38,56,.45)" />
+            <Circle center={Messaadine} radius={2200} fillColor="rgba(255,38,56,.08)" strokeColor="rgba(255,38,56,.45)" />
+            {mode === 'delivery' ? (
+              <Marker coordinate={destinationPoint} title="Adresse de livraison" pinColor={colors.primary} />
+            ) : mode === 'pickup' ? (
+              <Marker coordinate={pickupPoint} title="Départ" pinColor={colors.success} />
+            ) : (
+              <>
+                <Marker coordinate={pickupPoint} title="Départ" pinColor={colors.success} />
+                <Marker coordinate={destinationPoint} title="Destination" pinColor={colors.primary} />
+              </>
+            )}
+            {currentPoint && mode !== 'delivery' ? <Marker coordinate={currentPoint} title="Ma position" pinColor="#FFFFFF" /> : null}
+            {route.length > 0 ? <Polyline coordinates={route} strokeColor={colors.primary} strokeWidth={5} /> : null}
+          </MapView>
         ) : (
-          <>
-            <Marker coordinate={pickupPoint} title="Départ" pinColor={colors.success} />
-            <Marker coordinate={destinationPoint} title="Destination" pinColor={colors.primary} />
-          </>
+          <View style={styles.fallbackMapBg}>
+            <Ionicons name="location-outline" size={42} color="#4B5563" />
+            <Text style={styles.fallbackMapText}>Sélection GPS active (M'Saken & Messaadine)</Text>
+          </View>
         )}
-        {currentPoint && mode !== 'delivery' ? <Marker coordinate={currentPoint} title="Ma position" pinColor="#FFFFFF" /> : null}
-        {route.length > 0 ? <Polyline coordinates={route} strokeColor={colors.primary} strokeWidth={5} /> : null}
-      </MapView>
 
-      {loadingLocation || loadingRoute ? <View style={styles.loader}><ActivityIndicator color={colors.primary} /></View> : null}
+        {loadingLocation || loadingRoute ? <View style={styles.loader}><ActivityIndicator color={colors.primary} /></View> : null}
       <Pressable style={styles.back} onPress={() => router.back()}><Ionicons name="chevron-back" size={24} color={colors.text} /></Pressable>
 
       <View style={styles.sheet}>
@@ -348,8 +357,8 @@ export default function BookingMap() {
           {mode === 'delivery'
             ? 'ADRESSE DE LIVRAISON'
             : mode === 'itinerary'
-            ? 'CHOISIR LES POINTS DU TRAJET'
-            : mode === 'destination' ? 'DESTINATION SÉLECTIONNÉE' : 'POINT DE DÉPART'}
+              ? 'CHOISIR LES POINTS DU TRAJET'
+              : mode === 'destination' ? 'DESTINATION SÉLECTIONNÉE' : 'POINT DE DÉPART'}
         </Text>
         {mode === 'itinerary' ? (
           <>
@@ -382,10 +391,10 @@ export default function BookingMap() {
               ? formatHumanReadableAddress(null, destinationPoint.latitude, destinationPoint.longitude)
               : 'Touchez la carte pour choisir votre adresse de livraison.'
             : mode === 'itinerary'
-            ? `Départ : ${pickupPoint.latitude.toFixed(5)}, ${pickupPoint.longitude.toFixed(5)}\nArrivée : ${destinationPoint.latitude.toFixed(5)}, ${destinationPoint.longitude.toFixed(5)}`
-            : mode === 'pickup'
-            ? `Position sélectionnée\n${pickupPoint.latitude.toFixed(5)}, ${pickupPoint.longitude.toFixed(5)}`
-            : selectedDestinationAddress}
+              ? `Départ : ${pickupPoint.latitude.toFixed(5)}, ${pickupPoint.longitude.toFixed(5)}\nArrivée : ${destinationPoint.latitude.toFixed(5)}, ${destinationPoint.longitude.toFixed(5)}`
+              : mode === 'pickup'
+                ? `Position sélectionnée\n${pickupPoint.latitude.toFixed(5)}, ${pickupPoint.longitude.toFixed(5)}`
+                : selectedDestinationAddress}
         </Text>
         {locationMessage ? <Text style={styles.notice}>{locationMessage}</Text> : null}
         {(mode === 'pickup' || mode === 'itinerary' || mode === 'delivery') && currentPoint ? (
@@ -417,8 +426,8 @@ export default function BookingMap() {
           title={mode === 'delivery'
             ? 'Confirmer l’adresse de livraison'
             : mode === 'itinerary'
-            ? 'Confirmer le trajet'
-            : mode === 'destination' ? 'Confirmer la destination' : 'Confirmer le départ'}
+              ? 'Confirmer le trajet'
+              : mode === 'destination' ? 'Confirmer la destination' : 'Confirmer le départ'}
           onPress={confirm}
         />
       </View>
@@ -427,6 +436,23 @@ export default function BookingMap() {
 }
 
 const styles = StyleSheet.create({
+  fallbackMapBg: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#16181F',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingBottom: 180,
+    gap: 8,
+  },
+  fallbackMapText: {
+    color: '#9CA3AF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   container: { flex: 1, backgroundColor: colors.background }, map: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
   loader: { position: 'absolute', top: 70, alignSelf: 'center', width: 46, height: 46, borderRadius: 23, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },
   back: { position: 'absolute', top: 52, left: 16, width: 44, height: 44, borderRadius: 22, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },

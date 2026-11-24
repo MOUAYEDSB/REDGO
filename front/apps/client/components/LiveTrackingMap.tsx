@@ -1,10 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT, Region } from 'react-native-maps';
 import { colors } from '../constants/theme';
 import { Coordinates, DeliveryStop, DriverInfo } from '../types/delivery';
 import { fetchRoadRoute } from '../services/routing';
+
+const canRenderNativeMap =
+  Platform.OS === 'ios' || Boolean(process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY);
 
 type LiveTrackingMapProps = {
   customerLocation: Coordinates;
@@ -48,10 +51,10 @@ export function LiveTrackingMap({
       setLiveScooterCoords((curr) => {
         const currentIndex = curr
           ? routeCoordinates.findIndex(
-              (c) =>
-                Math.abs(c.latitude - curr.latitude) < 0.0001 &&
-                Math.abs(c.longitude - curr.longitude) < 0.0001
-            )
+            (c) =>
+              Math.abs(c.latitude - curr.latitude) < 0.0001 &&
+              Math.abs(c.longitude - curr.longitude) < 0.0001
+          )
           : 0;
         const nextIndex = currentIndex >= 0 && currentIndex < routeCoordinates.length - 1
           ? currentIndex + 1
@@ -140,71 +143,78 @@ export function LiveTrackingMap({
 
   return (
     <View style={[styles.container, { height }]}>
-      <MapView
-        ref={mapRef}
-        provider={PROVIDER_DEFAULT}
-        style={StyleSheet.absoluteFill}
-        initialRegion={initialRegion}
-        userInterfaceStyle="dark"
-      >
-        {routeCoordinates.length > 1 && (
-          <Polyline
-            coordinates={routeCoordinates}
-            strokeColor={colors.primary}
-            strokeWidth={4}
-          />
-        )}
-
-        {/* Customer Destination Marker */}
-        <Marker
-          coordinate={customerLocation}
-          title="Votre adresse de livraison"
-          description={customerAddress || "Point d'arrivée"}
-        >
-          <View style={styles.customerMarker}>
-            <Ionicons name="home" size={16} color="#FFFFFF" />
-          </View>
-        </Marker>
-
-        {/* Pickup Stops Markers */}
-        {pickupStops.map((stop) => (
-          <Marker
-            key={stop.id}
-            coordinate={stop.location}
-            title={stop.businessName}
-            description={stop.type === 'courses' ? 'Collecte Courses' : 'Collecte Restaurant'}
+        {canRenderNativeMap ? (
+          <MapView
+            ref={mapRef}
+            provider={PROVIDER_DEFAULT}
+            style={StyleSheet.absoluteFill}
+            initialRegion={initialRegion}
+            userInterfaceStyle="dark"
           >
-            <View
-              style={[
-                styles.stopMarker,
-                stop.type === 'courses' ? styles.coursesMarker : styles.restaurantMarker,
-              ]}
-            >
-              <Ionicons
-                name={stop.type === 'courses' ? 'basket' : 'restaurant'}
-                size={14}
-                color="#FFFFFF"
+            {routeCoordinates.length > 1 && (
+              <Polyline
+                coordinates={routeCoordinates}
+                strokeColor={colors.primary}
+                strokeWidth={4}
               />
-            </View>
-          </Marker>
-        ))}
+            )}
 
-        {/* Driver Live Marker with animated road progression */}
-        {(liveScooterCoords || activeDriverLocation) && (
-          <Marker
-            coordinate={liveScooterCoords || activeDriverLocation!}
-            title={driver?.name ?? 'Livreur REDGO'}
-            description={driver?.vehicleModel ?? 'Position GPS en direct'}
-            anchor={{ x: 0.5, y: 0.5 }}
-          >
-            <View style={styles.driverMarker}>
-              <Text style={styles.scooterEmoji}>🛵</Text>
-            </View>
-          </Marker>
+            {/* Customer Destination Marker */}
+            <Marker
+              coordinate={customerLocation}
+              title="Votre adresse de livraison"
+              description={customerAddress || "Point d'arrivée"}
+            >
+              <View style={styles.customerMarker}>
+                <Ionicons name="home" size={16} color="#FFFFFF" />
+              </View>
+            </Marker>
+
+            {/* Pickup Stops Markers */}
+            {pickupStops.map((stop) => (
+              <Marker
+                key={stop.id}
+                coordinate={stop.location}
+                title={stop.businessName}
+                description={stop.type === 'courses' ? 'Collecte Courses' : 'Collecte Restaurant'}
+              >
+                <View
+                  style={[
+                    styles.stopMarker,
+                    stop.type === 'courses' ? styles.coursesMarker : styles.restaurantMarker,
+                  ]}
+                >
+                  <Ionicons
+                    name={stop.type === 'courses' ? 'basket' : 'restaurant'}
+                    size={14}
+                    color="#FFFFFF"
+                  />
+                </View>
+              </Marker>
+            ))}
+
+            {/* Driver Live Marker with animated road progression */}
+            {(liveScooterCoords || activeDriverLocation) && (
+              <Marker
+                coordinate={liveScooterCoords || activeDriverLocation!}
+                title={driver?.name ?? 'Livreur REDGO'}
+                description={driver?.vehicleModel ?? 'Position GPS en direct'}
+                anchor={{ x: 0.5, y: 0.5 }}
+              >
+                <View style={styles.driverMarker}>
+                  <Text style={styles.scooterEmoji}>🛵</Text>
+                </View>
+              </Marker>
+            )}
+          </MapView>
+        ) : (
+          <View style={styles.fallbackMapBg}>
+            <Ionicons name="navigate-circle-outline" size={38} color="#4B5563" />
+            <Text style={styles.fallbackMapText}>Suivi GPS en direct actif</Text>
+          </View>
         )}
-      </MapView>
 
-      {/* Recenter Action Button */}
+        {/* Recenter Action Button */}
       <Pressable
         style={({ pressed }) => [styles.recenterButton, pressed && { opacity: 0.75 }]}
         onPress={handleRecenter}
@@ -224,8 +234,8 @@ export function LiveTrackingMap({
           {driver
             ? `🛵 ${driver.name.split(' ')[0]} en déplacement direct · M'Saken`
             : routeCoordinates.length
-            ? 'Tracé routier · OSRM'
-            : routeMessage}
+              ? 'Tracé routier · OSRM'
+              : routeMessage}
         </Text>
       </View>
     </View>
@@ -233,6 +243,22 @@ export function LiveTrackingMap({
 }
 
 const styles = StyleSheet.create({
+  fallbackMapBg: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#16181F',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  fallbackMapText: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   container: {
     borderRadius: 24,
     overflow: 'hidden',
