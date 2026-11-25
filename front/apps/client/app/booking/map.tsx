@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Circle, Marker, Polyline, Region, UrlTile } from 'react-native-maps';
 import { Button } from '../../components/ui';
+import { RestaurantMapMarkers } from '../../components/RestaurantMapMarkers';
 import { colors } from '../../constants/theme';
 import { formatHumanReadableAddress } from '../../services/geocoding';
 
@@ -328,6 +329,25 @@ export default function BookingMap() {
             />
             <Circle center={MSaken} radius={2600} fillColor="rgba(255,38,56,.08)" strokeColor="rgba(255,38,56,.45)" />
             <Circle center={Messaadine} radius={2200} fillColor="rgba(255,38,56,.08)" strokeColor="rgba(255,38,56,.45)" />
+            <RestaurantMapMarkers
+              onSelectPlace={(place) => {
+                const pt = { latitude: place.latitude, longitude: place.longitude };
+                if (mode === 'pickup' || (mode === 'itinerary' && activeSelection === 'pickup')) {
+                  setPickupPoint(pt);
+                  if (mode === 'itinerary') {
+                    setHasSelectedPickup(true);
+                    setActiveSelection('destination');
+                  }
+                } else {
+                  setDestinationPoint(pt);
+                  if (mode === 'delivery') {
+                    setHasSelectedDelivery(true);
+                    setIsCurrentPositionSelected(false);
+                  }
+                  if (mode === 'itinerary') setHasSelectedDestination(true);
+                }
+              }}
+            />
             {mode === 'delivery' ? (
               <Marker coordinate={destinationPoint} title="Adresse de livraison" pinColor={colors.primary} />
             ) : mode === 'pickup' ? (

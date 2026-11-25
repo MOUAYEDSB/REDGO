@@ -14,6 +14,7 @@ import MapView, { Marker, Polyline, PROVIDER_DEFAULT, Region } from 'react-nativ
 import { colors } from '../constants/theme';
 import { fetchRoadRoute } from '../services/routing';
 import { Coordinates, DeliveryStop, DriverInfo } from '../types/delivery';
+import { RestaurantMapMarkers } from './RestaurantMapMarkers';
 
 const canRenderNativeMap =
   Platform.OS === 'ios' || Boolean(process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY);
@@ -338,6 +339,9 @@ export function LiveTrackingMap({
             if (followDriver) setFollowDriver(false);
           }}
         >
+          {/* Restaurants & Hub Courses visibles sur la carte */}
+          <RestaurantMapMarkers />
+
           {/* Halo néon externe + tracé routier rouge REDGO */}
           {routeCoordinates.length > 1 && (
             <>

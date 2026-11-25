@@ -15,6 +15,7 @@ import { colors } from '../constants/theme';
 import { resolveBusinessCoordinates } from '../services/businessCoordinates';
 import { publishDriverLocation } from '../services/driverLocation';
 import { fetchMissionLocationDetails } from '../services/driverMissions';
+import { RestaurantMapMarkers } from './RestaurantMapMarkers';
 import {
   fetchRoadRoute,
   getManeuverIconName,
@@ -586,6 +587,9 @@ return (
           if (isNavigating) setUserInteracted(true);
         }}
       >
+          {/* Restaurants & Hub Courses visibles sur la carte */}
+          <RestaurantMapMarkers />
+
           {/* Itinéraire complet Point A -> Point B */ }
             {abRouteCoordinates.length > 1 && (
           <>

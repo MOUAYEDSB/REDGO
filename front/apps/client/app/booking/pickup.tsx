@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import MapView, { Circle, Marker, Polyline, PROVIDER_DEFAULT, Region } from 'react-native-maps';
 import { Screen } from '../../components/Screen';
+import { RestaurantMapMarkers } from '../../components/RestaurantMapMarkers';
 import { colors } from '../../constants/theme';
 import { formatMillimes } from '../../services/cart';
 import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
@@ -596,6 +597,19 @@ export default function BookingPickupScreen() {
                   radius={2200}
                   fillColor="rgba(255,32,42,0.06)"
                   strokeColor="rgba(255,32,42,0.35)"
+                />
+                <RestaurantMapMarkers
+                  onSelectPlace={(place) => {
+                    const pt = { latitude: place.latitude, longitude: place.longitude };
+                    if (activeMapTarget === 'pickup') {
+                      setPickupPoint(pt);
+                      setPickupAddress(place.name);
+                      setActiveMapTarget('destination');
+                    } else {
+                      setDestinationPoint(pt);
+                      setDestinationAddress(place.name);
+                    }
+                  }}
                 />
                 {routeCoords.length > 1 ? (
                   <Polyline coordinates={routeCoords} strokeColor={colors.primary} strokeWidth={4} />
