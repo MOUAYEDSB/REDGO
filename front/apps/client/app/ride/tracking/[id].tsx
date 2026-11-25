@@ -68,21 +68,76 @@ export default function RideTrackingScreen() {
     if (!id || id === 'ride_101') return;
 
     let isMounted = true;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id));
+
     const fetchRideStatus = async () => {
       try {
         const client = requireSupabase();
-        const { data: row } = await (client as any)
-          .from('scooter_rides')
-          .select('*, driver_profiles(*)')
-          .or(`id.eq.${id},ride_reference.eq.${id}`)
-          .single();
+        const query = (client as any).from('scooter_rides').select('*');
+        const { data: row } = await (isUuid ? query.eq('id', id) : query.eq('reference', id)).maybeSingle();
 
-        if (row && isMounted) {
-          setRide((current) => ({
-            ...current,
-            status: row.status as RideStage,
-          }));
+        if (!row || !isMounted) return;
+
+        let driverInfo = ride.driver;
+        if (row.driver_id) {
+          const [profRes, driverProfRes] = await Promise.all([
+            (client as any).from('profiles').select('full_name, phone, avatar_url').eq('id', row.driver_id).maybeSingle(),
+            (client as any).from('driver_profiles').select('*').eq('user_id', row.driver_id).maybeSingle(),
+          ]);
+          const p = profRes.data;
+          const dp = driverProfRes.data;
+          driverInfo = {
+            id: row.driver_id,
+            name: p?.full_name || 'Chauffeur REDGO',
+            phone: p?.phone || '+216 50 443 951',
+            avatarUrl: p?.avatar_url || undefined,
+            rating: typeof dp?.rating === 'number' ? Number(dp.rating) : 4.9,
+            completedRidesCount: dp?.completed_missions_count ?? 0,
+            vehicleModel: dp?.vehicle_model || 'Scooter REDGO',
+            plateNumber: dp?.plate_number || 'TUNISIE',
+            currentLocation: {
+              latitude: typeof dp?.current_latitude === 'number' ? dp.current_latitude : row.pickup_latitude,
+              longitude: typeof dp?.current_longitude === 'number' ? dp.current_longitude : row.pickup_longitude,
+            },
+          };
+
+          if (typeof dp?.current_latitude === 'number' && typeof dp?.current_longitude === 'number') {
+            setDriverLocation((prev) => prev ?? { latitude: dp.current_latitude, longitude: dp.current_longitude });
+            setTrackingState('live');
+            setTrackingMessage('Position GPS du chauffeur active.');
+          }
         }
+
+        const isParcel = typeof row.destination_address === 'string' && row.destination_address.startsWith('[COLIS');
+
+        setRide({
+          id: row.id,
+          reference: row.reference,
+          createdAt: row.created_at,
+          status: row.status as RideStage,
+          pickup: {
+            address: row.pickup_address,
+            location: { latitude: row.pickup_latitude, longitude: row.pickup_longitude },
+          },
+          destination: {
+            address: row.destination_address,
+            location: { latitude: row.destination_latitude, longitude: row.destination_longitude },
+          },
+          service: {
+            id: row.tariff_id || 'scooter_standard',
+            name: isParcel ? 'Envoi de colis REDGO' : 'Scooter Express (1 passager)',
+            description: isParcel ? 'Livraison rapide de colis' : 'Déplacement rapide · Casque fourni',
+            helmetProvided: !isParcel,
+            passengerCapacity: 1,
+          },
+          metrics: {
+            distanceKm: Number(row.estimated_distance_km || 3.5),
+            estimatedDurationMinutes: row.estimated_duration_minutes || 10,
+            fareMillimes: row.fare_millimes,
+          },
+          paymentMethod: 'cash',
+          driver: driverInfo,
+        });
       } catch (err) {
         console.warn('fetchRideStatus error :', err);
       }
@@ -186,9 +241,14 @@ export default function RideTrackingScreen() {
         {
           text: 'Oui, annuler',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
+            try {
+              const client = requireSupabase();
+              await (client as any).from('scooter_rides').update({ status: 'cancelled' }).eq('id', ride.id);
+              await (client as any).from('driver_missions').update({ status: 'cancelled' }).eq('scooter_ride_id', ride.id);
+            } catch {}
             setRide((prev) => ({ ...prev, status: 'cancelled' }));
-            setTimeout(() => router.replace('/(tabs)/home'), 1500);
+            setTimeout(() => router.replace('/(tabs)/home'), 1200);
           },
         },
       ],

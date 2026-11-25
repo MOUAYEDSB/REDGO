@@ -314,6 +314,27 @@ export async function fetchMissionLocationDetails(orderId: string): Promise<Miss
       if (mRow?.delivery_order_id) {
         return fetchMissionLocationDetails(mRow.delivery_order_id);
       }
+      if (mRow?.scooter_ride_id) {
+        return fetchMissionLocationDetails(mRow.scooter_ride_id);
+      }
+
+      const { data: rideRow } = await (client as any)
+        .from('scooter_rides')
+        .select('pickup_address, pickup_latitude, pickup_longitude, destination_address, destination_latitude, destination_longitude')
+        .eq('id', orderId)
+        .maybeSingle();
+
+      if (rideRow) {
+        const isRoundTrip = typeof rideRow.destination_address === 'string' && rideRow.destination_address.startsWith('[ALLER-RETOUR]');
+        const isParcel = typeof rideRow.destination_address === 'string' && rideRow.destination_address.startsWith('[COLIS');
+        return {
+          pickupCoords: { latitude: rideRow.pickup_latitude, longitude: rideRow.pickup_longitude },
+          destinationCoords: { latitude: rideRow.destination_latitude, longitude: rideRow.destination_longitude },
+          restaurantName: isParcel ? 'Envoi de colis' : isRoundTrip ? 'Scooter Aller-retour' : 'Scooter Taxi',
+          businessId: 'scooter_ride',
+          stopsCount: isRoundTrip ? 2 : 1,
+        };
+      }
     }
 
     const firstStop = stopsRes.data?.[0];
@@ -702,7 +723,7 @@ export async function fetchDriverHistory(userId?: string): Promise<DriverHistory
       const client = requireSupabase();
       const { data, error } = await (client as any)
         .from('driver_missions')
-        .select('id, mission_type, status, created_at, completed_at, delivery_orders(order_reference, total_amount_millimes, delivery_fee_millimes, delivery_address), scooter_rides(ride_reference, total_fare_millimes, pickup_address, destination_address)')
+        .select('id, mission_type, status, created_at, completed_at, delivery_orders(reference, total_millimes, delivery_fee_millimes, destination_address), scooter_rides(reference, fare_millimes, pickup_address, destination_address)')
         .eq('driver_id', userId)
         .eq('status', 'completed')
         .order('completed_at', { ascending: false })
@@ -713,16 +734,16 @@ export async function fetchDriverHistory(userId?: string): Promise<DriverHistory
           const isDelivery = row.mission_type === 'delivery';
           const order = row.delivery_orders;
           const ride = row.scooter_rides;
-          const ref = isDelivery ? (order?.order_reference || 'CMD') : (ride?.ride_reference || 'TAX');
-          const totalAmount = isDelivery ? (order?.total_amount_millimes || 0) : (ride?.total_fare_millimes || 0);
-          const earnings = isDelivery ? (order?.delivery_fee_millimes || 2500) : Math.round(totalAmount * 0.85);
+          const ref = isDelivery ? (order?.reference || 'CMD') : (ride?.reference || 'TAX');
+          const totalAmount = isDelivery ? (order?.total_millimes || 0) : (ride?.fare_millimes || 0);
+          const earnings = isDelivery ? (order?.delivery_fee_millimes || 2500) : Math.max(2500, totalAmount - 500);
 
           return {
             id: row.id,
             reference: ref,
             missionType: row.mission_type,
             pickupAddress: isDelivery ? 'Commerce partenaire' : (ride?.pickup_address || "M'Saken"),
-            destinationAddress: isDelivery ? (order?.delivery_address || "M'Saken") : (ride?.destination_address || "M'Saken"),
+            destinationAddress: isDelivery ? (order?.destination_address || "M'Saken") : (ride?.destination_address || "M'Saken"),
             amountMillimes: totalAmount,
             driverEarningsMillimes: earnings,
             status: row.status,
