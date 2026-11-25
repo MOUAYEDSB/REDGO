@@ -40,6 +40,7 @@ const primaryServices = [
     background: '#351417',
     tag: "M'Saken & Messaadine",
     image: require('../../assets/services/service-scooter.jpg'),
+    featured: true,
   },
   {
     title: 'REDGO FOOD',
@@ -50,6 +51,7 @@ const primaryServices = [
     background: '#342118',
     tag: 'Menus variés',
     image: require('../../assets/services/service-food.jpg'),
+    featured: false,
   },
   {
     title: 'COURSES REDGO',
@@ -60,6 +62,7 @@ const primaryServices = [
     background: '#1A2922',
     tag: 'Prix fixes',
     image: require('../../assets/services/service-courses.jpg'),
+    featured: false,
   },
 ];
 
@@ -280,6 +283,7 @@ export default function Home() {
             key={service.title}
             style={({ pressed }) => [
               styles.serviceCard,
+              service.featured && styles.serviceCardFeatured,
               { backgroundColor: service.background },
               pressed && { opacity: 0.9 },
             ]}
@@ -289,8 +293,14 @@ export default function Home() {
               source={service.image}
               style={StyleSheet.absoluteFill}
               contentFit="cover"
+              contentPosition={service.featured ? { left: '35%', top: '50%' } : 'center'}
             />
-            <View style={styles.serviceOverlay} />
+            <View
+              style={[
+                styles.serviceOverlay,
+                service.featured && styles.serviceOverlayLight,
+              ]}
+            />
             <View style={styles.serviceTop}>
               <View style={styles.serviceIcon}>
                 <Ionicons name={service.icon} size={24} color="#FFFFFF" />
@@ -689,8 +699,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.1)',
     overflow: 'hidden',
     position: 'relative',
-    minHeight: 152,
+    minHeight: 146,
     justifyContent: 'space-between',
+  },
+  serviceCardFeatured: {
+    minHeight: 196,
+    borderColor: 'rgba(255, 32, 42, 0.35)',
   },
   serviceOverlay: {
     position: 'absolute',
@@ -699,6 +713,9 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: 'rgba(9, 9, 9, 0.42)',
+  },
+  serviceOverlayLight: {
+    backgroundColor: 'rgba(9, 9, 9, 0.24)',
   },
   serviceTop: {
     flexDirection: 'row',
