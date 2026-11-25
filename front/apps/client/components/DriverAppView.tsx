@@ -441,7 +441,7 @@ export default function DriverAppView({
             missionType={activeMission.mission_type}
             orderId={activeMission.target_id}
             driverId={userId}
-            height={320}
+            height={400}
             showExpandButton
             activeStep={
               activeMission.mission_status === 'assigned' || activeMission.mission_status === 'accepted'
@@ -787,7 +787,7 @@ export default function DriverAppView({
                         destinationAddress={mission.destination_address}
                         missionType={mission.mission_type}
                         orderId={mission.mission_id}
-                        height={200}
+                        height={260}
                         showExpandButton={false}
                       />
                     </View>

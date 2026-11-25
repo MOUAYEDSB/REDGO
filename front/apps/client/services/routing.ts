@@ -178,9 +178,19 @@ export async function fetchRoadRoute(waypoints: Coordinates[]): Promise<RoadRout
     .map(({ latitude, longitude }) => `${longitude},${latitude}`)
     .join(';');
 
-  const response = await fetch(
-    `https://router.project-osrm.org/route/v1/driving/${coordinateString}?overview=full&geometries=geojson&steps=true`,
+  // Profil 'cycling' OSRM adapté au scooter (petites rues & raccourcis urbains, pas d'autoroute voiture),
+  // avec repli automatique sur 'driving' si indisponible.
+  let response = await fetch(
+    `https://router.project-osrm.org/route/v1/cycling/${coordinateString}?overview=full&geometries=geojson&steps=true`,
   );
+  let usedCycling = true;
+
+  if (!response.ok) {
+    usedCycling = false;
+    response = await fetch(
+      `https://router.project-osrm.org/route/v1/driving/${coordinateString}?overview=full&geometries=geojson&steps=true`,
+    );
+  }
 
   if (!response.ok) {
     throw new Error(`Le service d'itinéraire est indisponible (${response.status}).`);
@@ -236,13 +246,15 @@ export async function fetchRoadRoute(waypoints: Coordinates[]): Promise<RoadRout
     }
   }
 
+  const speedFactor = usedCycling ? 0.65 : 1;
+
   return {
     coordinates: route.geometry.coordinates.map(([longitude, latitude]) => ({
       latitude,
       longitude,
     })),
     distanceMeters: route.distance,
-    durationSeconds: route.duration,
+    durationSeconds: Math.max(60, Math.round(route.duration * speedFactor)),
     steps,
   };
 }

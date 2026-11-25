@@ -23,6 +23,12 @@ import {
 } from '../services/routing';
 
 const MSAKEN_CENTER = { latitude: 35.7273, longitude: 10.5815 };
+const LOCAL_LANDMARKS: { id: string; label: string; icon: keyof typeof Ionicons.glyphMap; latitude: number; longitude: number }[] = [
+  { id: 'msaken_centre', label: "M'Saken Centre", icon: 'business', latitude: 35.7273, longitude: 10.5815 },
+  { id: 'gare_msaken', label: "Gare M'Saken", icon: 'train', latitude: 35.7298, longitude: 10.5792 },
+  { id: 'hopital_msaken', label: "Hôpital M'Saken", icon: 'medkit', latitude: 35.7215, longitude: 10.5862 },
+  { id: 'messaadine_centre', label: 'Messaadine', icon: 'location', latitude: 35.7551, longitude: 10.5921 },
+];
 const canRenderNativeMap =
   Platform.OS === 'ios' || Boolean(process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY);
 
@@ -186,7 +192,7 @@ export function DriverMissionMap({
   restaurantName,
   businessId,
   missionType = 'delivery',
-  height = 320,
+  height = 400,
   showExpandButton = true,
   activeStep = 'delivery',
   orderId = null,
@@ -266,259 +272,259 @@ export function DriverMissionMap({
   // Détermination du point de retrait (Point A : restaurant, commerce ou départ scooter/colis)
   const startPoint: Point = useMemo(() => {
     if (pickupCoords) return pickupCoords;
-  if (resolvedRemoteCoords?.pickupCoords) return resolvedRemoteCoords.pickupCoords;
-  return resolveBusinessCoordinates(businessId, restaurantName || resolvedRemoteCoords?.restaurantName || pickupAddress);
-}, [pickupCoords, resolvedRemoteCoords, businessId, restaurantName, pickupAddress]);
+    if (resolvedRemoteCoords?.pickupCoords) return resolvedRemoteCoords.pickupCoords;
+    return resolveBusinessCoordinates(businessId, restaurantName || resolvedRemoteCoords?.restaurantName || pickupAddress);
+  }, [pickupCoords, resolvedRemoteCoords, businessId, restaurantName, pickupAddress]);
 
-// Détermination du point de livraison (Point B : client / arrivée)
-const endPoint: Point = useMemo(() => {
-  if (destinationCoords) return destinationCoords;
-  if (resolvedRemoteCoords?.destinationCoords) return resolvedRemoteCoords.destinationCoords;
-  if (destinationAddress?.toLowerCase().includes('messaadine')) {
-    return { latitude: 35.7551, longitude: 10.5921 };
-  }
-  return {
-    latitude: MSAKEN_CENTER.latitude + 0.009,
-    longitude: MSAKEN_CENTER.longitude + 0.006,
-  };
+  // Détermination du point de livraison (Point B : client / arrivée)
+  const endPoint: Point = useMemo(() => {
+    if (destinationCoords) return destinationCoords;
+    if (resolvedRemoteCoords?.destinationCoords) return resolvedRemoteCoords.destinationCoords;
+    if (destinationAddress?.toLowerCase().includes('messaadine')) {
+      return { latitude: 35.7551, longitude: 10.5921 };
+    }
+    return {
+      latitude: MSAKEN_CENTER.latitude + 0.009,
+      longitude: MSAKEN_CENTER.longitude + 0.006,
+    };
   }, [destinationCoords, resolvedRemoteCoords, destinationAddress]);
 
-// Cible active selon l'étape de la mission
-const activeDestination = activeStep === 'pickup' ? startPoint : endPoint;
+  // Cible active selon l'étape de la mission
+  const activeDestination = activeStep === 'pickup' ? startPoint : endPoint;
 
-// Région initiale centrée sur le point de départ
-const initialRegion: Region = useMemo(
-  () => ({
-    latitude: MSAKEN_CENTER.latitude,
-    longitude: MSAKEN_CENTER.longitude,
-    latitudeDelta: 0.045,
-    longitudeDelta: 0.045,
-  }),
-  []
-);
+  // Région initiale centrée sur le point de départ
+  const initialRegion: Region = useMemo(
+    () => ({
+      latitude: MSAKEN_CENTER.latitude,
+      longitude: MSAKEN_CENTER.longitude,
+      latitudeDelta: 0.045,
+      longitudeDelta: 0.045,
+    }),
+    []
+  );
 
-/**
- * Calcul ou recalcul d'itinéraire OSRM réel avec étapes détaillées
- */
-const requestRoute = useCallback(
-  async (origin: Point, isRecalc = false) => {
-    const now = Date.now();
-    if (isRecalc && now - lastRecalcTimestamp.current < 7000) {
-      return;
-    }
-    lastRecalcTimestamp.current = now;
-
-    setIsLoadingRoute(true);
-    try {
-      const waypoints = [origin, activeDestination];
-      const routeData = await fetchRoadRoute(waypoints);
-
-      if (routeData && routeData.coordinates.length > 0) {
-        setRouteCoordinates(routeData.coordinates);
-        setRouteSteps(routeData.steps || []);
-        setTotalDistanceMeters(routeData.distanceMeters);
-        setTotalDurationSeconds(routeData.durationSeconds);
-        setIsOffRoute(false);
-        offRouteCount.current = 0;
-      }
-    } catch {
-      const directDist = Math.round(getDistanceMeters(origin, activeDestination));
-      setRouteCoordinates([origin, activeDestination]);
-      setTotalDistanceMeters(directDist);
-      setTotalDurationSeconds(Math.max(60, Math.round(directDist / 7.5)));
-    } finally {
-      setIsLoadingRoute(false);
-    }
-  },
-  [activeDestination]
-);
-
-/**
- * Gestion du cycle de vie du suivi GPS réel
- */
-useEffect(() => {
-  let isMounted = true;
-
-  async function initGpsWatcher() {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        if (isMounted) setGpsPermissionDenied(true);
+  /**
+   * Calcul ou recalcul d'itinéraire OSRM réel avec étapes détaillées
+   */
+  const requestRoute = useCallback(
+    async (origin: Point, isRecalc = false) => {
+      const now = Date.now();
+      if (isRecalc && now - lastRecalcTimestamp.current < 7000) {
         return;
       }
-      if (isMounted) setGpsPermissionDenied(false);
+      lastRecalcTimestamp.current = now;
 
-      const initialLoc = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
+      setIsLoadingRoute(true);
+      try {
+        const waypoints = [origin, activeDestination];
+        const routeData = await fetchRoadRoute(waypoints);
 
-      if (isMounted) {
-        const pt = {
-          latitude: initialLoc.coords.latitude,
-          longitude: initialLoc.coords.longitude,
-        };
-        setDriverLocation(pt);
-        if (initialLoc.coords.speed != null && initialLoc.coords.speed > 0) {
-          setRealSpeed(Math.round(initialLoc.coords.speed * 3.6));
+        if (routeData && routeData.coordinates.length > 0) {
+          setRouteCoordinates(routeData.coordinates);
+          setRouteSteps(routeData.steps || []);
+          setTotalDistanceMeters(routeData.distanceMeters);
+          setTotalDurationSeconds(routeData.durationSeconds);
+          setIsOffRoute(false);
+          offRouteCount.current = 0;
         }
-        if (initialLoc.coords.heading != null && initialLoc.coords.heading >= 0) {
-          setRealHeading(initialLoc.coords.heading);
-        }
-        setGpsAccuracy(initialLoc.coords.accuracy ?? null);
-
-        if (orderId || driverId) {
-          lastPublishTimestamp.current = Date.now();
-          void publishDriverLocation({
-            orderId,
-            driverId,
-            latitude: pt.latitude,
-            longitude: pt.longitude,
-            heading: initialLoc.coords.heading ?? null,
-          });
-        }
+      } catch {
+        const directDist = Math.round(getDistanceMeters(origin, activeDestination));
+        setRouteCoordinates([origin, activeDestination]);
+        setTotalDistanceMeters(directDist);
+        setTotalDurationSeconds(Math.max(60, Math.round(directDist / 7.5)));
+      } finally {
+        setIsLoadingRoute(false);
       }
+    },
+    [activeDestination]
+  );
 
-      locationSubscriptionRef.current?.remove();
+  /**
+   * Gestion du cycle de vie du suivi GPS réel
+   */
+  useEffect(() => {
+    let isMounted = true;
 
-      locationSubscriptionRef.current = await Location.watchPositionAsync(
-        {
-          accuracy: isNavigating
-            ? Location.Accuracy.BestForNavigation
-            : Location.Accuracy.High,
-          timeInterval: isNavigating ? 1000 : 3000,
-          distanceInterval: isNavigating ? 2 : 6,
-        },
-        (location) => {
-          if (!isMounted) return;
+    async function initGpsWatcher() {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          if (isMounted) setGpsPermissionDenied(true);
+          return;
+        }
+        if (isMounted) setGpsPermissionDenied(false);
 
-          const currentPt: Point = {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
+        const initialLoc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+
+        if (isMounted) {
+          const pt = {
+            latitude: initialLoc.coords.latitude,
+            longitude: initialLoc.coords.longitude,
           };
+          setDriverLocation(pt);
+          if (initialLoc.coords.speed != null && initialLoc.coords.speed > 0) {
+            setRealSpeed(Math.round(initialLoc.coords.speed * 3.6));
+          }
+          if (initialLoc.coords.heading != null && initialLoc.coords.heading >= 0) {
+            setRealHeading(initialLoc.coords.heading);
+          }
+          setGpsAccuracy(initialLoc.coords.accuracy ?? null);
 
-          const speedKmH =
-            location.coords.speed != null && location.coords.speed > 0
-              ? Math.round(location.coords.speed * 3.6)
-              : 0;
-
-          const headingVal =
-            location.coords.heading != null && location.coords.heading >= 0
-              ? location.coords.heading
-              : null;
-
-          setDriverLocation(currentPt);
-          setRealSpeed(speedKmH);
-          if (headingVal != null) setRealHeading(headingVal);
-          setGpsAccuracy(location.coords.accuracy ?? null);
-
-          // Diffusion de la position GPS réelle vers le client (toutes les 3s max)
-          const nowMs = Date.now();
-          if ((orderId || driverId) && nowMs - lastPublishTimestamp.current >= 3000) {
-            lastPublishTimestamp.current = nowMs;
+          if (orderId || driverId) {
+            lastPublishTimestamp.current = Date.now();
             void publishDriverLocation({
               orderId,
               driverId,
-              latitude: currentPt.latitude,
-              longitude: currentPt.longitude,
-              heading: headingVal,
+              latitude: pt.latitude,
+              longitude: pt.longitude,
+              heading: initialLoc.coords.heading ?? null,
             });
-          }
-
-          if (isNavigating && !userInteracted) {
-            mapRef.current?.animateCamera({
-              center: currentPt,
-              pitch: 45,
-              heading: headingVal != null && speedKmH >= 3 ? headingVal : 0,
-              zoom: 17,
-            });
-          }
-
-          if (routeCoordinates.length > 1) {
-            const { distanceToRoute } = findClosestSegment(currentPt, routeCoordinates);
-
-            if (distanceToRoute > 45) {
-              offRouteCount.current += 1;
-              if (offRouteCount.current >= 2) {
-                setIsOffRoute(true);
-                void requestRoute(currentPt, true);
-              }
-            } else {
-              offRouteCount.current = 0;
-              if (isOffRoute) setIsOffRoute(false);
-            }
           }
         }
-      );
-    } catch {
-      // En cas d'erreur de capteur
-    }
-  }
 
-  void initGpsWatcher();
+        locationSubscriptionRef.current?.remove();
 
-  return () => {
-    isMounted = false;
-    locationSubscriptionRef.current?.remove();
-    locationSubscriptionRef.current = null;
-  };
-}, [isNavigating, userInteracted, routeCoordinates, requestRoute, isOffRoute, orderId, driverId]);
+        locationSubscriptionRef.current = await Location.watchPositionAsync(
+          {
+            accuracy: isNavigating
+              ? Location.Accuracy.BestForNavigation
+              : Location.Accuracy.High,
+            timeInterval: isNavigating ? 1000 : 3000,
+            distanceInterval: isNavigating ? 2 : 6,
+          },
+          (location) => {
+            if (!isMounted) return;
 
-useEffect(() => {
-  void requestRoute(driverLocation, false);
-}, [activeDestination.latitude, activeDestination.longitude, activeStep, requestRoute, driverLocation]);
+            const currentPt: Point = {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            };
 
-// Tracé complet Point A -> Point B toujours visible pour le chauffeur
-useEffect(() => {
-  let active = true;
-  fetchRoadRoute([startPoint, endPoint])
-    .then((res) => {
-      if (!active) return;
-      if (res?.coordinates?.length > 1) {
-        setAbRouteCoordinates(res.coordinates);
-      } else {
-        setAbRouteCoordinates([startPoint, endPoint]);
+            const speedKmH =
+              location.coords.speed != null && location.coords.speed > 0
+                ? Math.round(location.coords.speed * 3.6)
+                : 0;
+
+            const headingVal =
+              location.coords.heading != null && location.coords.heading >= 0
+                ? location.coords.heading
+                : null;
+
+            setDriverLocation(currentPt);
+            setRealSpeed(speedKmH);
+            if (headingVal != null) setRealHeading(headingVal);
+            setGpsAccuracy(location.coords.accuracy ?? null);
+
+            // Diffusion de la position GPS réelle vers le client (toutes les 3s max)
+            const nowMs = Date.now();
+            if ((orderId || driverId) && nowMs - lastPublishTimestamp.current >= 3000) {
+              lastPublishTimestamp.current = nowMs;
+              void publishDriverLocation({
+                orderId,
+                driverId,
+                latitude: currentPt.latitude,
+                longitude: currentPt.longitude,
+                heading: headingVal,
+              });
+            }
+
+            if (isNavigating && !userInteracted) {
+              mapRef.current?.animateCamera({
+                center: currentPt,
+                pitch: 45,
+                heading: headingVal != null && speedKmH >= 3 ? headingVal : 0,
+                zoom: 17,
+              });
+            }
+
+            if (routeCoordinates.length > 1) {
+              const { distanceToRoute } = findClosestSegment(currentPt, routeCoordinates);
+
+              if (distanceToRoute > 45) {
+                offRouteCount.current += 1;
+                if (offRouteCount.current >= 2) {
+                  setIsOffRoute(true);
+                  void requestRoute(currentPt, true);
+                }
+              } else {
+                offRouteCount.current = 0;
+                if (isOffRoute) setIsOffRoute(false);
+              }
+            }
+          }
+        );
+      } catch {
+        // En cas d'erreur de capteur
       }
-    })
-    .catch(() => {
-      if (active) setAbRouteCoordinates([startPoint, endPoint]);
-    });
-  return () => {
-    active = false;
-  };
-}, [startPoint.latitude, startPoint.longitude, endPoint.latitude, endPoint.longitude]);
+    }
 
-// Ajuster automatiquement la caméra pour afficher les 2 points (A et B) + chauffeur
-useEffect(() => {
-  if (isNavigating || userInteracted) return;
-  const pts = [startPoint, endPoint, driverLocation];
-  const t = setTimeout(() => {
-    mapRef.current?.fitToCoordinates(pts, {
-      edgePadding: { top: 75, right: 45, bottom: 95, left: 45 },
-      animated: true,
-    });
-  }, 350);
-  return () => clearTimeout(t);
-}, [startPoint.latitude, startPoint.longitude, endPoint.latitude, endPoint.longitude, isNavigating, userInteracted]);
+    void initGpsWatcher();
 
-const remainingDistanceMeters = useMemo(() => {
-  if (routeCoordinates.length < 2) return totalDistanceMeters ?? 0;
-  const closest = findClosestSegment(driverLocation, routeCoordinates);
-  return computeRemainingMeters(driverLocation, routeCoordinates, closest);
-}, [driverLocation, routeCoordinates, totalDistanceMeters]);
+    return () => {
+      isMounted = false;
+      locationSubscriptionRef.current?.remove();
+      locationSubscriptionRef.current = null;
+    };
+  }, [isNavigating, userInteracted, routeCoordinates, requestRoute, isOffRoute, orderId, driverId]);
 
-const upcomingManeuver = useMemo(() => {
-  return findUpcomingStep(driverLocation, routeSteps);
-}, [driverLocation, routeSteps]);
+  useEffect(() => {
+    void requestRoute(driverLocation, false);
+  }, [activeDestination.latitude, activeDestination.longitude, activeStep, requestRoute, driverLocation]);
 
-const centerMapOnRoute = useCallback(() => {
-  setUserInteracted(false);
-  if (isNavigating) {
-    mapRef.current?.animateCamera({
-      center: driverLocation,
-      pitch: 45,
-      heading: realHeading ?? 0,
-      zoom: 17,
-    });
+  // Tracé complet Point A -> Point B toujours visible pour le chauffeur
+  useEffect(() => {
+    let active = true;
+    fetchRoadRoute([startPoint, endPoint])
+      .then((res) => {
+        if (!active) return;
+        if (res?.coordinates?.length > 1) {
+          setAbRouteCoordinates(res.coordinates);
+        } else {
+          setAbRouteCoordinates([startPoint, endPoint]);
+        }
+      })
+      .catch(() => {
+        if (active) setAbRouteCoordinates([startPoint, endPoint]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [startPoint.latitude, startPoint.longitude, endPoint.latitude, endPoint.longitude]);
+
+  // Ajuster automatiquement la caméra pour afficher les 2 points (A et B) + chauffeur
+  useEffect(() => {
+    if (isNavigating || userInteracted) return;
+    const pts = [startPoint, endPoint, driverLocation];
+    const t = setTimeout(() => {
+      mapRef.current?.fitToCoordinates(pts, {
+        edgePadding: { top: 75, right: 45, bottom: 95, left: 45 },
+        animated: true,
+      });
+    }, 350);
+    return () => clearTimeout(t);
+  }, [startPoint.latitude, startPoint.longitude, endPoint.latitude, endPoint.longitude, isNavigating, userInteracted]);
+
+  const remainingDistanceMeters = useMemo(() => {
+    if (routeCoordinates.length < 2) return totalDistanceMeters ?? 0;
+    const closest = findClosestSegment(driverLocation, routeCoordinates);
+    return computeRemainingMeters(driverLocation, routeCoordinates, closest);
+  }, [driverLocation, routeCoordinates, totalDistanceMeters]);
+
+  const upcomingManeuver = useMemo(() => {
+    return findUpcomingStep(driverLocation, routeSteps);
+  }, [driverLocation, routeSteps]);
+
+  const centerMapOnRoute = useCallback(() => {
+    setUserInteracted(false);
+    if (isNavigating) {
+      mapRef.current?.animateCamera({
+        center: driverLocation,
+        pitch: 45,
+        heading: realHeading ?? 0,
+        zoom: 17,
+      });
     } else {
       const allPts = [startPoint, endPoint, driverLocation, ...abRouteCoordinates, ...routeCoordinates];
       mapRef.current?.fitToCoordinates(allPts, {
@@ -528,107 +534,124 @@ const centerMapOnRoute = useCallback(() => {
     }
   }, [isNavigating, driverLocation, realHeading, routeCoordinates, abRouteCoordinates, startPoint, endPoint]);
 
-const formattedDistance =
-  remainingDistanceMeters >= 1000
-    ? `${(remainingDistanceMeters / 1000).toFixed(1)} km`
-    : `${remainingDistanceMeters} m`;
+  const formattedDistance =
+    remainingDistanceMeters >= 1000
+      ? `${(remainingDistanceMeters / 1000).toFixed(1)} km`
+      : `${remainingDistanceMeters} m`;
 
-const remainingDurationSeconds = useMemo(() => {
-  if (totalDurationSeconds && totalDistanceMeters && totalDistanceMeters > 0) {
-    return Math.max(30, Math.round(totalDurationSeconds * (remainingDistanceMeters / totalDistanceMeters)));
-  }
-  return Math.max(60, Math.round(remainingDistanceMeters / 7.5));
-}, [totalDurationSeconds, totalDistanceMeters, remainingDistanceMeters]);
+  const remainingDurationSeconds = useMemo(() => {
+    if (totalDurationSeconds && totalDistanceMeters && totalDistanceMeters > 0) {
+      return Math.max(30, Math.round(totalDurationSeconds * (remainingDistanceMeters / totalDistanceMeters)));
+    }
+    return Math.max(60, Math.round(remainingDistanceMeters / 7.5));
+  }, [totalDurationSeconds, totalDistanceMeters, remainingDistanceMeters]);
 
-const formattedEta =
-  remainingDurationSeconds < 60
-    ? '< 1 min'
-    : `${Math.ceil(remainingDurationSeconds / 60)} min`;
+  const formattedEta =
+    remainingDurationSeconds < 60
+      ? '< 1 min'
+      : `${Math.ceil(remainingDurationSeconds / 60)} min`;
 
-const etaClock = useMemo(() => {
-  const arrival = new Date(Date.now() + remainingDurationSeconds * 1000);
-  return `${String(arrival.getHours()).padStart(2, '0')}:${String(arrival.getMinutes()).padStart(2, '0')}`;
-}, [remainingDurationSeconds]);
+  const etaClock = useMemo(() => {
+    const arrival = new Date(Date.now() + remainingDurationSeconds * 1000);
+    return `${String(arrival.getHours()).padStart(2, '0')}:${String(arrival.getMinutes()).padStart(2, '0')}`;
+  }, [remainingDurationSeconds]);
 
-const formattedManeuverDist =
-  upcomingManeuver.distanceToManeuver >= 1000
-    ? `${(upcomingManeuver.distanceToManeuver / 1000).toFixed(1)} km`
-    : `${upcomingManeuver.distanceToManeuver} m`;
+  const formattedManeuverDist =
+    upcomingManeuver.distanceToManeuver >= 1000
+      ? `${(upcomingManeuver.distanceToManeuver / 1000).toFixed(1)} km`
+      : `${upcomingManeuver.distanceToManeuver} m`;
 
-const activeManeuverIcon = upcomingManeuver.step
-  ? getManeuverIconName(
-    upcomingManeuver.step.maneuver.type,
-    upcomingManeuver.step.maneuver.modifier
-  )
-  : 'navigate';
+  const activeManeuverIcon = upcomingManeuver.step
+    ? getManeuverIconName(
+      upcomingManeuver.step.maneuver.type,
+      upcomingManeuver.step.maneuver.modifier
+    )
+    : 'navigate';
 
-const pulseScale = pulseAnim.interpolate({
-  inputRange: [0, 1],
-  outputRange: [1, 1.85],
-});
-const pulseOpacity = pulseAnim.interpolate({
-  inputRange: [0, 1],
-  outputRange: [0.6, 0],
-});
+  const pulseScale = pulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.85],
+  });
+  const pulseOpacity = pulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.6, 0],
+  });
 
-return (
-  <View style={[styles.container, { height: isExpanded ? 520 : height }]}>
-    {canRenderNativeMap ? (
-      <MapView
-        ref={mapRef}
-        style={styles.map}
-        provider={PROVIDER_DEFAULT}
-        initialRegion={initialRegion}
-        userInterfaceStyle="dark"
-        showsUserLocation={false}
-        showsCompass={false}
-        showsMyLocationButton={false}
-        onPanDrag={() => {
-          if (isNavigating) setUserInteracted(true);
-        }}
-      >
+  return (
+    <View style={[styles.container, { height: isExpanded ? 580 : height }]}>
+      {canRenderNativeMap ? (
+        <MapView
+          ref={mapRef}
+          style={styles.map}
+          provider={PROVIDER_DEFAULT}
+          initialRegion={initialRegion}
+          userInterfaceStyle="dark"
+          showsBuildings
+          showsTraffic={false}
+          showsUserLocation={false}
+          showsCompass={false}
+          showsMyLocationButton={false}
+          onPanDrag={() => {
+            if (isNavigating) setUserInteracted(true);
+          }}
+        >
+          {/* Repères locaux M'Saken & Messaadine pour une vue claire */}
+          {LOCAL_LANDMARKS.map((lm) => (
+            <Marker
+              key={lm.id}
+              coordinate={{ latitude: lm.latitude, longitude: lm.longitude }}
+              anchor={{ x: 0.5, y: 0.5 }}
+              zIndex={1}
+            >
+              <View style={styles.landmarkPill}>
+                <Ionicons name={lm.icon} size={10} color="#CBD5E1" />
+                <Text style={styles.landmarkText}>{lm.label}</Text>
+              </View>
+            </Marker>
+          ))}
+
           {/* Restaurants & Hub Courses visibles sur la carte */}
           <RestaurantMapMarkers />
 
-          {/* Itinéraire complet Point A -> Point B */ }
-            {abRouteCoordinates.length > 1 && (
-          <>
+          {/* Itinéraire complet Point A -> Point B */}
+          {abRouteCoordinates.length > 1 && (
+            <>
+              <Polyline
+                coordinates={abRouteCoordinates}
+                strokeColor="rgba(255, 32, 42, 0.28)"
+                strokeWidth={10}
+                lineCap="round"
+                lineJoin="round"
+              />
+              <Polyline
+                coordinates={abRouteCoordinates}
+                strokeColor={colors.primary}
+                strokeWidth={4.5}
+                lineCap="round"
+                lineJoin="round"
+              />
+            </>
+          )}
+
+          {/* Approche GPS du chauffeur vers la cible active */}
+          {routeCoordinates.length > 1 && (
             <Polyline
-              coordinates={abRouteCoordinates}
-              strokeColor="rgba(255, 32, 42, 0.28)"
-              strokeWidth={10}
+              coordinates={routeCoordinates}
+              strokeColor="#10B981"
+              strokeWidth={3.5}
+              lineDashPattern={[8, 6]}
               lineCap="round"
               lineJoin="round"
             />
-            <Polyline
-              coordinates={abRouteCoordinates}
-              strokeColor={colors.primary}
-              strokeWidth={4.5}
-              lineCap="round"
-              lineJoin="round"
-            />
-          </>
-        )}
+          )}
 
-        {/* Approche GPS du chauffeur vers la cible active */}
-        {routeCoordinates.length > 1 && (
-          <Polyline
-            coordinates={routeCoordinates}
-            strokeColor="#10B981"
-            strokeWidth={3.5}
-            lineDashPattern={[8, 6]}
-            lineCap="round"
-            lineJoin="round"
-          />
-        )}
-
-        {/* Point A : Restaurant / Commerce / Départ */}
-        <Marker
-          coordinate={startPoint}
-          title={`Point A · ${restaurantName || resolvedRemoteCoords?.restaurantName || pickupAddress || 'Départ'}`}
-          description={missionType === 'scooter_ride' ? 'Point de départ client' : 'Retrait commande'}
-          anchor={{ x: 0.5, y: 0.85 }}
-        >
+          {/* Point A : Restaurant / Commerce / Départ */}
+          <Marker
+            coordinate={startPoint}
+            title={`Point A · ${restaurantName || resolvedRemoteCoords?.restaurantName || pickupAddress || 'Départ'}`}
+            description={missionType === 'scooter_ride' ? 'Point de départ client' : 'Retrait commande'}
+            anchor={{ x: 0.5, y: 0.85 }}
+          >
             <View style={styles.markerWithBadge}>
               <View style={styles.markerLabelPillGreen}>
                 <Text style={styles.markerLabelText} numberOfLines={1}>
@@ -649,15 +672,15 @@ return (
                 />
               </View>
             </View>
-        </Marker>
+          </Marker>
 
-        {/* Point B : Destination / Client */}
-        <Marker
-          coordinate={endPoint}
-          title={`Point B · ${destinationAddress || 'Destination'}`}
-          description="Point d'arrivée"
-          anchor={{ x: 0.5, y: 0.85 }}
-        >
+          {/* Point B : Destination / Client */}
+          <Marker
+            coordinate={endPoint}
+            title={`Point B · ${destinationAddress || 'Destination'}`}
+            description="Point d'arrivée"
+            anchor={{ x: 0.5, y: 0.85 }}
+          >
             <View style={styles.markerWithBadge}>
               <View style={styles.markerLabelPillRed}>
                 <Text style={styles.markerLabelText} numberOfLines={1}>
@@ -668,170 +691,170 @@ return (
                 <Ionicons name="flag" size={15} color="#fff" />
               </View>
             </View>
-        </Marker>
+          </Marker>
 
-        <Marker
-          coordinate={driverLocation}
-          title="Votre position GPS"
-          description={
-            realSpeed > 0
-              ? `${realSpeed} km/h · Précision : ${gpsAccuracy ? Math.round(gpsAccuracy) : '--'}m`
-              : 'À l’arrêt'
-          }
-          anchor={{ x: 0.5, y: 0.5 }}
-          rotation={realHeading != null ? realHeading : 0}
-        >
-          <View style={styles.driverMarkerWrap}>
-            <Animated.View
-              style={[
-                styles.driverPulseRing,
-                { transform: [{ scale: pulseScale }], opacity: pulseOpacity },
-              ]}
-            />
-            <View style={styles.markerDriverPin}>
-              <Ionicons name="navigate" size={17} color="#fff" />
+          <Marker
+            coordinate={driverLocation}
+            title="Votre position GPS"
+            description={
+              realSpeed > 0
+                ? `${realSpeed} km/h · Précision : ${gpsAccuracy ? Math.round(gpsAccuracy) : '--'}m`
+                : 'À l’arrêt'
+            }
+            anchor={{ x: 0.5, y: 0.5 }}
+            rotation={realHeading != null ? realHeading : 0}
+          >
+            <View style={styles.driverMarkerWrap}>
+              <Animated.View
+                style={[
+                  styles.driverPulseRing,
+                  { transform: [{ scale: pulseScale }], opacity: pulseOpacity },
+                ]}
+              />
+              <View style={styles.markerDriverPin}>
+                <Ionicons name="bicycle" size={17} color="#fff" />
+              </View>
+            </View>
+          </Marker>
+        </MapView>
+      ) : (
+        <View style={styles.fallbackMapBg}>
+          <View style={styles.fallbackRouteCard}>
+            <View style={styles.fallbackRouteRow}>
+              <Ionicons name="radio-button-on" size={14} color={colors.success} />
+              <Text style={styles.fallbackRouteAddr} numberOfLines={1}>
+                {restaurantName || pickupAddress || 'Point de départ'}
+              </Text>
+            </View>
+            <View style={styles.fallbackRouteDivider} />
+            <View style={styles.fallbackRouteRow}>
+              <Ionicons name="flag" size={14} color={colors.primary} />
+              <Text style={styles.fallbackRouteAddr} numberOfLines={1}>
+                {destinationAddress || 'Destination client'}
+              </Text>
             </View>
           </View>
-        </Marker>
-      </MapView>
-    ) : (
-      <View style={styles.fallbackMapBg}>
-        <View style={styles.fallbackRouteCard}>
-          <View style={styles.fallbackRouteRow}>
-            <Ionicons name="radio-button-on" size={14} color={colors.success} />
-            <Text style={styles.fallbackRouteAddr} numberOfLines={1}>
-              {restaurantName || pickupAddress || 'Point de départ'}
-            </Text>
-          </View>
-          <View style={styles.fallbackRouteDivider} />
-          <View style={styles.fallbackRouteRow}>
-            <Ionicons name="flag" size={14} color={colors.primary} />
-            <Text style={styles.fallbackRouteAddr} numberOfLines={1}>
-              {destinationAddress || 'Destination client'}
-            </Text>
-          </View>
-        </View>
-        <Text style={styles.fallbackMapText}>
-          {formattedDistance} · ~{formattedEta} (Arrivée {etaClock})
-        </Text>
-      </View>
-    )}
-
-    {gpsPermissionDenied ? (
-      <View style={styles.permissionAlert}>
-        <Ionicons name="warning" size={16} color="#fff" />
-        <Text style={styles.permissionAlertText}>
-          GPS désactivé. Veuillez autoriser la localisation pour le guidage.
-        </Text>
-      </View>
-    ) : null}
-
-    {!isNavigating ? (
-      <View style={styles.hudOverlay}>
-        <View style={styles.metricPillGreen}>
-          <Ionicons name="navigate-circle" size={13} color="#fff" />
-          <Text style={styles.metricPillTextWhite}>
-            {activeStep === 'pickup' ? 'Collecte' : 'Client'} : {formattedDistance} · ~{formattedEta}
+          <Text style={styles.fallbackMapText}>
+            {formattedDistance} · ~{formattedEta} (Arrivée {etaClock})
           </Text>
         </View>
-        <View style={styles.metricPillDark}>
-          <Ionicons name="time-outline" size={12} color="#fff" />
-          <Text style={styles.metricPillTextWhite}>Arrivée {etaClock}</Text>
+      )}
+
+      {gpsPermissionDenied ? (
+        <View style={styles.permissionAlert}>
+          <Ionicons name="warning" size={16} color="#fff" />
+          <Text style={styles.permissionAlertText}>
+            GPS désactivé. Veuillez autoriser la localisation pour le guidage.
+          </Text>
         </View>
-        {realSpeed > 0 ? (
-          <View style={styles.metricPillBlue}>
-            <Ionicons name="speedometer" size={12} color="#fff" />
-            <Text style={styles.metricPillTextWhite}>{realSpeed} km/h</Text>
+      ) : null}
+
+      {!isNavigating ? (
+        <View style={styles.hudOverlay}>
+          <View style={styles.metricPillGreen}>
+            <Ionicons name="navigate-circle" size={13} color="#fff" />
+            <Text style={styles.metricPillTextWhite}>
+              {activeStep === 'pickup' ? 'Collecte' : 'Client'} : {formattedDistance} · ~{formattedEta}
+            </Text>
           </View>
-        ) : gpsAccuracy != null ? (
           <View style={styles.metricPillDark}>
-            <Ionicons name="locate" size={11} color={colors.success} />
-            <Text style={styles.metricPillTextWhite}>GPS ±{Math.round(gpsAccuracy)}m</Text>
+            <Ionicons name="time-outline" size={12} color="#fff" />
+            <Text style={styles.metricPillTextWhite}>Arrivée {etaClock}</Text>
           </View>
-        ) : null}
-      </View>
-    ) : null}
-
-    {isNavigating ? (
-      <View style={styles.turnByTurnBanner}>
-        <View style={styles.tbtIconCircle}>
-          <Ionicons name={activeManeuverIcon as any} size={20} color="#fff" />
+          {realSpeed > 0 ? (
+            <View style={styles.metricPillBlue}>
+              <Ionicons name="speedometer" size={12} color="#fff" />
+              <Text style={styles.metricPillTextWhite}>{realSpeed} km/h</Text>
+            </View>
+          ) : gpsAccuracy != null ? (
+            <View style={styles.metricPillDark}>
+              <Ionicons name="locate" size={11} color={colors.success} />
+              <Text style={styles.metricPillTextWhite}>GPS ±{Math.round(gpsAccuracy)}m</Text>
+            </View>
+          ) : null}
         </View>
+      ) : null}
 
-        <View style={{ flex: 1 }}>
-          <Text style={styles.tbtTitle} numberOfLines={1}>
-            {isOffRoute
-              ? 'Recalcul de l’itinéraire…'
-              : upcomingManeuver.step?.instruction || 'Continuer tout droit'}
-          </Text>
-          <Text style={styles.tbtSub} numberOfLines={1}>
-            {isOffRoute
-              ? 'Écart par rapport à l’itinéraire détecté'
-              : `Dans ${formattedManeuverDist} · ${formattedDistance} · ~${formattedEta} (${etaClock}) · ${realSpeed} km/h`}
-          </Text>
+      {isNavigating ? (
+        <View style={styles.turnByTurnBanner}>
+          <View style={styles.tbtIconCircle}>
+            <Ionicons name={activeManeuverIcon as any} size={20} color="#fff" />
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <Text style={styles.tbtTitle} numberOfLines={1}>
+              {isOffRoute
+                ? 'Recalcul de l’itinéraire…'
+                : upcomingManeuver.step?.instruction || 'Continuer tout droit'}
+            </Text>
+            <Text style={styles.tbtSub} numberOfLines={1}>
+              {isOffRoute
+                ? 'Écart par rapport à l’itinéraire détecté'
+                : `Dans ${formattedManeuverDist} · ${formattedDistance} · ~${formattedEta} (${etaClock}) · ${realSpeed} km/h`}
+            </Text>
+          </View>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Quitter le guidage"
+            onPress={() => setIsNavigating(false)}
+            style={styles.tbtCloseBtn}
+          >
+            <Ionicons name="close" size={16} color="#fff" />
+          </Pressable>
         </View>
+      ) : null}
 
+      {!isNavigating ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Quitter le guidage"
-          onPress={() => setIsNavigating(false)}
-          style={styles.tbtCloseBtn}
+          onPress={() => {
+            setIsNavigating(true);
+            setUserInteracted(false);
+            centerMapOnRoute();
+          }}
+          style={styles.googleMapsActionBar}
         >
-          <Ionicons name="close" size={16} color="#fff" />
-        </Pressable>
-      </View>
-    ) : null}
-
-    {!isNavigating ? (
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => {
-          setIsNavigating(true);
-          setUserInteracted(false);
-          centerMapOnRoute();
-        }}
-        style={styles.googleMapsActionBar}
-      >
-        <View style={styles.googleMapsIconCircle}>
-          <Ionicons name="navigate" size={16} color="#fff" />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.googleMapsActionTitle}>Démarrer le guidage GPS en direct</Text>
-          <Text style={styles.googleMapsActionSub}>
-            Suivi temps réel et instructions virage par virage
-          </Text>
-        </View>
-        <Ionicons name="play" size={17} color="#fff" />
-      </Pressable>
-    ) : null}
-
-    <View style={styles.controlsOverlay}>
-      <Pressable
-        accessibilityRole="button"
-        onPress={centerMapOnRoute}
-        style={styles.controlBtn}
-        accessibilityLabel="Recentrer sur le chauffeur"
-      >
-        <Ionicons name="locate" size={18} color="#fff" />
-      </Pressable>
-
-      {showExpandButton && !isNavigating ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setIsExpanded(!isExpanded)}
-          style={styles.controlBtn}
-          accessibilityLabel="Agrandir la carte"
-        >
-          <Ionicons
-            name={isExpanded ? 'contract' : 'expand'}
-            size={18}
-            color="#fff"
-          />
+          <View style={styles.googleMapsIconCircle}>
+            <Ionicons name="navigate" size={16} color="#fff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.googleMapsActionTitle}>Démarrer le guidage GPS en direct</Text>
+            <Text style={styles.googleMapsActionSub}>
+              Suivi temps réel et instructions virage par virage
+            </Text>
+          </View>
+          <Ionicons name="play" size={17} color="#fff" />
         </Pressable>
       ) : null}
+
+      <View style={styles.controlsOverlay}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={centerMapOnRoute}
+          style={styles.controlBtn}
+          accessibilityLabel="Recentrer sur le chauffeur"
+        >
+          <Ionicons name="locate" size={18} color="#fff" />
+        </Pressable>
+
+        {showExpandButton && !isNavigating ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setIsExpanded(!isExpanded)}
+            style={styles.controlBtn}
+            accessibilityLabel="Agrandir la carte"
+          >
+            <Ionicons
+              name={isExpanded ? 'contract' : 'expand'}
+              size={18}
+              color="#fff"
+            />
+          </Pressable>
+        ) : null}
+      </View>
     </View>
-  </View>
-);
+  );
 }
 
 const styles = StyleSheet.create({
@@ -1074,6 +1097,22 @@ const styles = StyleSheet.create({
     borderColor: '#3F3F4E',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  landmarkPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.35)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  landmarkText: {
+    color: '#E2E8F0',
+    fontSize: 9,
+    fontWeight: '700',
   },
   markerWithBadge: {
     alignItems: 'center',

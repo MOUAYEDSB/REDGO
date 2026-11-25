@@ -145,9 +145,10 @@ export async function openGoogleMapsTurnByTurn(
   const originParam = originLat && originLng ? `&origin=${originLat},${originLng}` : '';
 
   if (Platform.OS === 'android') {
+    // mode=l : itinéraire 2-roues / scooter sur Google Maps Android
     const navUrl = lat && lng
-      ? `google.navigation:q=${lat},${lng}&mode=d`
-      : `google.navigation:q=${encodeURIComponent(safeAddress)}&mode=d`;
+      ? `google.navigation:q=${lat},${lng}&mode=l`
+      : `google.navigation:q=${encodeURIComponent(safeAddress)}&mode=l`;
     try {
       const supported = await Linking.canOpenURL(navUrl);
       if (supported) {
@@ -156,8 +157,7 @@ export async function openGoogleMapsTurnByTurn(
       }
     } catch { }
   } else if (Platform.OS === 'ios') {
-    // Essayer l'application Google Maps iOS en mode conduite turn-by-turn
-    const googleMapsAppUrl = `comgooglemaps://?daddr=${destParam}&directionsmode=driving`;
+    const googleMapsAppUrl = `comgooglemaps://?daddr=${destParam}&directionsmode=bicycling`;
     try {
       const supported = await Linking.canOpenURL(googleMapsAppUrl);
       if (supported) {
@@ -167,8 +167,8 @@ export async function openGoogleMapsTurnByTurn(
     } catch { }
   }
 
-  // Fallback universel Google Maps (ouvre l'application installée ou le navigateur en mode itinéraire)
-  const webDirectionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${destParam}${originParam}&travelmode=driving`;
+  // Fallback universel Google Maps en mode 2-roues (scooter / moto)
+  const webDirectionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${destParam}${originParam}&travelmode=two-wheeler`;
   try {
     await Linking.openURL(webDirectionsUrl);
   } catch {
