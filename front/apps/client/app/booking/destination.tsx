@@ -13,10 +13,11 @@ import { colors } from '../../constants/theme';
   ];
 
   export default function BookingDestinationScreen() {
-    const { pickup = 'M\'Saken Centre', pickupLat, pickupLng } = useLocalSearchParams<{
+    const { pickup = 'M\'Saken Centre', pickupLat, pickupLng, tripMode = 'ride' } = useLocalSearchParams<{
       pickup?: string;
       pickupLat?: string;
       pickupLng?: string;
+      tripMode?: string;
     }>();
     const [destination, setDestination] = useState(DESTINATION_PRESETS[0].title);
     const [customDestination, setCustomDestination] = useState('');
@@ -31,6 +32,7 @@ import { colors } from '../../constants/theme';
           pickupLat,
           pickupLng,
           destination: finalDestination,
+          tripMode,
         },
       });
     };

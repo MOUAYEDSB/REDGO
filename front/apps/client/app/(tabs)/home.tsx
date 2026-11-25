@@ -33,12 +33,13 @@ import {
 const primaryServices = [
   {
     title: 'SCOOTER TAXI',
-    subtitle: 'Déplacement express 1 place',
+    subtitle: 'Se déplacer ou envoyer un colis',
     action: 'Commander une course',
     icon: 'bicycle-outline' as const,
     route: '/booking/pickup',
     background: '#351417',
     tag: "M'Saken & Messaadine",
+    image: require('../../assets/services/service-scooter.jpg'),
   },
   {
     title: 'REDGO FOOD',
@@ -48,6 +49,7 @@ const primaryServices = [
     route: '/food',
     background: '#342118',
     tag: 'Menus variés',
+    image: require('../../assets/services/service-food.jpg'),
   },
   {
     title: 'COURSES REDGO',
@@ -57,6 +59,7 @@ const primaryServices = [
     route: '/market',
     background: '#1A2922',
     tag: 'Prix fixes',
+    image: require('../../assets/services/service-courses.jpg'),
   },
 ];
 
@@ -145,7 +148,7 @@ export default function Home() {
         );
         return;
       }
-    } catch {}
+    } catch { }
     addProduct({
       productId: product.id,
       productType: product.type,
@@ -275,9 +278,19 @@ export default function Home() {
         {primaryServices.map((service) => (
           <Pressable
             key={service.title}
-            style={[styles.serviceCard, { backgroundColor: service.background }]}
+            style={({ pressed }) => [
+              styles.serviceCard,
+              { backgroundColor: service.background },
+              pressed && { opacity: 0.9 },
+            ]}
             onPress={() => router.push(service.route as any)}
           >
+            <Image
+              source={service.image}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+            />
+            <View style={styles.serviceOverlay} />
             <View style={styles.serviceTop}>
               <View style={styles.serviceIcon}>
                 <Ionicons name={service.icon} size={24} color="#FFFFFF" />
@@ -673,7 +686,19 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    overflow: 'hidden',
+    position: 'relative',
+    minHeight: 152,
+    justifyContent: 'space-between',
+  },
+  serviceOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(9, 9, 9, 0.42)',
   },
   serviceTop: {
     flexDirection: 'row',

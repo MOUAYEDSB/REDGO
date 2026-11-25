@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Screen } from '../../components/Screen';
@@ -12,6 +12,10 @@ import { colors } from '../../constants/theme';
   ];
 
   export default function BookingPickupScreen() {
+    const { tripMode: initialMode } = useLocalSearchParams<{ tripMode?: string }>();
+    const [tripMode, setTripMode] = useState<'ride' | 'parcel'>(
+      initialMode === 'parcel' ? 'parcel' : 'ride'
+    );
     const [search, setSearch] = useState('');
     const [selectedPickup, setSelectedPickup] = useState(RECENT_PICKUPS[0].title);
 
@@ -19,7 +23,7 @@ import { colors } from '../../constants/theme';
       const pickupValue = search.trim() || selectedPickup;
       router.push({
         pathname: '/booking/destination',
-        params: { pickup: pickupValue },
+        params: { pickup: pickupValue, tripMode },
       });
     };
 
@@ -38,9 +42,41 @@ import { colors } from '../../constants/theme';
           <View style={{ width: 40 }} />
         </View>
 
+        {/* 2-Part Mode Switcher */}
+        <View style={styles.modeSwitcher}>
+          <Pressable
+            onPress={() => setTripMode('ride')}
+            style={[styles.modeBtn, tripMode === 'ride' && styles.modeBtnActive]}
+          >
+            <Ionicons
+              name="bicycle"
+              size={18}
+              color={tripMode === 'ride' ? '#FFFFFF' : colors.textSecondary}
+            />
+            <Text style={[styles.modeBtnText, tripMode === 'ride' && styles.modeBtnTextActive]}>
+              Se déplacer
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setTripMode('parcel')}
+            style={[styles.modeBtn, tripMode === 'parcel' && styles.modeBtnActive]}
+          >
+            <Ionicons
+              name="cube-outline"
+              size={18}
+              color={tripMode === 'parcel' ? '#FFFFFF' : colors.textSecondary}
+            />
+            <Text style={[styles.modeBtnText, tripMode === 'parcel' && styles.modeBtnTextActive]}>
+              Envoyer un colis
+            </Text>
+          </Pressable>
+        </View>
+
         <Text style={styles.stepTitle}>Point de départ</Text>
         <Text style={styles.stepSubtitle}>
-          Où doit vous retrouver votre chauffeur à M'Saken ou Messaadine ?
+          {tripMode === 'parcel'
+            ? "Où le livreur doit-il récupérer votre colis à M'Saken ou Messaadine ?"
+            : "Où doit vous retrouver votre chauffeur à M'Saken ou Messaadine ?"}
         </Text>
 
         {/* Search Input */}
@@ -267,5 +303,34 @@ import { colors } from '../../constants/theme';
       color: '#FFFFFF',
       fontSize: 16,
       fontWeight: '900',
+    },
+    modeSwitcher: {
+      flexDirection: 'row',
+      gap: 10,
+      marginBottom: 18,
+    },
+    modeBtn: {
+      flex: 1,
+      height: 46,
+      borderRadius: 14,
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.border,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+    },
+    modeBtnActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    modeBtnText: {
+      color: colors.textSecondary,
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    modeBtnTextActive: {
+      color: '#FFFFFF',
     },
   });

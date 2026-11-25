@@ -12,9 +12,12 @@ import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
     const {
       pickup = 'M\'Saken Centre, Avenue Habib Bourguiba',
       destination = 'Messaadine Centre',
-      serviceName = 'Scooter Express (1 passager)',
+      serviceName = 'Se déplacer (Scooter 1 passager)',
       fare = '4500',
       duration = '12',
+      distanceKm: distanceKmParam = '4.8',
+      tripMode = 'ride',
+      parcelNote = '',
       pickupLat,
       pickupLng,
       destinationLat,
@@ -25,6 +28,9 @@ import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
       serviceName?: string;
       fare?: string;
       duration?: string;
+      distanceKm?: string;
+      tripMode?: string;
+      parcelNote?: string;
       pickupLat?: string;
       pickupLng?: string;
       destinationLat?: string;
@@ -33,7 +39,11 @@ import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
 
     const fareMillimes = parseInt(fare, 10) || 4500;
     const durationMinutes = parseInt(duration, 10) || 12;
-    const distanceKm = 4.8;
+    const distanceKm = parseFloat(distanceKmParam) || 4.8;
+    const isParcel = tripMode === 'parcel';
+    const effectiveDestination = isParcel
+      ? `[COLIS] ${destination}${parcelNote ? ` (${parcelNote})` : ''}`
+      : destination;
     const latitude = Number(pickupLat);
     const longitude = Number(pickupLng);
     const pickupLocation = Number.isFinite(latitude) && Number.isFinite(longitude)
@@ -55,7 +65,7 @@ import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
         const ride = await createScooterRide({
           pickupAddress: pickup,
           pickupLocation,
-          destinationAddress: destination,
+          destinationAddress: effectiveDestination,
           destinationLocation,
           durationMinutes,
         });
@@ -66,8 +76,8 @@ import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
             id: ride.id,
             reference: ride.reference,
             pickup,
-            destination,
-            fare: ride.metrics.fareMillimes.toString(),
+            destination: effectiveDestination,
+            fare: String(ride.metrics.fareMillimes || fareMillimes),
           },
         });
       } catch (error: any) {
