@@ -47,6 +47,26 @@ type DriverAppViewProps = {
   onSwitchSpace: () => void;
 };
 
+function formatClockHHMM(date = new Date()): string {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function formatTimeAgo(isoDate?: string | null): string {
+  if (!isoDate) return 'En direct';
+  const diffSec = Math.max(0, Math.floor((Date.now() - new Date(isoDate).getTime()) / 1000));
+  if (diffSec < 60) return "À l'instant";
+  const mins = Math.floor(diffSec / 60);
+  if (mins < 60) return `Il y a ${mins} min`;
+  const hours = Math.floor(mins / 60);
+  return `Il y a ${hours} h`;
+}
+
+function formatElapsedMMSS(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
 export default function DriverAppView({
   userId,
   isPreview,
@@ -68,6 +88,24 @@ export default function DriverAppView({
   const [missionItems, setMissionItems] = useState<DriverOrderItem[]>([]);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
   const [missionLocations, setMissionLocations] = useState<MissionLocationDetails | null>(null);
+  const [liveClock, setLiveClock] = useState(() => formatClockHHMM());
+  const [activeElapsedSec, setActiveElapsedSec] = useState(0);
+  const [expandedOpenMapId, setExpandedOpenMapId] = useState<string | null>(null);
+
+  // Horloge temps réel + chronomètre de mission active
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setLiveClock(formatClockHHMM());
+      if (activeMission) {
+        setActiveElapsedSec((prev) => prev + 1);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [activeMission]);
+
+  useEffect(() => {
+    setActiveElapsedSec(0);
+  }, [activeMission?.mission_id]);
 
   // Charger les articles et coordonnées réelles dès qu'une mission est active
   useEffect(() => {
@@ -256,7 +294,9 @@ export default function DriverAppView({
                 <Text style={styles.driverBadgeText}>CHAUFFEUR</Text>
               </View>
             </View>
-            <Text style={styles.driverName}>Bonjour, {name.split(' ')[0]}</Text>
+            <Text style={styles.driverName}>
+              Bonjour, {name.split(' ')[0]} · {liveClock}
+            </Text>
           </View>
         </View>
 
@@ -362,9 +402,13 @@ export default function DriverAppView({
               <Text style={styles.activeHeaderBadge}>MISSION EN COURS</Text>
               <Text style={styles.activeRef}>{activeMission.reference}</Text>
             </View>
+            <View style={styles.timerPill}>
+              <Ionicons name="time-outline" size={12} color="#34D399" />
+              <Text style={styles.timerPillText}>{formatElapsedMMSS(activeElapsedSec)}</Text>
+            </View>
             <View style={styles.typeBadge}>
               <Text style={styles.typeBadgeText}>
-                {activeMission.mission_type === 'delivery' ? 'LIVRAISON FOOD/COURSES' : 'SCOOTER TAXI'}
+                {activeMission.mission_type === 'delivery' ? 'FOOD/COURSES' : 'SCOOTER TAXI'}
               </Text>
             </View>
           </View>
@@ -377,7 +421,9 @@ export default function DriverAppView({
             destinationCoords={missionLocations?.destinationCoords}
             restaurantName={missionLocations?.restaurantName}
             businessId={missionLocations?.businessId}
-            height={230}
+            orderId={activeMission.target_id}
+            driverId={userId}
+            height={320}
             showExpandButton
             activeStep={
               activeMission.mission_status === 'assigned' || activeMission.mission_status === 'accepted'
@@ -666,7 +712,7 @@ export default function DriverAppView({
                     <View style={{ flex: 1 }}>
                       <Text style={styles.feedRef}>{mission.reference}</Text>
                       <Text style={styles.feedTypeLabel}>
-                        {isFood ? 'LIVRAISON EXPRESS FOOD / HUB' : 'COURSE SCOOTER TAXI'}
+                        {isFood ? 'LIVRAISON FOOD / HUB' : 'COURSE SCOOTER TAXI'} · {formatTimeAgo(mission.created_at)}
                       </Text>
                     </View>
                     <View style={styles.rewardBadge}>
@@ -689,12 +735,38 @@ export default function DriverAppView({
                     </View>
                   </View>
 
+                  {expandedOpenMapId === mission.mission_id ? (
+                    <View style={{ marginBottom: 10 }}>
+                      <DriverMissionMap
+                        pickupAddress={mission.pickup_address}
+                        destinationAddress={mission.destination_address}
+                        height={180}
+                        showExpandButton={false}
+                      />
+                    </View>
+                  ) : null}
+
                   <View style={styles.feedActions}>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() =>
+                        setExpandedOpenMapId(
+                          expandedOpenMapId === mission.mission_id ? null : mission.mission_id
+                        )
+                      }
+                      style={styles.mapPreviewBtn}
+                    >
+                      <Ionicons
+                        name="map-outline"
+                        size={16}
+                        color={expandedOpenMapId === mission.mission_id ? colors.primary : '#D4D4D8'}
+                      />
+                    </Pressable>
                     <Pressable
                       accessibilityRole="button"
                       disabled={isSubmitting}
                       onPress={() => void perform(() => acceptDriverMission(mission.mission_id))}
-                      style={[styles.acceptBtn, isSubmitting && styles.disabled]}
+                      style={[styles.acceptBtn, { flex: 1 }, isSubmitting && styles.disabled]}
                     >
                       <Ionicons name="checkmark-sharp" size={17} color="#fff" />
                       <Text style={styles.acceptBtnText}>Accepter la course</Text>
@@ -1440,4 +1512,26 @@ const styles = StyleSheet.create({
   },
   logoutBtnText: { color: '#EF4444', fontSize: 12, fontWeight: '800' },
   disabled: { opacity: 0.6 },
+  timerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#102B1D',
+    borderWidth: 1,
+    borderColor: '#155E38',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  timerPillText: { color: '#34D399', fontSize: 11, fontWeight: '900' },
+  mapPreviewBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#181820',
+    borderWidth: 1,
+    borderColor: '#292938',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

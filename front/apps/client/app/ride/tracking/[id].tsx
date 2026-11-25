@@ -229,7 +229,7 @@ export default function RideTrackingScreen() {
             status: ride.status === 'ride_started' || ride.status === 'ride_completed' ? 'completed' : 'pending',
           },
         ]}
-        height={260}
+        height={360}
       />
 
       {/* Status Card */}

@@ -175,7 +175,7 @@ export default function LiveDeliveryTrackingScreen() {
         driver={order.driver}
         driverLocation={driverLocation}
         pickupStops={order.stops}
-        height={260}
+        height={360}
       />
 
       {/* Status Card */}

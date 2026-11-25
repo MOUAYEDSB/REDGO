@@ -6,6 +6,7 @@ export type LocationConnectionState = 'connecting' | 'live' | 'unavailable' | 'e
 type LocationRecord = {
   latitude: number | null;
   longitude: number | null;
+  heading?: number | null;
   updated_at: string;
 };
 
@@ -15,6 +16,63 @@ function isLocationRecord(value: unknown): value is LocationRecord {
   return (record.latitude === null || typeof record.latitude === 'number')
     && (record.longitude === null || typeof record.longitude === 'number')
     && typeof record.updated_at === 'string';
+}
+
+/**
+ * Publie la position GPS réelle du chauffeur/livreur vers Supabase
+ * pour que le client puisse le suivre en temps réel jusqu'à l'arrivée.
+ */
+export async function publishDriverLocation(params: {
+  orderId?: string | null;
+  driverId?: string | null;
+  latitude: number;
+  longitude: number;
+  heading?: number | null;
+}): Promise<void> {
+  const client = supabase;
+  if (!client) return;
+
+  const nowIso = new Date().toISOString();
+  const { orderId, driverId, latitude, longitude, heading } = params;
+
+  try {
+    const tasks: Promise<unknown>[] = [];
+
+    if (orderId) {
+      tasks.push(
+        Promise.resolve(
+          client
+            .from('delivery_driver_locations')
+            .update({
+              latitude,
+              longitude,
+              heading: typeof heading === 'number' && Number.isFinite(heading) ? heading : null,
+              updated_at: nowIso,
+            })
+            .eq('order_id', orderId)
+        )
+      );
+    }
+
+    if (driverId) {
+      tasks.push(
+        Promise.resolve(
+          (client as any)
+            .from('driver_profiles')
+            .update({
+              current_latitude: latitude,
+              current_longitude: longitude,
+              updated_at: nowIso,
+            })
+            .eq('user_id', driverId)
+        )
+      );
+    }
+
+    await Promise.allSettled(tasks);
+  } catch {
+    // Ignore transient network errors during background GPS sync
+  }
 }
 
 export function subscribeToDriverLocation(
@@ -30,11 +88,29 @@ export function subscribeToDriverLocation(
 
   let active = true;
   let channel: ReturnType<typeof client.channel> | null = null;
+  let pollInterval: ReturnType<typeof setInterval> | null = null;
+
   const reportRow = (value: unknown) => {
     if (!active || !isLocationRecord(value)) return;
     const row = value;
     if (typeof row.latitude !== 'number' || typeof row.longitude !== 'number') return;
     onLocation({ latitude: row.latitude, longitude: row.longitude }, row.updated_at);
+  };
+
+  const fetchLatest = async () => {
+    if (!active) return;
+    const { data, error } = await client
+      .from('delivery_driver_locations')
+      .select('latitude, longitude, heading, updated_at')
+      .eq('order_id', orderId)
+      .maybeSingle();
+
+    if (!active) return;
+    if (error) {
+      onState('error', 'Impossible de lire la position. Vérifiez la commande et vos droits.');
+      return;
+    }
+    reportRow(data);
   };
 
   onState('connecting', 'Connexion au suivi du coursier…');
@@ -70,24 +146,19 @@ export function subscribeToDriverLocation(
         }
       });
 
-    const { data, error } = await client
-      .from('delivery_driver_locations')
-      .select('latitude, longitude, updated_at')
-      .eq('order_id', orderId)
-      .maybeSingle();
+    await fetchLatest();
 
-    if (!active) return;
-    if (error) {
-      onState('error', 'Impossible de lire la position. Vérifiez la commande et vos droits.');
-      return;
-    }
-    reportRow(data);
+    // Filet de sécurité : rafraîchissement périodique toutes les 3s si WebSocket ralenti
+    pollInterval = setInterval(() => {
+      void fetchLatest();
+    }, 3000);
   })().catch((error: unknown) => {
     if (active) onState('error', error instanceof Error ? error.message : 'Erreur de suivi inconnue.');
   });
 
   return () => {
     active = false;
+    if (pollInterval) clearInterval(pollInterval);
     if (channel) void client.removeChannel(channel);
   };
 }

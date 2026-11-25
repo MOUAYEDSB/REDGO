@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
+  Animated,
+  Easing,
   Platform,
   Pressable,
   StyleSheet,
@@ -12,6 +13,7 @@ import {
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT, Region } from 'react-native-maps';
 import { colors } from '../constants/theme';
 import { resolveBusinessCoordinates } from '../services/businessCoordinates';
+import { publishDriverLocation } from '../services/driverLocation';
 import {
   fetchRoadRoute,
   getManeuverIconName,
@@ -34,6 +36,8 @@ type DriverMissionMapProps = {
   height?: number;
   showExpandButton?: boolean;
   activeStep?: 'pickup' | 'delivery';
+  orderId?: string | null;
+  driverId?: string | null;
   onNavigateGoogleMaps?: () => void;
 };
 
@@ -178,14 +182,38 @@ export function DriverMissionMap({
   destinationCoords,
   restaurantName,
   businessId,
-  height = 230,
+  height = 320,
   showExpandButton = true,
   activeStep = 'delivery',
+  orderId = null,
+  driverId = null,
 }: DriverMissionMapProps) {
   const mapRef = useRef<MapView>(null);
   const locationSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
   const offRouteCount = useRef(0);
   const lastRecalcTimestamp = useRef(0);
+  const lastPublishTimestamp = useRef(0);
+  const pulseAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1600,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulseAnim]);
 
   // Positions géographiques
   const [driverLocation, setDriverLocation] = useState<Point>(MSAKEN_CENTER);
@@ -198,6 +226,7 @@ export function DriverMissionMap({
   const [routeCoordinates, setRouteCoordinates] = useState<Point[]>([]);
   const [routeSteps, setRouteSteps] = useState<RouteStep[]>([]);
   const [totalDistanceMeters, setTotalDistanceMeters] = useState<number | null>(null);
+  const [totalDurationSeconds, setTotalDurationSeconds] = useState<number | null>(null);
 
   // État de l'interface & navigation
   const [isExpanded, setIsExpanded] = useState(false);
@@ -258,12 +287,15 @@ export function DriverMissionMap({
           setRouteCoordinates(routeData.coordinates);
           setRouteSteps(routeData.steps || []);
           setTotalDistanceMeters(routeData.distanceMeters);
+          setTotalDurationSeconds(routeData.durationSeconds);
           setIsOffRoute(false);
           offRouteCount.current = 0;
         }
       } catch {
+        const directDist = Math.round(getDistanceMeters(origin, activeDestination));
         setRouteCoordinates([origin, activeDestination]);
-        setTotalDistanceMeters(Math.round(getDistanceMeters(origin, activeDestination)));
+        setTotalDistanceMeters(directDist);
+        setTotalDurationSeconds(Math.max(60, Math.round(directDist / 7.5)));
       } finally {
         setIsLoadingRoute(false);
       }
@@ -303,6 +335,17 @@ export function DriverMissionMap({
             setRealHeading(initialLoc.coords.heading);
           }
           setGpsAccuracy(initialLoc.coords.accuracy ?? null);
+
+          if (orderId || driverId) {
+            lastPublishTimestamp.current = Date.now();
+            void publishDriverLocation({
+              orderId,
+              driverId,
+              latitude: pt.latitude,
+              longitude: pt.longitude,
+              heading: initialLoc.coords.heading ?? null,
+            });
+          }
         }
 
         locationSubscriptionRef.current?.remove();
@@ -337,6 +380,19 @@ export function DriverMissionMap({
             setRealSpeed(speedKmH);
             if (headingVal != null) setRealHeading(headingVal);
             setGpsAccuracy(location.coords.accuracy ?? null);
+
+            // Diffusion de la position GPS réelle vers le client (toutes les 3s max)
+            const nowMs = Date.now();
+            if ((orderId || driverId) && nowMs - lastPublishTimestamp.current >= 3000) {
+              lastPublishTimestamp.current = nowMs;
+              void publishDriverLocation({
+                orderId,
+                driverId,
+                latitude: currentPt.latitude,
+                longitude: currentPt.longitude,
+                heading: headingVal,
+              });
+            }
 
             if (isNavigating && !userInteracted) {
               mapRef.current?.animateCamera({
@@ -375,7 +431,7 @@ export function DriverMissionMap({
       locationSubscriptionRef.current?.remove();
       locationSubscriptionRef.current = null;
     };
-  }, [isNavigating, userInteracted, routeCoordinates, requestRoute, isOffRoute]);
+  }, [isNavigating, userInteracted, routeCoordinates, requestRoute, isOffRoute, orderId, driverId]);
 
   useEffect(() => {
     void requestRoute(driverLocation, false);
@@ -420,6 +476,23 @@ export function DriverMissionMap({
       ? `${(remainingDistanceMeters / 1000).toFixed(1)} km`
       : `${remainingDistanceMeters} m`;
 
+  const remainingDurationSeconds = useMemo(() => {
+    if (totalDurationSeconds && totalDistanceMeters && totalDistanceMeters > 0) {
+      return Math.max(30, Math.round(totalDurationSeconds * (remainingDistanceMeters / totalDistanceMeters)));
+    }
+    return Math.max(60, Math.round(remainingDistanceMeters / 7.5));
+  }, [totalDurationSeconds, totalDistanceMeters, remainingDistanceMeters]);
+
+  const formattedEta =
+    remainingDurationSeconds < 60
+      ? '< 1 min'
+      : `${Math.ceil(remainingDurationSeconds / 60)} min`;
+
+  const etaClock = useMemo(() => {
+    const arrival = new Date(Date.now() + remainingDurationSeconds * 1000);
+    return `${String(arrival.getHours()).padStart(2, '0')}:${String(arrival.getMinutes()).padStart(2, '0')}`;
+  }, [remainingDurationSeconds]);
+
   const formattedManeuverDist =
     upcomingManeuver.distanceToManeuver >= 1000
       ? `${(upcomingManeuver.distanceToManeuver / 1000).toFixed(1)} km`
@@ -432,14 +505,24 @@ export function DriverMissionMap({
     )
     : 'navigate';
 
+  const pulseScale = pulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.85],
+  });
+  const pulseOpacity = pulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.6, 0],
+  });
+
   return (
-    <View style={[styles.container, { height: isExpanded ? 380 : height }]}>
+    <View style={[styles.container, { height: isExpanded ? 520 : height }]}>
         {canRenderNativeMap ? (
           <MapView
             ref={mapRef}
             style={styles.map}
             provider={PROVIDER_DEFAULT}
             initialRegion={initialRegion}
+            userInterfaceStyle="dark"
             showsUserLocation={false}
             showsCompass={false}
             showsMyLocationButton={false}
@@ -448,13 +531,22 @@ export function DriverMissionMap({
             }}
           >
             {routeCoordinates.length > 1 && (
-              <Polyline
-                coordinates={routeCoordinates}
-                strokeColor={colors.primary}
-                strokeWidth={5}
-                lineCap="round"
-                lineJoin="round"
-              />
+              <>
+                <Polyline
+                  coordinates={routeCoordinates}
+                  strokeColor="rgba(255, 32, 42, 0.28)"
+                  strokeWidth={10}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+                <Polyline
+                  coordinates={routeCoordinates}
+                  strokeColor={colors.primary}
+                  strokeWidth={4.5}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+              </>
             )}
 
             <Marker
@@ -488,15 +580,39 @@ export function DriverMissionMap({
               anchor={{ x: 0.5, y: 0.5 }}
               rotation={realHeading != null ? realHeading : 0}
             >
-              <View style={styles.markerDriverPin}>
-                <Ionicons name="bicycle" size={18} color="#fff" />
+              <View style={styles.driverMarkerWrap}>
+                <Animated.View
+                  style={[
+                    styles.driverPulseRing,
+                    { transform: [{ scale: pulseScale }], opacity: pulseOpacity },
+                  ]}
+                />
+                <View style={styles.markerDriverPin}>
+                  <Ionicons name="navigate" size={17} color="#fff" />
+                </View>
               </View>
             </Marker>
           </MapView>
         ) : (
           <View style={styles.fallbackMapBg}>
-            <Ionicons name="map-outline" size={36} color="#4B5563" />
-            <Text style={styles.fallbackMapText}>Suivi GPS actif (Carte Android sans clé API)</Text>
+            <View style={styles.fallbackRouteCard}>
+              <View style={styles.fallbackRouteRow}>
+                <Ionicons name="radio-button-on" size={14} color={colors.success} />
+                <Text style={styles.fallbackRouteAddr} numberOfLines={1}>
+                  {restaurantName || pickupAddress || 'Point de départ'}
+                </Text>
+              </View>
+              <View style={styles.fallbackRouteDivider} />
+              <View style={styles.fallbackRouteRow}>
+                <Ionicons name="flag" size={14} color={colors.primary} />
+                <Text style={styles.fallbackRouteAddr} numberOfLines={1}>
+                  {destinationAddress || 'Destination client'}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.fallbackMapText}>
+              {formattedDistance} · ~{formattedEta} (Arrivée {etaClock})
+            </Text>
           </View>
         )}
 
@@ -514,13 +630,22 @@ export function DriverMissionMap({
             <View style={styles.metricPillGreen}>
               <Ionicons name="navigate-circle" size={13} color="#fff" />
               <Text style={styles.metricPillTextWhite}>
-                {activeStep === 'pickup' ? 'Vers Collecte' : 'Vers Client'} : {formattedDistance}
+                {activeStep === 'pickup' ? 'Collecte' : 'Client'} : {formattedDistance} · ~{formattedEta}
               </Text>
+            </View>
+            <View style={styles.metricPillDark}>
+              <Ionicons name="time-outline" size={12} color="#fff" />
+              <Text style={styles.metricPillTextWhite}>Arrivée {etaClock}</Text>
             </View>
             {realSpeed > 0 ? (
               <View style={styles.metricPillBlue}>
                 <Ionicons name="speedometer" size={12} color="#fff" />
                 <Text style={styles.metricPillTextWhite}>{realSpeed} km/h</Text>
+              </View>
+            ) : gpsAccuracy != null ? (
+              <View style={styles.metricPillDark}>
+                <Ionicons name="locate" size={11} color={colors.success} />
+                <Text style={styles.metricPillTextWhite}>GPS ±{Math.round(gpsAccuracy)}m</Text>
               </View>
             ) : null}
           </View>
@@ -535,13 +660,13 @@ export function DriverMissionMap({
             <View style={{ flex: 1 }}>
               <Text style={styles.tbtTitle} numberOfLines={1}>
                 {isOffRoute
-                  ? 'Recalcul du trajet OSRM…'
+                  ? 'Recalcul de l’itinéraire…'
                   : upcomingManeuver.step?.instruction || 'Continuer tout droit'}
               </Text>
               <Text style={styles.tbtSub} numberOfLines={1}>
                 {isOffRoute
                   ? 'Écart par rapport à l’itinéraire détecté'
-                  : `Dans ${formattedManeuverDist} · Reste ${formattedDistance} · ${realSpeed} km/h`}
+                  : `Dans ${formattedManeuverDist} · ${formattedDistance} · ~${formattedEta} (${etaClock}) · ${realSpeed} km/h`}
               </Text>
             </View>
 
@@ -604,13 +729,6 @@ export function DriverMissionMap({
           </Pressable>
         ) : null}
       </View>
-
-      {isLoadingRoute ? (
-        <View style={styles.loadingRouteBadge}>
-          <ActivityIndicator size="small" color={colors.primary} />
-          <Text style={styles.loadingRouteText}>Calcul de l'itinéraire OSRM…</Text>
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -637,9 +755,47 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   fallbackMapText: {
-    color: '#9CA3AF',
+    color: '#D4D4D8',
     fontSize: 12,
+    fontWeight: '800',
+  },
+  fallbackRouteCard: {
+    width: '86%',
+    backgroundColor: 'rgba(25, 25, 25, 0.94)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#292929',
+    padding: 10,
+    marginBottom: 4,
+  },
+  fallbackRouteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  fallbackRouteDivider: {
+    width: 2,
+    height: 10,
+    backgroundColor: '#292929',
+    marginLeft: 6,
+    marginVertical: 2,
+  },
+  fallbackRouteAddr: {
+    color: '#F4F4F5',
+    fontSize: 11,
     fontWeight: '700',
+    flex: 1,
+  },
+  metricPillDark: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(18, 18, 18, 0.92)',
+    borderWidth: 1,
+    borderColor: '#292929',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 10,
   },
   map: {
     position: 'absolute',
@@ -844,17 +1000,30 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 3,
   },
+  driverMarkerWrap: {
+    width: 54,
+    height: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  driverPulseRing: {
+    position: 'absolute',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.primary,
+  },
   markerDriverPin: {
-    backgroundColor: '#1E40AF',
+    backgroundColor: colors.primary,
     width: 36,
     height: 36,
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2.5,
-    borderColor: '#60A5FA',
-    shadowColor: '#000',
-    shadowOpacity: 0.45,
-    shadowRadius: 5,
+    borderColor: '#FFFFFF',
+    shadowColor: colors.primary,
+    shadowOpacity: 0.8,
+    shadowRadius: 6,
   },
 });

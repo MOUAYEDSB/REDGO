@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -23,6 +23,20 @@ import {
   subscribeDriverUpdates,
 } from '../../services/driverMissions';
 
+function formatMissionTimeAgo(isoDate?: string | null): string {
+  if (!isoDate) return 'En direct';
+  const diffSec = Math.max(0, Math.floor((Date.now() - new Date(isoDate).getTime()) / 1000));
+  if (diffSec < 60) return "À l'instant";
+  const mins = Math.floor(diffSec / 60);
+  if (mins < 60) return `Il y a ${mins} min`;
+  return `Il y a ${Math.floor(mins / 60)} h`;
+}
+
+function getLiveClockString(): string {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 export default function DriverMissionsScreen() {
   const { user } = useRedgoAuth();
   const [activeMission, setActiveMission] = useState<ActiveDriverMissionRow | null>(null);
@@ -32,6 +46,12 @@ export default function DriverMissionsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [selectedMapMissionId, setSelectedMapMissionId] = useState<string | null>(null);
+  const [liveClock, setLiveClock] = useState(getLiveClockString);
+
+  useEffect(() => {
+    const t = setInterval(() => setLiveClock(getLiveClockString()), 15000);
+    return () => clearInterval(t);
+  }, []);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -101,7 +121,7 @@ export default function DriverMissionsScreen() {
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>Missions en direct</Text>
-          <Text style={styles.subtitle}>Secteur M’Saken & Messaadine</Text>
+          <Text style={styles.subtitle}>Secteur M’Saken & Messaadine · {liveClock}</Text>
         </View>
         <Pressable onPress={onRefresh} style={styles.refreshBtn}>
           <Ionicons name="refresh" size={18} color="#fff" />
@@ -172,7 +192,7 @@ export default function DriverMissionsScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.refText}>{m.reference}</Text>
                     <Text style={styles.typeText}>
-                      {isFood ? 'LIVRAISON FOOD / COURSES' : 'COURSE SCOOTER TAXI'}
+                      {isFood ? 'LIVRAISON FOOD / COURSES' : 'COURSE SCOOTER TAXI'} · {formatMissionTimeAgo(m.created_at)}
                     </Text>
                   </View>
                   <View style={styles.badgeReward}>
