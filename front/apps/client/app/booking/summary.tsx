@@ -73,6 +73,7 @@ import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
           pickupLocation,
           destinationAddress: effectiveDestination,
           destinationLocation,
+          fareMillimes,
           durationMinutes,
         });
 
