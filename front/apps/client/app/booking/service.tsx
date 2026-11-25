@@ -9,6 +9,7 @@ import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
 import { fetchRoadRoute } from '../../services/routing';
 
 type ScooterMode = 'ride' | 'parcel';
+type TripDirection = 'one_way' | 'round_trip';
 
 function haversineKm(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }): number {
   const R = 6371;
@@ -20,13 +21,6 @@ function haversineKm(a: { latitude: number; longitude: number }, b: { latitude: 
     Math.sin(dLat / 2) ** 2 +
     Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-}
-
-function estimateDynamicFareMillimes(distanceKm: number, mode: ScooterMode): number {
-  const base = mode === 'parcel' ? 2500 : 3000;
-  const perKm = 550;
-  const raw = base + Math.max(0, distanceKm - 1) * perKm;
-  return Math.max(base, Math.round(raw / 500) * 500);
 }
 
 export default function BookingServiceScreen() {
@@ -51,7 +45,11 @@ export default function BookingServiceScreen() {
   const [selectedMode, setSelectedMode] = useState<ScooterMode>(
     tripMode === 'parcel' ? 'parcel' : 'ride'
   );
+  const [tripDirection, setTripDirection] = useState<TripDirection>('one_way');
+  const [rideNote, setRideNote] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
   const [parcelNote, setParcelNote] = useState('');
+
   const [isCalculating, setIsCalculating] = useState(true);
   const [distanceKm, setDistanceKm] = useState<number>(3.5);
   const [durationMinutes, setDurationMinutes] = useState<number>(10);
@@ -106,14 +104,19 @@ export default function BookingServiceScreen() {
     };
   }, [pickupLocation, destinationLocation]);
 
-  const rideFare = useMemo(() => estimateDynamicFareMillimes(distanceKm, 'ride'), [distanceKm]);
-  const parcelFare = useMemo(() => estimateDynamicFareMillimes(distanceKm, 'parcel'), [distanceKm]);
+  // Tarification dynamique :
+  // - Se déplacer : Aller simple = 2.500 DT | Aller-retour = 2.500 + 1.000 = 3.500 DT
+  // - Envoyer un colis : 2.500 DT
+  const rideFare = tripDirection === 'round_trip' ? 3500 : 2500;
+  const parcelFare = 2500;
 
   const activeFare = selectedMode === 'parcel' ? parcelFare : rideFare;
   const activeServiceName =
     selectedMode === 'parcel'
       ? 'Envoyer un colis (Express)'
-      : 'Se déplacer (Scooter 1 passager)';
+      : tripDirection === 'round_trip'
+        ? 'Se déplacer · Aller-retour'
+        : 'Se déplacer · Aller simple';
 
   const handleConfirmService = () => {
     router.push({
@@ -126,6 +129,9 @@ export default function BookingServiceScreen() {
         destinationLat: String(destinationLocation.latitude),
         destinationLng: String(destinationLocation.longitude),
         tripMode: selectedMode,
+        tripDirection,
+        rideNote: rideNote.trim(),
+        recipientPhone: recipientPhone.trim(),
         parcelNote: parcelNote.trim(),
         serviceId: selectedMode === 'parcel' ? 'scooter_parcel' : 'scooter_ride',
         serviceName: activeServiceName,
@@ -178,10 +184,91 @@ export default function BookingServiceScreen() {
             )}
           </View>
           <Text style={styles.optionDesc}>
-            1 passager · Casque fourni · Arrivée en ~{durationMinutes} min ({distanceKm} km)
+            1 passager · Casque fourni · ~{durationMinutes} min ({distanceKm} km)
           </Text>
         </View>
       </Pressable>
+
+      {/* Fiche Se déplacer : Aller simple / Aller-retour + Note */}
+      {selectedMode === 'ride' ? (
+        <View style={styles.detailsCard}>
+          <Text style={styles.detailsLabel}>TYPE DE TRAJET</Text>
+          <View style={styles.directionRow}>
+            <Pressable
+              onPress={() => setTripDirection('one_way')}
+              style={[
+                styles.directionBtn,
+                tripDirection === 'one_way' && styles.directionBtnActive,
+              ]}
+            >
+              <Ionicons
+                name="arrow-forward-circle-outline"
+                size={18}
+                color={tripDirection === 'one_way' ? '#FFFFFF' : colors.textSecondary}
+              />
+              <View>
+                <Text
+                  style={[
+                    styles.directionTitle,
+                    tripDirection === 'one_way' && styles.directionTitleActive,
+                  ]}
+                >
+                  Aller simple
+                </Text>
+                <Text
+                  style={[
+                    styles.directionPrice,
+                    tripDirection === 'one_way' && styles.directionPriceActive,
+                  ]}
+                >
+                  2.500 DT
+                </Text>
+              </View>
+            </Pressable>
+
+            <Pressable
+              onPress={() => setTripDirection('round_trip')}
+              style={[
+                styles.directionBtn,
+                tripDirection === 'round_trip' && styles.directionBtnActive,
+              ]}
+            >
+              <Ionicons
+                name="repeat-outline"
+                size={18}
+                color={tripDirection === 'round_trip' ? '#FFFFFF' : colors.textSecondary}
+              />
+              <View>
+                <Text
+                  style={[
+                    styles.directionTitle,
+                    tripDirection === 'round_trip' && styles.directionTitleActive,
+                  ]}
+                >
+                  Aller-retour
+                </Text>
+                <Text
+                  style={[
+                    styles.directionPrice,
+                    tripDirection === 'round_trip' && styles.directionPriceActive,
+                  ]}
+                >
+                  +1.000 DT (3.500 DT)
+                </Text>
+              </View>
+            </Pressable>
+          </View>
+
+          <Text style={[styles.detailsLabel, { marginTop: 14 }]}>NOTE AU CHAUFFEUR (OPTIONNEL)</Text>
+          <TextInput
+            value={rideNote}
+            onChangeText={setRideNote}
+            placeholder="Ajouter une précision (repère, attente, etc.)"
+            placeholderTextColor={colors.textSecondary}
+            style={styles.textInput}
+          />
+        </View>
+      ) : null}
 
       {/* Option 2 : Envoyer un colis */}
       <Pressable
@@ -210,16 +297,26 @@ export default function BookingServiceScreen() {
         </View>
       </Pressable>
 
-      {/* Détails colis optionnels si mode Colis sélectionné */}
+      {/* Fiche Colis : Numéro du destinataire + Note */}
       {selectedMode === 'parcel' ? (
-        <View style={styles.parcelBox}>
-          <Text style={styles.parcelLabel}>DÉTAILS DU COLIS & DESTINATAIRE (OPTIONNEL)</Text>
+        <View style={styles.detailsCard}>
+          <Text style={styles.detailsLabel}>NUMÉRO DU DESTINATAIRE (OPTIONNEL)</Text>
+          <TextInput
+            value={recipientPhone}
+            onChangeText={setRecipientPhone}
+            placeholder="Numéro de celui qui va récupérer le colis"
+            placeholderTextColor={colors.textSecondary}
+            keyboardType="phone-pad"
+            style={styles.textInput}
+          />
+
+          <Text style={[styles.detailsLabel, { marginTop: 14 }]}>NOTE SI NÉCESSAIRE (OPTIONNEL)</Text>
           <TextInput
             value={parcelNote}
             onChangeText={setParcelNote}
-            placeholder="Ex : Clés / Documents · Tél destinataire 22 000 000"
+            placeholder="Contenu du colis, étage, instructions..."
             placeholderTextColor={colors.textSecondary}
-            style={styles.parcelInput}
+            style={styles.textInput}
           />
         </View>
       ) : null}
@@ -345,23 +442,60 @@ const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 17,
   },
-  parcelBox: {
+  detailsCard: {
     backgroundColor: colors.card,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     padding: 14,
-    marginBottom: 12,
+    marginBottom: 14,
   },
-  parcelLabel: {
+  detailsLabel: {
     fontSize: 10,
     fontWeight: '800',
     color: colors.textSecondary,
     letterSpacing: 0.7,
     marginBottom: 8,
   },
-  parcelInput: {
-    height: 44,
+  directionRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  directionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.elevated,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  directionBtnActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  directionTitle: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  directionTitleActive: {
+    color: '#FFFFFF',
+  },
+  directionPrice: {
+    color: colors.textSecondary,
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  directionPriceActive: {
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  textInput: {
+    height: 46,
     borderRadius: 12,
     backgroundColor: colors.elevated,
     borderWidth: 1,

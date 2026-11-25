@@ -12,11 +12,14 @@ import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
     const {
       pickup = 'M\'Saken Centre, Avenue Habib Bourguiba',
       destination = 'Messaadine Centre',
-      serviceName = 'Se déplacer (Scooter 1 passager)',
-      fare = '4500',
-      duration = '12',
-      distanceKm: distanceKmParam = '4.8',
+      serviceName = 'Se déplacer · Aller simple',
+      fare = '2500',
+      duration = '10',
+      distanceKm: distanceKmParam = '3.5',
       tripMode = 'ride',
+      tripDirection = 'one_way',
+      rideNote = '',
+      recipientPhone = '',
       parcelNote = '',
       pickupLat,
       pickupLng,
@@ -30,6 +33,9 @@ import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
       duration?: string;
       distanceKm?: string;
       tripMode?: string;
+      tripDirection?: string;
+      rideNote?: string;
+      recipientPhone?: string;
       parcelNote?: string;
       pickupLat?: string;
       pickupLng?: string;
@@ -37,13 +43,13 @@ import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
       destinationLng?: string;
     }>();
 
-    const fareMillimes = parseInt(fare, 10) || 4500;
-    const durationMinutes = parseInt(duration, 10) || 12;
-    const distanceKm = parseFloat(distanceKmParam) || 4.8;
+    const fareMillimes = parseInt(fare, 10) || 2500;
+    const durationMinutes = parseInt(duration, 10) || 10;
+    const distanceKm = parseFloat(distanceKmParam) || 3.5;
     const isParcel = tripMode === 'parcel';
     const effectiveDestination = isParcel
-      ? `[COLIS] ${destination}${parcelNote ? ` (${parcelNote})` : ''}`
-      : destination;
+      ? `[COLIS] ${destination}${recipientPhone ? ` · Tél: ${recipientPhone}` : ''}${parcelNote ? ` (${parcelNote})` : ''}`
+      : `${tripDirection === 'round_trip' ? '[ALLER-RETOUR] ' : ''}${destination}${rideNote ? ` (${rideNote})` : ''}`;
     const latitude = Number(pickupLat);
     const longitude = Number(pickupLng);
     const pickupLocation = Number.isFinite(latitude) && Number.isFinite(longitude)
