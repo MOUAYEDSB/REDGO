@@ -20,8 +20,11 @@ import { DriverMissionMap } from './DriverMissionMap';
 import {
   acceptDriverMission,
   callCustomer,
+  DriverOrderFeeBreakdown,
   DriverOrderItem,
+  estimateOpenMissionDriverFeeMillimes,
   fetchDriverEarningsSummary,
+  fetchMissionFeeBreakdown,
   fetchMissionLocationDetails,
   fetchMissionOrderItems,
   finalizeMissionAndRecord,
@@ -88,6 +91,7 @@ export default function DriverAppView({
   const [missionItems, setMissionItems] = useState<DriverOrderItem[]>([]);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
   const [missionLocations, setMissionLocations] = useState<MissionLocationDetails | null>(null);
+  const [feeBreakdown, setFeeBreakdown] = useState<DriverOrderFeeBreakdown | null>(null);
   const [liveClock, setLiveClock] = useState(() => formatClockHHMM());
   const [activeElapsedSec, setActiveElapsedSec] = useState(0);
   const [expandedOpenMapId, setExpandedOpenMapId] = useState<string | null>(null);
@@ -107,17 +111,29 @@ export default function DriverAppView({
     setActiveElapsedSec(0);
   }, [activeMission?.mission_id]);
 
-  // Charger les articles et coordonnées réelles dès qu'une mission est active
+  // Charger les articles, coordonnées et répartition des parts dès qu'une mission est active
   useEffect(() => {
     if (!activeMission) {
       setMissionItems([]);
       setMissionLocations(null);
+      setFeeBreakdown(null);
       return;
     }
     if (activeMission.target_id) {
       setIsLoadingItems(true);
       fetchMissionOrderItems(activeMission.target_id)
-        .then(setMissionItems)
+        .then((items) => {
+          setMissionItems(items);
+          const uniqueBusinesses = new Set(items.map((i) => i.businessName).filter(Boolean)).size || 1;
+          if (activeMission.mission_type === 'delivery') {
+            return fetchMissionFeeBreakdown(
+              activeMission.target_id,
+              activeMission.amount_millimes,
+              uniqueBusinesses
+            ).then(setFeeBreakdown);
+          }
+          setFeeBreakdown(null);
+        })
         .catch(() => setMissionItems([]))
         .finally(() => setIsLoadingItems(false));
 
@@ -127,728 +143,756 @@ export default function DriverAppView({
     } else {
       setMissionItems([]);
       setMissionLocations(null);
+      setFeeBreakdown(null);
     }
-  }, [activeMission?.target_id, activeMission?.mission_type]);
+}, [activeMission?.target_id, activeMission?.mission_type, activeMission?.amount_millimes]);
 
-  const { user, profile: authProfile, signOut } = useRedgoAuth();
-  const name = authProfile?.full_name || (user?.user_metadata?.full_name as string) || 'Chauffeur REDGO';
-  const phone = authProfile?.phone || user?.phone || '+216 98 000 000';
+const { user, profile: authProfile, signOut } = useRedgoAuth();
+const name = authProfile?.full_name || (user?.user_metadata?.full_name as string) || 'Chauffeur REDGO';
+const phone = authProfile?.phone || user?.phone || '+216 98 000 000';
 
-  const refresh = useCallback(async () => {
-    if (isPreview || !userId) {
-      const summary = await fetchDriverEarningsSummary();
-      setTodayEarnings(summary);
+const refresh = useCallback(async () => {
+  if (isPreview || !userId) {
+    const summary = await fetchDriverEarningsSummary();
+    setTodayEarnings(summary);
+    setOpenMissions([]);
+    return;
+  }
+  setError(null);
+  setIsLoadingMissions(true);
+  try {
+    const [nextProfile, nextActive, earningsSummary] = await Promise.all([
+      getDriverProfile(userId).catch(() => null),
+      getMyActiveDriverMission().catch(() => null),
+      fetchDriverEarningsSummary(userId).catch(() => null),
+    ]);
+
+    if (nextProfile) setProfile(nextProfile);
+    setActiveMission(nextActive);
+    if (earningsSummary) setTodayEarnings(earningsSummary);
+
+    const isOnline = nextProfile ? nextProfile.is_online : true;
+    if (isOnline && !nextActive) {
+      const nextOpen = await listOpenDriverMissions();
+      setOpenMissions(nextOpen);
+    } else {
       setOpenMissions([]);
-      return;
     }
-    setError(null);
-    setIsLoadingMissions(true);
-    try {
-      const [nextProfile, nextActive, earningsSummary] = await Promise.all([
-        getDriverProfile(userId).catch(() => null),
-        getMyActiveDriverMission().catch(() => null),
-        fetchDriverEarningsSummary(userId).catch(() => null),
-      ]);
+  } catch (cause) {
+    setError(errorMessage(cause));
+    setOpenMissions([]);
+  } finally {
+    setIsLoadingMissions(false);
+    setIsRefreshing(false);
+  }
+}, [isPreview, userId]);
 
-      if (nextProfile) setProfile(nextProfile);
-      setActiveMission(nextActive);
-      if (earningsSummary) setTodayEarnings(earningsSummary);
-
-      const isOnline = nextProfile ? nextProfile.is_online : true;
-      if (isOnline && !nextActive) {
-        const nextOpen = await listOpenDriverMissions();
-        setOpenMissions(nextOpen);
-      } else {
-        setOpenMissions([]);
-      }
-    } catch (cause) {
-      setError(errorMessage(cause));
-      setOpenMissions([]);
-    } finally {
-      setIsLoadingMissions(false);
-      setIsRefreshing(false);
-    }
-  }, [isPreview, userId]);
-
-  useFocusEffect(
-    useCallback(() => {
-      void refresh();
-      // Écoute des mises à jour dynamiques
-      const unsubscribe = subscribeDriverUpdates(() => {
-        void refresh();
-      });
-      return () => unsubscribe();
-    }, [refresh]),
-  );
-
-  const onPullRefresh = useCallback(() => {
-    setIsRefreshing(true);
+useFocusEffect(
+  useCallback(() => {
     void refresh();
-  }, [refresh]);
+    // Écoute des mises à jour dynamiques
+    const unsubscribe = subscribeDriverUpdates(() => {
+      void refresh();
+    });
+    return () => unsubscribe();
+  }, [refresh]),
+);
 
-  const perform = async (action: () => Promise<void>) => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    setError(null);
-    try {
-      await action();
-      await refresh();
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setIsSubmitting(false);
+const onPullRefresh = useCallback(() => {
+  setIsRefreshing(true);
+  void refresh();
+}, [refresh]);
+
+const perform = async (action: () => Promise<void>) => {
+  if (isSubmitting) return;
+  setIsSubmitting(true);
+  setError(null);
+  try {
+    await action();
+    await refresh();
+  } catch (cause) {
+    setError(errorMessage(cause));
+  } finally {
+    setIsSubmitting(false);
+  }
+};
+
+const toggleOnline = async () => {
+  if (!profile || isSubmitting) return;
+  setIsSubmitting(true);
+  setError(null);
+  try {
+    const updated = await setDriverOnline(profile.user_id, !profile.is_online);
+    setProfile(updated);
+    setNotice(updated.is_online ? 'Vous êtes maintenant EN LIGNE. Les missions s’affichent en direct.' : 'Vous êtes HORS LIGNE.');
+    setTimeout(() => setNotice(null), 3500);
+
+    if (updated.is_online && !activeMission) {
+      const missions = await listOpenDriverMissions();
+      setOpenMissions(missions);
+    } else {
+      setOpenMissions([]);
     }
-  };
+  } catch (cause) {
+    setError(errorMessage(cause));
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
-  const toggleOnline = async () => {
-    if (!profile || isSubmitting) return;
-    setIsSubmitting(true);
-    setError(null);
-    try {
-      const updated = await setDriverOnline(profile.user_id, !profile.is_online);
-      setProfile(updated);
-      setNotice(updated.is_online ? 'Vous êtes maintenant EN LIGNE. Les missions s’affichent en direct.' : 'Vous êtes HORS LIGNE.');
-      setTimeout(() => setNotice(null), 3500);
+const isOnline = profile?.is_online ?? true;
 
-      if (updated.is_online && !activeMission) {
-        const missions = await listOpenDriverMissions();
-        setOpenMissions(missions);
-      } else {
-        setOpenMissions([]);
-      }
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setIsSubmitting(false);
+const performActiveMissionStep = () => {
+  if (!activeMission) return;
+  if (activeMission.mission_status === 'assigned') {
+    void perform(() => updateDriverMissionStatus(activeMission.mission_id, 'accepted'));
+  } else if (activeMission.mission_status === 'accepted') {
+    void perform(() => updateDriverMissionStatus(activeMission.mission_id, 'in_progress'));
+  } else if (activeMission.mission_status === 'in_progress') {
+    if (isReady) {
+      void handleDirectCashComplete();
+    } else {
+      void perform(() => markMissionReadyForCash(activeMission.mission_id));
     }
-  };
+  }
+};
 
-  const isOnline = profile?.is_online ?? true;
+// Clôture dynamique directe de la mission
+const handleDirectCashComplete = async () => {
+  if (!activeMission || isSubmitting) return;
+  setIsSubmitting(true);
+  setError(null);
+  try {
+    const completed = await finalizeMissionAndRecord(activeMission);
+    setNotice(`Mission ${completed.reference} clôturée ! +${formatMillimes(completed.driverEarningsMillimes)} ajoutés à vos gains.`);
+    setTimeout(() => setNotice(null), 4000);
+    setActiveMission(null);
+    await refresh();
+  } catch (cause) {
+    setError(errorMessage(cause));
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
-  const performActiveMissionStep = () => {
-    if (!activeMission) return;
-    if (activeMission.mission_status === 'assigned') {
-      void perform(() => updateDriverMissionStatus(activeMission.mission_id, 'accepted'));
-    } else if (activeMission.mission_status === 'accepted') {
-      void perform(() => updateDriverMissionStatus(activeMission.mission_id, 'in_progress'));
-    } else if (activeMission.mission_status === 'in_progress') {
-      if (isReady) {
-        void handleDirectCashComplete();
-      } else {
-        void perform(() => markMissionReadyForCash(activeMission.mission_id));
-      }
+const isReady = activeMission ? isReadyForCash(activeMission) : false;
+
+return (
+  <ScrollView
+    style={styles.screen}
+    contentContainerStyle={[
+      styles.content,
+      {
+        paddingTop: Math.max(insets.top, 16),
+        paddingBottom: Math.max(insets.bottom, 24) + 60,
+      },
+    ]}
+    refreshControl={
+      <RefreshControl
+        refreshing={isRefreshing}
+        onRefresh={onPullRefresh}
+        tintColor={colors.primary}
+        colors={[colors.primary]}
+      />
     }
-  };
-
-  // Clôture dynamique directe de la mission
-  const handleDirectCashComplete = async () => {
-    if (!activeMission || isSubmitting) return;
-    setIsSubmitting(true);
-    setError(null);
-    try {
-      const completed = await finalizeMissionAndRecord(activeMission);
-      setNotice(`Mission ${completed.reference} clôturée ! +${formatMillimes(completed.driverEarningsMillimes)} ajoutés à vos gains.`);
-      setTimeout(() => setNotice(null), 4000);
-      setActiveMission(null);
-      await refresh();
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const isReady = activeMission ? isReadyForCash(activeMission) : false;
-
-  return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={[
-        styles.content,
-        {
-          paddingTop: Math.max(insets.top, 16),
-          paddingBottom: Math.max(insets.bottom, 24) + 60,
-        },
-      ]}
-      refreshControl={
-        <RefreshControl
-          refreshing={isRefreshing}
-          onRefresh={onPullRefresh}
-          tintColor={colors.primary}
-          colors={[colors.primary]}
+  >
+    {/* Header Chauffeur */}
+    <View style={styles.header}>
+      <View style={styles.identity}>
+        <Image
+          source={require('../assets/logo.png')}
+          style={styles.logoImage}
+          contentFit="contain"
         />
-      }
-    >
-      {/* Header Chauffeur */}
-      <View style={styles.header}>
-        <View style={styles.identity}>
-          <Image
-            source={require('../assets/logo.png')}
-            style={styles.logoImage}
-            contentFit="contain"
-          />
-          <View>
-            <View style={styles.brandRow}>
-              <Text style={styles.brandTitle}>REDGO</Text>
-              <View style={styles.driverBadge}>
-                <Text style={styles.driverBadgeText}>CHAUFFEUR</Text>
-              </View>
+        <View>
+          <View style={styles.brandRow}>
+            <Text style={styles.brandTitle}>REDGO</Text>
+            <View style={styles.driverBadge}>
+              <Text style={styles.driverBadgeText}>CHAUFFEUR</Text>
             </View>
-            <Text style={styles.driverName}>
-              Bonjour, {name.split(' ')[0]} · {liveClock}
-            </Text>
           </View>
-        </View>
-
-        <View style={styles.headerActions}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Actualiser"
-            onPress={() => void refresh()}
-            style={styles.actionBtn}
-          >
-            <Ionicons name="refresh" size={19} color={colors.text} />
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.push('/driver/profile')}
-            style={styles.avatarBtn}
-          >
-            <Text style={styles.avatarText}>{name.slice(0, 1).toUpperCase()}</Text>
-          </Pressable>
+          <Text style={styles.driverName}>
+            Bonjour, {name.split(' ')[0]} · {liveClock}
+          </Text>
         </View>
       </View>
 
-      {/* Barre statut EN LIGNE / HORS LIGNE interactive */}
-      <View style={[styles.statusBanner, isOnline ? styles.statusBannerOnline : styles.statusBannerOffline]}>
-        <View style={styles.statusLeft}>
-          <View style={[styles.statusDot, isOnline ? styles.statusDotOnline : styles.statusDotOffline]} />
-          <View>
-            <Text style={styles.statusTitle}>
-              {isOnline ? 'VOUS ÊTES EN LIGNE' : 'VOUS ÊTES HORS LIGNE'}
-            </Text>
-            <Text style={styles.statusSubtitle}>
-              {isOnline
-                ? 'Prêt à recevoir des courses et livraisons à M\'Saken'
-                : 'Passez en ligne pour recevoir des missions'}
-            </Text>
-          </View>
-        </View>
-
+      <View style={styles.headerActions}>
         <Pressable
-          accessibilityRole="switch"
-          disabled={isSubmitting}
-          onPress={() => void toggleOnline()}
-          style={[styles.switchToggleBtn, isOnline ? styles.switchToggleOnline : styles.switchToggleOffline]}
+          accessibilityRole="button"
+          accessibilityLabel="Actualiser"
+          onPress={() => void refresh()}
+          style={styles.actionBtn}
         >
-          {isSubmitting ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Text style={styles.switchToggleText}>{isOnline ? 'Pause' : 'Activer'}</Text>
-          )}
+          <Ionicons name="refresh" size={19} color={colors.text} />
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push('/driver/profile')}
+          style={styles.avatarBtn}
+        >
+          <Text style={styles.avatarText}>{name.slice(0, 1).toUpperCase()}</Text>
         </Pressable>
       </View>
+    </View>
 
-      {/* Notifications et alertes */}
-      {notice ? (
-        <View style={styles.noticeBanner}>
-          <Ionicons name="checkmark-circle" size={18} color="#34D399" />
-          <Text style={styles.noticeBannerText}>{notice}</Text>
-        </View>
-      ) : null}
-
-      {sessionError || error ? (
-        <View style={styles.errorBanner}>
-          <Ionicons name="alert-circle" size={18} color="#F87171" />
-          <Text style={styles.errorBannerText}>{sessionError || error}</Text>
-        </View>
-      ) : null}
-
-      {/* Statistiques dynamiques du jour (mise à jour en temps réel) */}
-      <View style={styles.metricsRow}>
-        <View style={styles.metricCard}>
-          <View style={styles.metricIconWrap}>
-            <Ionicons name="wallet-outline" size={18} color="#34D399" />
-          </View>
-          <Text style={styles.metricLabel}>Gains aujourd’hui</Text>
-          <Text style={styles.metricValue}>{formatMillimes(todayEarnings.todayMillimes)}</Text>
-        </View>
-
-        <View style={styles.metricCard}>
-          <View style={styles.metricIconWrap}>
-            <Ionicons name="bicycle-outline" size={18} color={colors.primary} />
-          </View>
-          <Text style={styles.metricLabel}>Missions du jour</Text>
-          <Text style={styles.metricValue}>{todayEarnings.todayCount} courses</Text>
-        </View>
-
-        <View style={styles.metricCard}>
-          <View style={styles.metricIconWrap}>
-            <Ionicons name="star" size={18} color="#FBBF24" />
-          </View>
-          <Text style={styles.metricLabel}>Note chauffeur</Text>
-          <Text style={styles.metricValue}>{todayEarnings.rating} ★</Text>
+    {/* Barre statut EN LIGNE / HORS LIGNE interactive */}
+    <View style={[styles.statusBanner, isOnline ? styles.statusBannerOnline : styles.statusBannerOffline]}>
+      <View style={styles.statusLeft}>
+        <View style={[styles.statusDot, isOnline ? styles.statusDotOnline : styles.statusDotOffline]} />
+        <View>
+          <Text style={styles.statusTitle}>
+            {isOnline ? 'VOUS ÊTES EN LIGNE' : 'VOUS ÊTES HORS LIGNE'}
+          </Text>
+          <Text style={styles.statusSubtitle}>
+            {isOnline
+              ? 'Prêt à recevoir des courses et livraisons à M\'Saken'
+              : 'Passez en ligne pour recevoir des missions'}
+          </Text>
         </View>
       </View>
 
-      {/* Mission en cours (avec CARTE INTERACTIVE et tracé direct) */}
-      {activeMission ? (
-        <View style={styles.activeCard}>
-          <View style={styles.activeCardHeader}>
-            <View style={styles.activePulse}>
-              <View style={styles.pulseInner} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.activeHeaderBadge}>MISSION EN COURS</Text>
-              <Text style={styles.activeRef}>{activeMission.reference}</Text>
-            </View>
-            <View style={styles.timerPill}>
-              <Ionicons name="time-outline" size={12} color="#34D399" />
-              <Text style={styles.timerPillText}>{formatElapsedMMSS(activeElapsedSec)}</Text>
-            </View>
-            <View style={styles.typeBadge}>
-              <Text style={styles.typeBadgeText}>
-                {activeMission.mission_type === 'delivery' ? 'FOOD/COURSES' : 'SCOOTER TAXI'}
-              </Text>
-            </View>
+      <Pressable
+        accessibilityRole="switch"
+        disabled={isSubmitting}
+        onPress={() => void toggleOnline()}
+        style={[styles.switchToggleBtn, isOnline ? styles.switchToggleOnline : styles.switchToggleOffline]}
+      >
+        {isSubmitting ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <Text style={styles.switchToggleText}>{isOnline ? 'Pause' : 'Activer'}</Text>
+        )}
+      </Pressable>
+    </View>
+
+    {/* Notifications et alertes */}
+    {notice ? (
+      <View style={styles.noticeBanner}>
+        <Ionicons name="checkmark-circle" size={18} color="#34D399" />
+        <Text style={styles.noticeBannerText}>{notice}</Text>
+      </View>
+    ) : null}
+
+    {sessionError || error ? (
+      <View style={styles.errorBanner}>
+        <Ionicons name="alert-circle" size={18} color="#F87171" />
+        <Text style={styles.errorBannerText}>{sessionError || error}</Text>
+      </View>
+    ) : null}
+
+    {/* Statistiques dynamiques du jour (mise à jour en temps réel) */}
+    <View style={styles.metricsRow}>
+      <View style={styles.metricCard}>
+        <View style={styles.metricIconWrap}>
+          <Ionicons name="wallet-outline" size={18} color="#34D399" />
+        </View>
+        <Text style={styles.metricLabel}>Gains aujourd’hui</Text>
+        <Text style={styles.metricValue}>{formatMillimes(todayEarnings.todayMillimes)}</Text>
+      </View>
+
+      <View style={styles.metricCard}>
+        <View style={styles.metricIconWrap}>
+          <Ionicons name="bicycle-outline" size={18} color={colors.primary} />
+        </View>
+        <Text style={styles.metricLabel}>Missions du jour</Text>
+        <Text style={styles.metricValue}>{todayEarnings.todayCount} courses</Text>
+      </View>
+
+      <View style={styles.metricCard}>
+        <View style={styles.metricIconWrap}>
+          <Ionicons name="star" size={18} color="#FBBF24" />
+        </View>
+        <Text style={styles.metricLabel}>Note chauffeur</Text>
+        <Text style={styles.metricValue}>{todayEarnings.rating} ★</Text>
+      </View>
+    </View>
+
+    {/* Mission en cours (avec CARTE INTERACTIVE et tracé direct) */}
+    {activeMission ? (
+      <View style={styles.activeCard}>
+        <View style={styles.activeCardHeader}>
+          <View style={styles.activePulse}>
+            <View style={styles.pulseInner} />
           </View>
-
-          {/* CARTE INTERACTIVE DE LA MISSION (Guidage 100% In-App sur la carte REDGO) */}
-          <DriverMissionMap
-            pickupAddress={activeMission.pickup_address}
-            destinationAddress={activeMission.destination_address}
-            pickupCoords={missionLocations?.pickupCoords}
-            destinationCoords={missionLocations?.destinationCoords}
-            restaurantName={missionLocations?.restaurantName}
-            businessId={missionLocations?.businessId}
-            orderId={activeMission.target_id}
-            driverId={userId}
-            height={320}
-            showExpandButton
-            activeStep={
-              activeMission.mission_status === 'assigned' || activeMission.mission_status === 'accepted'
-                ? 'pickup'
-                : 'delivery'
-            }
-          />
-
-          {/* Stepper de progression */}
-          <View style={styles.stepperContainer}>
-            <View style={styles.stepItem}>
-              <View style={[styles.stepCircle, styles.stepCircleDone]}>
-                <Ionicons name="checkmark" size={14} color="#fff" />
-              </View>
-              <Text style={styles.stepLabelActive}>Accepté</Text>
-            </View>
-            <View style={styles.stepLineActive} />
-            <View style={styles.stepItem}>
-              <View style={[styles.stepCircle, activeMission.mission_status === 'in_progress' || isReady ? styles.stepCircleDone : styles.stepCircleCurrent]}>
-                <Ionicons name={activeMission.mission_status === 'in_progress' || isReady ? "checkmark" : "arrow-forward"} size={14} color="#fff" />
-              </View>
-              <Text style={styles.stepLabelActive}>Retrait</Text>
-            </View>
-            <View style={activeMission.mission_status === 'in_progress' || isReady ? styles.stepLineActive : styles.stepLineInactive} />
-            <View style={styles.stepItem}>
-              <View style={[styles.stepCircle, isReady ? styles.stepCircleDone : (activeMission.mission_status === 'in_progress' ? styles.stepCircleCurrent : styles.stepCircleInactive)]}>
-                <Ionicons name={isReady ? "checkmark" : "flag-outline"} size={14} color={isReady || activeMission.mission_status === 'in_progress' ? '#fff' : '#71717A'} />
-              </View>
-              <Text style={isReady || activeMission.mission_status === 'in_progress' ? styles.stepLabelActive : styles.stepLabelInactive}>Livraison</Text>
-            </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.activeHeaderBadge}>MISSION EN COURS</Text>
+            <Text style={styles.activeRef}>{activeMission.reference}</Text>
           </View>
+          <View style={styles.timerPill}>
+            <Ionicons name="time-outline" size={12} color="#34D399" />
+            <Text style={styles.timerPillText}>{formatElapsedMMSS(activeElapsedSec)}</Text>
+          </View>
+          <View style={styles.typeBadge}>
+            <Text style={styles.typeBadgeText}>
+              {activeMission.mission_type === 'delivery' ? 'FOOD/COURSES' : 'SCOOTER TAXI'}
+            </Text>
+          </View>
+        </View>
 
-          {/* Adresses Départ / Arrivée */}
-          <View style={styles.addressesWrap}>
-            {activeMission.pickup_address ? (
-              <View style={styles.addressBlock}>
-                <View style={styles.addressIconWrapStart}>
-                  <Ionicons name="storefront" size={16} color="#34D399" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.addressRoleLabel}>
-                    {missionLocations?.restaurantName
-                      ? `POINT DE RETRAIT · ${missionLocations.restaurantName.toUpperCase()}`
-                      : 'POINT DE RETRAIT (COMMERCE)'}
-                  </Text>
-                  <Text style={styles.addressValueText}>{activeMission.pickup_address}</Text>
-                </View>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Naviguer vers point de retrait"
-                  onPress={() => void openGoogleMapsTurnByTurn(activeMission.pickup_address, missionLocations?.pickupCoords?.latitude, missionLocations?.pickupCoords?.longitude)}
-                  style={styles.addressGpsBtnGreen}
-                >
-                  <Ionicons name="navigate" size={13} color="#10B981" />
-                  <Text style={styles.addressGpsBtnTextGreen}>GPS</Text>
-                </Pressable>
-              </View>
-            ) : null}
+        {/* CARTE INTERACTIVE DE LA MISSION (Guidage 100% In-App sur la carte REDGO) */}
+        <DriverMissionMap
+          pickupAddress={activeMission.pickup_address}
+          destinationAddress={activeMission.destination_address}
+          pickupCoords={missionLocations?.pickupCoords}
+          destinationCoords={missionLocations?.destinationCoords}
+          restaurantName={missionLocations?.restaurantName}
+          businessId={missionLocations?.businessId}
+          orderId={activeMission.target_id}
+          driverId={userId}
+          height={320}
+          showExpandButton
+          activeStep={
+            activeMission.mission_status === 'assigned' || activeMission.mission_status === 'accepted'
+              ? 'pickup'
+              : 'delivery'
+          }
+        />
 
+        {/* Stepper de progression */}
+        <View style={styles.stepperContainer}>
+          <View style={styles.stepItem}>
+            <View style={[styles.stepCircle, styles.stepCircleDone]}>
+              <Ionicons name="checkmark" size={14} color="#fff" />
+            </View>
+            <Text style={styles.stepLabelActive}>Accepté</Text>
+          </View>
+          <View style={styles.stepLineActive} />
+          <View style={styles.stepItem}>
+            <View style={[styles.stepCircle, activeMission.mission_status === 'in_progress' || isReady ? styles.stepCircleDone : styles.stepCircleCurrent]}>
+              <Ionicons name={activeMission.mission_status === 'in_progress' || isReady ? "checkmark" : "arrow-forward"} size={14} color="#fff" />
+            </View>
+            <Text style={styles.stepLabelActive}>Retrait</Text>
+          </View>
+          <View style={activeMission.mission_status === 'in_progress' || isReady ? styles.stepLineActive : styles.stepLineInactive} />
+          <View style={styles.stepItem}>
+            <View style={[styles.stepCircle, isReady ? styles.stepCircleDone : (activeMission.mission_status === 'in_progress' ? styles.stepCircleCurrent : styles.stepCircleInactive)]}>
+              <Ionicons name={isReady ? "checkmark" : "flag-outline"} size={14} color={isReady || activeMission.mission_status === 'in_progress' ? '#fff' : '#71717A'} />
+            </View>
+            <Text style={isReady || activeMission.mission_status === 'in_progress' ? styles.stepLabelActive : styles.stepLabelInactive}>Livraison</Text>
+          </View>
+        </View>
+
+        {/* Adresses Départ / Arrivée */}
+        <View style={styles.addressesWrap}>
+          {activeMission.pickup_address ? (
             <View style={styles.addressBlock}>
-              <View style={styles.addressIconWrapEnd}>
-                <Ionicons name="flag" size={16} color={colors.primary} />
+              <View style={styles.addressIconWrapStart}>
+                <Ionicons name="storefront" size={16} color="#34D399" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.addressRoleLabel}>DESTINATION (CLIENT)</Text>
-                <Text style={styles.addressValueText}>{activeMission.destination_address}</Text>
+                <Text style={styles.addressRoleLabel}>
+                  {missionLocations?.restaurantName
+                    ? `POINT DE RETRAIT · ${missionLocations.restaurantName.toUpperCase()}`
+                    : 'POINT DE RETRAIT (COMMERCE)'}
+                </Text>
+                <Text style={styles.addressValueText}>{activeMission.pickup_address}</Text>
               </View>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Naviguer vers client"
-                onPress={() => void openGoogleMapsTurnByTurn(activeMission.destination_address, missionLocations?.destinationCoords?.latitude, missionLocations?.destinationCoords?.longitude)}
-                style={styles.addressGpsBtnRed}
+                accessibilityLabel="Naviguer vers point de retrait"
+                onPress={() => void openGoogleMapsTurnByTurn(activeMission.pickup_address, missionLocations?.pickupCoords?.latitude, missionLocations?.pickupCoords?.longitude)}
+                style={styles.addressGpsBtnGreen}
               >
-                <Ionicons name="navigate" size={13} color={colors.primary} />
-                <Text style={styles.addressGpsBtnTextRed}>GPS</Text>
+                <Ionicons name="navigate" size={13} color="#10B981" />
+                <Text style={styles.addressGpsBtnTextGreen}>GPS</Text>
               </Pressable>
             </View>
-          </View>
+          ) : null}
 
-          {/* LISTE DÉTAILLÉE DES ARTICLES RÉELS DU CLIENT AVEC PHOTOS */}
-          {activeMission.mission_type === 'delivery' ? (
-            <View style={styles.orderItemsBox}>
-              <View style={styles.orderItemsHeader}>
-                <View style={styles.orderItemsHeaderLeft}>
-                  <Ionicons name="basket" size={17} color={colors.primary} />
-                  <Text style={styles.orderItemsTitle}>
-                    Articles de la commande ({missionItems.length > 0 ? missionItems.length : '1'})
-                  </Text>
-                </View>
-                <View style={styles.verifyBadge}>
-                  <Ionicons name="checkbox-outline" size={13} color="#10B981" />
-                  <Text style={styles.verifyBadgeText}>À vérifier au retrait</Text>
-                </View>
-              </View>
-
-              {isLoadingItems ? (
-                <View style={{ paddingVertical: 14, alignItems: 'center' }}>
-                  <ActivityIndicator size="small" color={colors.primary} />
-                </View>
-              ) : missionItems.length > 0 ? (
-                <View style={styles.orderItemsList}>
-                  {missionItems.map((item, idx) => (
-                    <View key={item.id || idx} style={styles.orderItemRow}>
-                      {item.imageUrl ? (
-                        <Image
-                          source={{ uri: item.imageUrl }}
-                          style={styles.itemThumb}
-                          contentFit="cover"
-                          transition={200}
-                        />
-                      ) : (
-                        <View style={styles.itemThumbPlaceholder}>
-                          <Ionicons name="fast-food-outline" size={20} color="#71717A" />
-                        </View>
-                      )}
-                      <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <View style={styles.itemQtyBadge}>
-                            <Text style={styles.itemQtyText}>{item.quantity}x</Text>
-                          </View>
-                          <Text style={styles.itemProductName} numberOfLines={1}>{item.productName}</Text>
-                        </View>
-                        <Text style={styles.itemBusinessName}>{item.businessName}</Text>
-                        {item.selectedOptions && item.selectedOptions.length > 0 ? (
-                          <View style={styles.itemOptionsWrap}>
-                            {item.selectedOptions.map((opt: any, oIdx: number) => {
-                              const label = typeof opt === 'string' ? opt : opt?.name || '';
-                              return label ? (
-                                <Text key={oIdx} style={styles.itemOptionBadge}>
-                                  + {label}
-                                </Text>
-                              ) : null;
-                            })}
-                          </View>
-                        ) : null}
-                        {item.notes ? (
-                          <Text style={styles.itemNotesText}>Note client : {item.notes}</Text>
-                        ) : null}
-                      </View>
-                      <Text style={styles.itemPriceText}>
-                        {formatMillimes(item.unitPriceMillimes * item.quantity)}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              ) : (
-                <View style={styles.orderItemsFallback}>
-                  <Ionicons name="receipt-outline" size={18} color="#9CA3AF" />
-                  <Text style={styles.orderItemsFallbackText}>
-                    1 commande express à récupérer au commerce partenaire
-                  </Text>
-                </View>
-              )}
+          <View style={styles.addressBlock}>
+            <View style={styles.addressIconWrapEnd}>
+              <Ionicons name="flag" size={16} color={colors.primary} />
             </View>
-          ) : (
-            <View style={styles.scooterMissionInfoBox}>
-              <Ionicons name="shield-checkmark" size={17} color="#60A5FA" />
-              <Text style={styles.scooterMissionInfoText}>
-                Course Scooter Taxi REDGO · 1 passager · Prévoir le casque de sécurité
-              </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.addressRoleLabel}>DESTINATION (CLIENT)</Text>
+              <Text style={styles.addressValueText}>{activeMission.destination_address}</Text>
             </View>
-          )}
-
-          {/* Contact client & Montant à encaisser */}
-          <View style={styles.activeFooter}>
-            <View>
-              <Text style={styles.amountPrompt}>À ENCAISSER EN ESPÈCES</Text>
-              <Text style={styles.amountBig}>{formatMillimes(activeMission.amount_millimes)}</Text>
-            </View>
-
             <Pressable
-              onPress={() => callCustomer(phone)}
-              style={styles.callClientBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Naviguer vers client"
+              onPress={() => void openGoogleMapsTurnByTurn(activeMission.destination_address, missionLocations?.destinationCoords?.latitude, missionLocations?.destinationCoords?.longitude)}
+              style={styles.addressGpsBtnRed}
             >
-              <Ionicons name="call" size={16} color="#fff" />
-              <Text style={styles.callClientBtnText}>Appeler client</Text>
+              <Ionicons name="navigate" size={13} color={colors.primary} />
+              <Text style={styles.addressGpsBtnTextRed}>GPS</Text>
             </Pressable>
           </View>
+        </View>
 
-          {/* Actions séquentielle et clôture de mission */}
-          {isReady ? (
-            <View style={{ gap: 10 }}>
-              <Pressable
-                accessibilityRole="button"
-                disabled={isSubmitting}
-                onPress={() => void handleDirectCashComplete()}
-                style={[styles.mainStepBtn, { backgroundColor: '#10B981' }]}
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <>
-                    <Ionicons name="cash" size={20} color="#fff" />
-                    <Text style={styles.mainStepBtnText}>Confirmer encaissement espèces</Text>
-                  </>
-                )}
-              </Pressable>
-
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => router.push('/driver/cash-payment')}
-                style={styles.scanSecondaryBtn}
-              >
-                <Ionicons name="qr-code-outline" size={18} color="#fff" />
-                <Text style={styles.scanSecondaryBtnText}>Scanner le QR code du client</Text>
-              </Pressable>
+        {/* LISTE DÉTAILLÉE DES ARTICLES RÉELS DU CLIENT AVEC PHOTOS */}
+        {activeMission.mission_type === 'delivery' ? (
+          <View style={styles.orderItemsBox}>
+            <View style={styles.orderItemsHeader}>
+              <View style={styles.orderItemsHeaderLeft}>
+                <Ionicons name="basket" size={17} color={colors.primary} />
+                <Text style={styles.orderItemsTitle}>
+                  Articles de la commande ({missionItems.length > 0 ? missionItems.length : '1'})
+                </Text>
+              </View>
+              <View style={styles.verifyBadge}>
+                <Ionicons name="checkbox-outline" size={13} color="#10B981" />
+                <Text style={styles.verifyBadgeText}>À vérifier au retrait</Text>
+              </View>
             </View>
-          ) : (
+
+            {isLoadingItems ? (
+              <View style={{ paddingVertical: 14, alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={colors.primary} />
+              </View>
+            ) : missionItems.length > 0 ? (
+              <View style={styles.orderItemsList}>
+                {missionItems.map((item, idx) => (
+                  <View key={item.id || idx} style={styles.orderItemRow}>
+                    {item.imageUrl ? (
+                      <Image
+                        source={{ uri: item.imageUrl }}
+                        style={styles.itemThumb}
+                        contentFit="cover"
+                        transition={200}
+                      />
+                    ) : (
+                      <View style={styles.itemThumbPlaceholder}>
+                        <Ionicons name="fast-food-outline" size={20} color="#71717A" />
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <View style={styles.itemQtyBadge}>
+                          <Text style={styles.itemQtyText}>{item.quantity}x</Text>
+                        </View>
+                        <Text style={styles.itemProductName} numberOfLines={1}>{item.productName}</Text>
+                      </View>
+                      <Text style={styles.itemBusinessName}>{item.businessName}</Text>
+                      {item.selectedOptions && item.selectedOptions.length > 0 ? (
+                        <View style={styles.itemOptionsWrap}>
+                          {item.selectedOptions.map((opt: any, oIdx: number) => {
+                            const label = typeof opt === 'string' ? opt : opt?.name || '';
+                            return label ? (
+                              <Text key={oIdx} style={styles.itemOptionBadge}>
+                                + {label}
+                              </Text>
+                            ) : null;
+                          })}
+                        </View>
+                      ) : null}
+                      {item.notes ? (
+                        <Text style={styles.itemNotesText}>Note client : {item.notes}</Text>
+                      ) : null}
+                    </View>
+                    <Text style={styles.itemPriceText}>
+                      {formatMillimes(item.unitPriceMillimes * item.quantity)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.orderItemsFallback}>
+                <Ionicons name="receipt-outline" size={18} color="#9CA3AF" />
+                <Text style={styles.orderItemsFallbackText}>
+                  1 commande express à récupérer au commerce partenaire
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : (
+          <View style={styles.scooterMissionInfoBox}>
+            <Ionicons name="shield-checkmark" size={17} color="#60A5FA" />
+            <Text style={styles.scooterMissionInfoText}>
+              Course Scooter Taxi REDGO · 1 passager · Prévoir le casque de sécurité
+            </Text>
+          </View>
+        )}
+
+        {/* Répartition des parts (Chacun sa part) */}
+        {activeMission.mission_type === 'delivery' && feeBreakdown ? (
+          <View style={styles.splitBreakdownBox}>
+            <Text style={styles.splitBreakdownTitle}>
+              RÉPARTITION DES PARTS ({feeBreakdown.stopsCount} point{feeBreakdown.stopsCount > 1 ? 's' : ''})
+            </Text>
+            <View style={styles.splitRow}>
+              <Text style={styles.splitLabel}>Part Commerçant / Resto</Text>
+              <Text style={styles.splitValue}>{formatMillimes(feeBreakdown.merchantShareMillimes)}</Text>
+            </View>
+            <View style={styles.splitRow}>
+              <Text style={styles.splitLabelHighlight}>
+                Votre part Chauffeur ({feeBreakdown.stopsCount > 1 ? '2.500 + 1.000' : 'direct'})
+              </Text>
+              <Text style={styles.splitValueHighlight}>{formatMillimes(feeBreakdown.driverShareMillimes)}</Text>
+            </View>
+            <View style={styles.splitRow}>
+              <Text style={styles.splitLabel}>Frais Application REDGO</Text>
+              <Text style={styles.splitValue}>{formatMillimes(feeBreakdown.appFeeMillimes)}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        {/* Contact client & Montant à encaisser */}
+        <View style={styles.activeFooter}>
+          <View>
+            <Text style={styles.amountPrompt}>À ENCAISSER EN ESPÈCES</Text>
+            <Text style={styles.amountBig}>{formatMillimes(activeMission.amount_millimes)}</Text>
+          </View>
+
+          <Pressable
+            onPress={() => callCustomer(phone)}
+            style={styles.callClientBtn}
+          >
+            <Ionicons name="call" size={16} color="#fff" />
+            <Text style={styles.callClientBtnText}>Appeler client</Text>
+          </Pressable>
+        </View>
+
+        {/* Actions séquentielle et clôture de mission */}
+        {isReady ? (
+          <View style={{ gap: 10 }}>
             <Pressable
               accessibilityRole="button"
               disabled={isSubmitting}
-              onPress={performActiveMissionStep}
-              style={[styles.mainStepBtn, isSubmitting && styles.disabled]}
+              onPress={() => void handleDirectCashComplete()}
+              style={[styles.mainStepBtn, { backgroundColor: '#10B981' }]}
             >
               {isSubmitting ? (
-                <ActivityIndicator color="#FFFFFF" />
+                <ActivityIndicator color="#fff" />
               ) : (
                 <>
-                  <Ionicons name="arrow-forward-circle" size={20} color="#fff" />
-                  <Text style={styles.mainStepBtnText}>{activeMissionAction(activeMission, isReady)}</Text>
+                  <Ionicons name="cash" size={20} color="#fff" />
+                  <Text style={styles.mainStepBtnText}>Confirmer encaissement espèces</Text>
                 </>
               )}
             </Pressable>
-          )}
 
-          {isReady ? (
-            <Text style={styles.cashWarningHint}>
-              La confirmation d’encaissement enregistre la mission dans votre historique et crédite automatiquement vos gains.
-            </Text>
-          ) : null}
-        </View>
-      ) : null}
-
-      {/* Radar des missions disponibles */}
-      {!activeMission ? (
-        <View style={styles.feedSection}>
-          <View style={styles.feedHeader}>
-            <View>
-              <Text style={styles.feedTitle}>Missions disponibles</Text>
-              <Text style={styles.feedSubtitle}>
-                {openMissions.length > 0
-                  ? `${openMissions.length} mission(s) prête(s) à être acceptée(s)`
-                  : 'En attente de nouvelles commandes…'}
-              </Text>
-            </View>
-            <View style={styles.liveRadarBadge}>
-              <View style={styles.radarDot} />
-              <Text style={styles.liveRadarText}>LIVE</Text>
-            </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push('/driver/cash-payment')}
+              style={styles.scanSecondaryBtn}
+            >
+              <Ionicons name="qr-code-outline" size={18} color="#fff" />
+              <Text style={styles.scanSecondaryBtnText}>Scanner le QR code du client</Text>
+            </Pressable>
           </View>
-
-          {isLoadingMissions ? (
-            <ActivityIndicator color={colors.primary} style={{ marginVertical: 30 }} />
-          ) : !isOnline ? (
-            <View style={styles.offlineBox}>
-              <Ionicons name="pause-circle-outline" size={34} color={colors.textSecondary} />
-              <Text style={styles.offlineBoxTitle}>Vous êtes en pause</Text>
-              <Text style={styles.offlineBoxSubtitle}>
-                Activez votre statut « En ligne » en haut pour voir les missions en direct dans votre zone.
-              </Text>
-              <Pressable onPress={() => void toggleOnline()} style={styles.activateQuickBtn}>
-                <Text style={styles.activateQuickBtnText}>Passer en ligne maintenant</Text>
-              </Pressable>
-            </View>
-          ) : openMissions.length === 0 ? (
-            <View style={styles.emptyBox}>
-              <Ionicons name="bicycle-outline" size={38} color={colors.textSecondary} />
-              <Text style={styles.emptyBoxTitle}>Aucune course en attente</Text>
-              <Text style={styles.emptyBoxSubtitle}>
-                Restez connecté ! Les nouvelles commandes de M'Saken et Messaadine apparaîtront ici automatiquement.
-              </Text>
-            </View>
-          ) : (
-            openMissions.map((mission) => {
-              const isFood = mission.mission_type === 'delivery';
-              return (
-                <View key={mission.mission_id} style={styles.feedCard}>
-                  <View style={styles.feedCardTop}>
-                    <View style={styles.feedCardIconWrap}>
-                      <Ionicons
-                        name={isFood ? 'restaurant' : 'bicycle'}
-                        size={20}
-                        color={colors.primary}
-                      />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.feedRef}>{mission.reference}</Text>
-                      <Text style={styles.feedTypeLabel}>
-                        {isFood ? 'LIVRAISON FOOD / HUB' : 'COURSE SCOOTER TAXI'} · {formatTimeAgo(mission.created_at)}
-                      </Text>
-                    </View>
-                    <View style={styles.rewardBadge}>
-                      <Text style={styles.rewardText}>3.500 DT</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.feedAddresses}>
-                    <View style={styles.feedAddressRow}>
-                      <Ionicons name="radio-button-on" size={14} color="#34D399" />
-                      <Text style={styles.feedAddressText} numberOfLines={1}>
-                        {mission.pickup_address}
-                      </Text>
-                    </View>
-                    <View style={styles.feedAddressRow}>
-                      <Ionicons name="location" size={14} color={colors.primary} />
-                      <Text style={styles.feedAddressText} numberOfLines={1}>
-                        {mission.destination_address}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {expandedOpenMapId === mission.mission_id ? (
-                    <View style={{ marginBottom: 10 }}>
-                      <DriverMissionMap
-                        pickupAddress={mission.pickup_address}
-                        destinationAddress={mission.destination_address}
-                        height={180}
-                        showExpandButton={false}
-                      />
-                    </View>
-                  ) : null}
-
-                  <View style={styles.feedActions}>
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() =>
-                        setExpandedOpenMapId(
-                          expandedOpenMapId === mission.mission_id ? null : mission.mission_id
-                        )
-                      }
-                      style={styles.mapPreviewBtn}
-                    >
-                      <Ionicons
-                        name="map-outline"
-                        size={16}
-                        color={expandedOpenMapId === mission.mission_id ? colors.primary : '#D4D4D8'}
-                      />
-                    </Pressable>
-                    <Pressable
-                      accessibilityRole="button"
-                      disabled={isSubmitting}
-                      onPress={() => void perform(() => acceptDriverMission(mission.mission_id))}
-                      style={[styles.acceptBtn, { flex: 1 }, isSubmitting && styles.disabled]}
-                    >
-                      <Ionicons name="checkmark-sharp" size={17} color="#fff" />
-                      <Text style={styles.acceptBtnText}>Accepter la course</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              );
-            })
-          )}
-        </View>
-      ) : null}
-
-      {/* Raccourcis Chauffeur & Gestion */}
-      <View style={styles.shortcutsSection}>
-        <Text style={styles.shortcutsTitle}>Outils & Paramètres Chauffeur</Text>
-
-        <Pressable
-          style={styles.shortcutRow}
-          onPress={() => router.push('/driver/cash-payment')}
-        >
-          <View style={styles.shortcutIconWrap}>
-            <Ionicons name="qr-code-outline" size={20} color={colors.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.shortcutName}>Scanner un paiement QR</Text>
-            <Text style={styles.shortcutDesc}>Valider un encaissement espèces direct</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-        </Pressable>
-
-        <Pressable
-          style={styles.shortcutRow}
-          onPress={() => router.push('/driver/history')}
-        >
-          <View style={styles.shortcutIconWrap}>
-            <Ionicons name="time-outline" size={20} color="#60A5FA" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.shortcutName}>Historique des courses</Text>
-            <Text style={styles.shortcutDesc}>Voir toutes vos missions terminées</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-        </Pressable>
-
-        <Pressable
-          style={styles.shortcutRow}
-          onPress={() => router.push('/driver/earnings')}
-        >
-          <View style={styles.shortcutIconWrap}>
-            <Ionicons name="cash-outline" size={20} color="#34D399" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.shortcutName}>Mes gains & relevés</Text>
-            <Text style={styles.shortcutDesc}>Suivi dynamique des gains et commissions</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-        </Pressable>
-
-        {canSwitchSpace ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={onSwitchSpace}
-            style={styles.switchSpaceBtn}
-          >
-            <Ionicons name="swap-horizontal-outline" size={19} color={colors.primary} />
-            <Text style={styles.switchSpaceText}>Passer à l’espace client</Text>
-          </Pressable>
-        ) : null}
-
-        {authEnabled ? (
+        ) : (
           <Pressable
             accessibilityRole="button"
             disabled={isSubmitting}
-            style={styles.logoutBtn}
-            onPress={() => void signOut()}
+            onPress={performActiveMissionStep}
+            style={[styles.mainStepBtn, isSubmitting && styles.disabled]}
           >
-            <Text style={styles.logoutBtnText}>Se déconnecter</Text>
+            {isSubmitting ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <>
+                <Ionicons name="arrow-forward-circle" size={20} color="#fff" />
+                <Text style={styles.mainStepBtnText}>{activeMissionAction(activeMission, isReady)}</Text>
+              </>
+            )}
           </Pressable>
+        )}
+
+        {isReady ? (
+          <Text style={styles.cashWarningHint}>
+            La confirmation d’encaissement enregistre la mission dans votre historique et crédite automatiquement vos gains.
+          </Text>
         ) : null}
       </View>
-    </ScrollView>
-  );
+    ) : null}
+
+    {/* Radar des missions disponibles */}
+    {!activeMission ? (
+      <View style={styles.feedSection}>
+        <View style={styles.feedHeader}>
+          <View>
+            <Text style={styles.feedTitle}>Missions disponibles</Text>
+            <Text style={styles.feedSubtitle}>
+              {openMissions.length > 0
+                ? `${openMissions.length} mission(s) prête(s) à être acceptée(s)`
+                : 'En attente de nouvelles commandes…'}
+            </Text>
+          </View>
+          <View style={styles.liveRadarBadge}>
+            <View style={styles.radarDot} />
+            <Text style={styles.liveRadarText}>LIVE</Text>
+          </View>
+        </View>
+
+        {isLoadingMissions ? (
+          <ActivityIndicator color={colors.primary} style={{ marginVertical: 30 }} />
+        ) : !isOnline ? (
+          <View style={styles.offlineBox}>
+            <Ionicons name="pause-circle-outline" size={34} color={colors.textSecondary} />
+            <Text style={styles.offlineBoxTitle}>Vous êtes en pause</Text>
+            <Text style={styles.offlineBoxSubtitle}>
+              Activez votre statut « En ligne » en haut pour voir les missions en direct dans votre zone.
+            </Text>
+            <Pressable onPress={() => void toggleOnline()} style={styles.activateQuickBtn}>
+              <Text style={styles.activateQuickBtnText}>Passer en ligne maintenant</Text>
+            </Pressable>
+          </View>
+        ) : openMissions.length === 0 ? (
+          <View style={styles.emptyBox}>
+            <Ionicons name="bicycle-outline" size={38} color={colors.textSecondary} />
+            <Text style={styles.emptyBoxTitle}>Aucune course en attente</Text>
+            <Text style={styles.emptyBoxSubtitle}>
+              Restez connecté ! Les nouvelles commandes de M'Saken et Messaadine apparaîtront ici automatiquement.
+            </Text>
+          </View>
+        ) : (
+          openMissions.map((mission) => {
+            const isFood = mission.mission_type === 'delivery';
+            return (
+              <View key={mission.mission_id} style={styles.feedCard}>
+                <View style={styles.feedCardTop}>
+                  <View style={styles.feedCardIconWrap}>
+                    <Ionicons
+                      name={isFood ? 'restaurant' : 'bicycle'}
+                      size={20}
+                      color={colors.primary}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.feedRef}>{mission.reference}</Text>
+                    <Text style={styles.feedTypeLabel}>
+                      {isFood ? 'LIVRAISON FOOD / HUB' : 'COURSE SCOOTER TAXI'} · {formatTimeAgo(mission.created_at)}
+                    </Text>
+                  </View>
+                  <View style={styles.rewardBadge}>
+                    <Text style={styles.rewardText}>
+                      {isFood
+                        ? formatMillimes(estimateOpenMissionDriverFeeMillimes(mission.pickup_address))
+                        : 'Course Taxi'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.feedAddresses}>
+                  <View style={styles.feedAddressRow}>
+                    <Ionicons name="radio-button-on" size={14} color="#34D399" />
+                    <Text style={styles.feedAddressText} numberOfLines={1}>
+                      {mission.pickup_address}
+                    </Text>
+                  </View>
+                  <View style={styles.feedAddressRow}>
+                    <Ionicons name="location" size={14} color={colors.primary} />
+                    <Text style={styles.feedAddressText} numberOfLines={1}>
+                      {mission.destination_address}
+                    </Text>
+                  </View>
+                </View>
+
+                {expandedOpenMapId === mission.mission_id ? (
+                  <View style={{ marginBottom: 10 }}>
+                    <DriverMissionMap
+                      pickupAddress={mission.pickup_address}
+                      destinationAddress={mission.destination_address}
+                      height={180}
+                      showExpandButton={false}
+                    />
+                  </View>
+                ) : null}
+
+                <View style={styles.feedActions}>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() =>
+                      setExpandedOpenMapId(
+                        expandedOpenMapId === mission.mission_id ? null : mission.mission_id
+                      )
+                    }
+                    style={styles.mapPreviewBtn}
+                  >
+                    <Ionicons
+                      name="map-outline"
+                      size={16}
+                      color={expandedOpenMapId === mission.mission_id ? colors.primary : '#D4D4D8'}
+                    />
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={isSubmitting}
+                    onPress={() => void perform(() => acceptDriverMission(mission.mission_id))}
+                    style={[styles.acceptBtn, { flex: 1 }, isSubmitting && styles.disabled]}
+                  >
+                    <Ionicons name="checkmark-sharp" size={17} color="#fff" />
+                    <Text style={styles.acceptBtnText}>Accepter la course</Text>
+                  </Pressable>
+                </View>
+              </View>
+            );
+          })
+        )}
+      </View>
+    ) : null}
+
+    {/* Raccourcis Chauffeur & Gestion */}
+    <View style={styles.shortcutsSection}>
+      <Text style={styles.shortcutsTitle}>Outils & Paramètres Chauffeur</Text>
+
+      <Pressable
+        style={styles.shortcutRow}
+        onPress={() => router.push('/driver/cash-payment')}
+      >
+        <View style={styles.shortcutIconWrap}>
+          <Ionicons name="qr-code-outline" size={20} color={colors.primary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.shortcutName}>Scanner un paiement QR</Text>
+          <Text style={styles.shortcutDesc}>Valider un encaissement espèces direct</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+      </Pressable>
+
+      <Pressable
+        style={styles.shortcutRow}
+        onPress={() => router.push('/driver/history')}
+      >
+        <View style={styles.shortcutIconWrap}>
+          <Ionicons name="time-outline" size={20} color="#60A5FA" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.shortcutName}>Historique des courses</Text>
+          <Text style={styles.shortcutDesc}>Voir toutes vos missions terminées</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+      </Pressable>
+
+      <Pressable
+        style={styles.shortcutRow}
+        onPress={() => router.push('/driver/earnings')}
+      >
+        <View style={styles.shortcutIconWrap}>
+          <Ionicons name="cash-outline" size={20} color="#34D399" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.shortcutName}>Mes gains & relevés</Text>
+          <Text style={styles.shortcutDesc}>Suivi dynamique des gains et commissions</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+      </Pressable>
+
+      {canSwitchSpace ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={onSwitchSpace}
+          style={styles.switchSpaceBtn}
+        >
+          <Ionicons name="swap-horizontal-outline" size={19} color={colors.primary} />
+          <Text style={styles.switchSpaceText}>Passer à l’espace client</Text>
+        </Pressable>
+      ) : null}
+
+      {authEnabled ? (
+        <Pressable
+          accessibilityRole="button"
+          disabled={isSubmitting}
+          style={styles.logoutBtn}
+          onPress={() => void signOut()}
+        >
+          <Text style={styles.logoutBtnText}>Se déconnecter</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  </ScrollView>
+);
 }
 
 function isReadyForCash(mission: ActiveDriverMissionRow) {
@@ -1533,5 +1577,46 @@ const styles = StyleSheet.create({
     borderColor: '#292938',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  splitBreakdownBox: {
+    backgroundColor: '#111116',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#262633',
+    padding: 12,
+    gap: 6,
+    marginBottom: 12,
+  },
+  splitBreakdownTitle: {
+    color: '#9CA3AF',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.7,
+    marginBottom: 2,
+  },
+  splitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  splitLabel: {
+    color: '#A1A1AA',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  splitValue: {
+    color: '#F4F4F5',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  splitLabelHighlight: {
+    color: '#34D399',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  splitValueHighlight: {
+    color: '#34D399',
+    fontSize: 13,
+    fontWeight: '900',
   },
 });

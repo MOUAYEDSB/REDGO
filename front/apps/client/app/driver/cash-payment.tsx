@@ -52,7 +52,7 @@ export default function DriverCashPaymentScreen() {
         pickupAddress: "Commerce partenaire M'Saken",
         destinationAddress: "Client M'Saken / Messaadine",
         amountMillimes: result.amount_millimes,
-        driverEarningsMillimes: 3500,
+        driverEarningsMillimes: result.mission_type === 'delivery' ? 2500 : Math.round(result.amount_millimes * 0.85),
         status: 'completed',
         completedAt: result.paid_at || new Date().toISOString(),
       });

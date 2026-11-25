@@ -154,7 +154,7 @@ export async function openGoogleMapsTurnByTurn(
         await Linking.openURL(navUrl);
         return;
       }
-    } catch {}
+    } catch { }
   } else if (Platform.OS === 'ios') {
     // Essayer l'application Google Maps iOS en mode conduite turn-by-turn
     const googleMapsAppUrl = `comgooglemaps://?daddr=${destParam}&directionsmode=driving`;
@@ -164,7 +164,7 @@ export async function openGoogleMapsTurnByTurn(
         await Linking.openURL(googleMapsAppUrl);
         return;
       }
-    } catch {}
+    } catch { }
   }
 
   // Fallback universel Google Maps (ouvre l'application installée ou le navigateur en mode itinéraire)
@@ -421,7 +421,7 @@ export async function acceptDriverMission(missionId: string): Promise<void> {
       const filtered = ids.filter((id) => id !== missionId);
       await AsyncStorage.setItem(COMPLETED_IDS_KEY, JSON.stringify(filtered));
     }
-  } catch {}
+  } catch { }
 
   const isDemo = missionId.startsWith('demo-') || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(missionId);
 
@@ -505,8 +505,8 @@ export async function updateDriverMissionStatus(
     nextStatus === 'in_progress'
       ? 'on_the_way'
       : nextStatus === 'completed'
-      ? 'cash_collected'
-      : 'driver_assigned';
+        ? 'cash_collected'
+        : 'driver_assigned';
 
   if (nextStatus === 'assigned' || nextStatus === 'accepted' || nextStatus === 'in_progress') {
     const updated = await updateLocalActiveMissionStatus(nextStatus, nextServiceStatus);
@@ -561,13 +561,92 @@ export async function recordCompletedMission(mission: DriverHistoryMission): Pro
   }
 }
 
+export type DriverOrderFeeBreakdown = {
+  stopsCount: number;
+  merchantShareMillimes: number;
+  driverShareMillimes: number;
+  appFeeMillimes: number;
+  totalMillimes: number;
+};
+
+/**
+ * Estime la part chauffeur sur une mission ouverte :
+ * - 2.500 DT pour 1 point de retrait (resto ou hub courses direct)
+ * - +1.000 DT par point de retrait supplémentaire (ex: 3.500 DT pour 2 points)
+ */
+export function estimateOpenMissionDriverFeeMillimes(pickupAddress?: string | null): number {
+  const addr = (pickupAddress || '').trim();
+  const hasMultipleStops = addr.includes(' + ') || addr.includes(' & ') || addr.includes(' / ');
+  return hasMultipleStops ? 3500 : 2500;
+}
+
+/**
+ * Récupère la répartition exacte des parts (Commerçant / Chauffeur / Application) depuis Supabase.
+ */
+export async function fetchMissionFeeBreakdown(
+  orderId: string,
+  fallbackTotalMillimes = 0,
+  uniqueBusinessesCount = 1,
+): Promise<DriverOrderFeeBreakdown> {
+  const defaultStops = Math.max(1, uniqueBusinessesCount);
+  const defaultDriverFee = 2500 + Math.max(0, defaultStops - 1) * 1000;
+  const defaultAppFee = 500;
+  const fallbackMerchant = Math.max(0, fallbackTotalMillimes - defaultDriverFee - defaultAppFee);
+
+  try {
+    const client = requireSupabase();
+    const { data, error } = await (client as any)
+      .from('delivery_orders')
+      .select('subtotal_millimes, delivery_fee_millimes, service_fee_millimes, total_amount_millimes, delivery_order_stops(id)')
+      .eq('id', orderId)
+      .maybeSingle();
+
+    if (!error && data) {
+      const stopsCount = Array.isArray(data.delivery_order_stops) && data.delivery_order_stops.length > 0
+        ? data.delivery_order_stops.length
+        : defaultStops;
+      const driverShare = typeof data.delivery_fee_millimes === 'number'
+        ? data.delivery_fee_millimes
+        : 2500 + Math.max(0, stopsCount - 1) * 1000;
+      const appFee = typeof data.service_fee_millimes === 'number' ? data.service_fee_millimes : 500;
+      const total = typeof data.total_amount_millimes === 'number' ? data.total_amount_millimes : fallbackTotalMillimes;
+      const merchantShare = typeof data.subtotal_millimes === 'number'
+        ? data.subtotal_millimes
+        : Math.max(0, total - driverShare - appFee);
+
+      return {
+        stopsCount,
+        merchantShareMillimes: merchantShare,
+        driverShareMillimes: driverShare,
+        appFeeMillimes: appFee,
+        totalMillimes: total,
+      };
+    }
+  } catch {
+    // Fallback local
+  }
+
+  return {
+    stopsCount: defaultStops,
+    merchantShareMillimes: fallbackMerchant,
+    driverShareMillimes: defaultDriverFee,
+    appFeeMillimes: defaultAppFee,
+    totalMillimes: fallbackTotalMillimes,
+  };
+}
+
 export async function finalizeMissionAndRecord(
   mission: ActiveDriverMissionRow,
   customAmountMillimes?: number
 ): Promise<DriverHistoryMission> {
   const isDelivery = mission.mission_type === 'delivery';
   const amount = customAmountMillimes ?? mission.amount_millimes;
-  const driverEarnings = isDelivery ? 3500 : Math.round(amount * 0.85);
+
+  let driverEarnings = isDelivery ? 2500 : Math.round(amount * 0.85);
+  if (isDelivery && mission.target_id) {
+    const breakdown = await fetchMissionFeeBreakdown(mission.target_id, amount);
+    driverEarnings = breakdown.driverShareMillimes;
+  }
 
   const completedItem: DriverHistoryMission = {
     id: mission.mission_id || `hist-${Date.now()}`,
@@ -636,7 +715,7 @@ export async function fetchDriverHistory(userId?: string): Promise<DriverHistory
           const ride = row.scooter_rides;
           const ref = isDelivery ? (order?.order_reference || 'CMD') : (ride?.ride_reference || 'TAX');
           const totalAmount = isDelivery ? (order?.total_amount_millimes || 0) : (ride?.total_fare_millimes || 0);
-          const earnings = isDelivery ? (order?.delivery_fee_millimes || 3500) : Math.round(totalAmount * 0.85);
+          const earnings = isDelivery ? (order?.delivery_fee_millimes || 2500) : Math.round(totalAmount * 0.85);
 
           return {
             id: row.id,

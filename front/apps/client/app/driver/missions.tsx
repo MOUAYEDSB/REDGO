@@ -15,8 +15,10 @@ import { Screen } from '../../components/Screen';
 import { colors } from '../../constants/theme';
 import { useRedgoAuth } from '../../context/RedgoAuthContext';
 import { DriverMissionMap } from '../../components/DriverMissionMap';
+import { formatMillimes } from '../../services/cart';
 import {
   acceptDriverMission,
+  estimateOpenMissionDriverFeeMillimes,
   getMyActiveDriverMission,
   listOpenDriverMissions,
   openNavigationApp,
@@ -196,7 +198,11 @@ export default function DriverMissionsScreen() {
                     </Text>
                   </View>
                   <View style={styles.badgeReward}>
-                    <Text style={styles.badgeRewardText}>3.500 DT</Text>
+                    <Text style={styles.badgeRewardText}>
+                      {isFood
+                        ? formatMillimes(estimateOpenMissionDriverFeeMillimes(m.pickup_address))
+                        : 'Taxi'}
+                    </Text>
                   </View>
                 </View>
 
