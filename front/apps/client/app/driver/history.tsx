@@ -172,7 +172,7 @@ export default function DriverHistoryScreen() {
             return (
               <View key={item.id} style={styles.historyCard}>
                 <View style={styles.cardTop}>
-                  <View style={styles.badgeWrap}>
+                  <View style={[styles.badgeWrap, { flex: 1, marginRight: 8 }]}>
                     <View style={[styles.typeIcon, isDelivery ? styles.typeDelivery : styles.typeScooter]}>
                       <Ionicons
                         name={isDelivery ? 'restaurant-outline' : 'bicycle-outline'}
@@ -180,9 +180,10 @@ export default function DriverHistoryScreen() {
                         color="#fff"
                       />
                     </View>
-                    <View>
-                      <Text style={styles.reference}>{item.reference}</Text>
-                      <Text style={styles.dateText}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.reference} numberOfLines={1}>{item.reference}</Text>
+                      <Text style={styles.dateText} numberOfLines={1}>
+                        {item.customerName ? `${item.customerName} · ` : ''}
                         {new Date(item.completedAt).toLocaleTimeString('fr-TN', { hour: '2-digit', minute: '2-digit' })}
                         {' · '}
                         {new Date(item.completedAt).toLocaleDateString('fr-TN', { day: 'numeric', month: 'short' })}
@@ -231,6 +232,29 @@ export default function DriverHistoryScreen() {
                         </View>
                       </View>
                     ))}
+                  </View>
+                ) : null}
+
+                {item.review ? (
+                  <View style={{ backgroundColor: 'rgba(251, 191, 36, 0.08)', borderRadius: 10, padding: 8, marginTop: 8, borderWidth: 1, borderColor: 'rgba(251, 191, 36, 0.25)', gap: 4 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <Ionicons
+                          key={s}
+                          name={s <= item.review!.rating ? 'star' : 'star-outline'}
+                          size={12}
+                          color={s <= item.review!.rating ? '#FBBF24' : '#52525B'}
+                        />
+                      ))}
+                      <Text style={{ color: '#FBBF24', fontSize: 11, fontWeight: '800', marginLeft: 4 }}>
+                        Avis client ({item.review.rating}/5)
+                      </Text>
+                    </View>
+                    {item.review.comment ? (
+                      <Text style={{ color: '#E4E4E7', fontSize: 11, fontStyle: 'italic' }}>
+                        « {item.review.comment} »
+                      </Text>
+                    ) : null}
                   </View>
                 ) : null}
 

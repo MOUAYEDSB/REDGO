@@ -30,6 +30,7 @@ export type DriverHistoryMission = {
   status: 'completed' | 'cancelled';
   completedAt: string;
   items?: DriverHistoryMissionItem[];
+  review?: { rating: number; comment: string } | null;
 };
 
 export type DriverEarningsSummary = {
@@ -309,6 +310,7 @@ export type MissionLocationDetails = {
   restaurantName: string | null;
   businessId: string | null;
   stopsCount: number;
+  customerName?: string | null;
   recipientPhone?: string | null;
   destinationInstructions?: string | null;
 };
@@ -329,7 +331,7 @@ export async function fetchMissionLocationDetails(orderId: string): Promise<Miss
     const client = requireSupabase();
     const [stopsRes, orderRes] = await Promise.all([
       (client as any).from('delivery_order_stops').select('*').eq('order_id', orderId).order('sequence_number', { ascending: true }),
-      (client as any).from('delivery_orders').select('destination_address, destination_latitude, destination_longitude, recipient_phone, destination_instructions').eq('id', orderId).single(),
+      (client as any).from('delivery_orders').select('customer_id, destination_address, destination_latitude, destination_longitude, recipient_phone, destination_instructions').eq('id', orderId).single(),
     ]);
 
     // Si non trouvé directement par order_id, tenter via driver_missions
@@ -356,13 +358,23 @@ export async function fetchMissionLocationDetails(orderId: string): Promise<Miss
         const isRoundTrip = typeof rideRow.destination_address === 'string' && rideRow.destination_address.startsWith('[ALLER-RETOUR]');
         const isParcel = typeof rideRow.destination_address === 'string' && rideRow.destination_address.startsWith('[COLIS');
         let customerPhone: string | null = null;
+        let customerName: string | null = null;
         if (rideRow.customer_id) {
-          const { data: prof } = await (client as any)
-            .from('profiles')
-            .select('phone')
-            .eq('id', rideRow.customer_id)
-            .maybeSingle();
-          customerPhone = prof?.phone || null;
+          const { data: rpcProfs, error: rpcErr } = await (client as any).rpc('get_driver_customer_profiles', {
+            target_customer_ids: [rideRow.customer_id],
+          });
+          if (!rpcErr && Array.isArray(rpcProfs) && rpcProfs[0]) {
+            customerPhone = rpcProfs[0].phone || null;
+            customerName = rpcProfs[0].full_name || null;
+          } else {
+            const { data: prof } = await (client as any)
+              .from('profiles')
+              .select('phone, full_name')
+              .eq('id', rideRow.customer_id)
+              .maybeSingle();
+            customerPhone = prof?.phone || null;
+            customerName = prof?.full_name || null;
+          }
         }
         return {
           pickupCoords: { latitude: rideRow.pickup_latitude, longitude: rideRow.pickup_longitude },
@@ -370,6 +382,7 @@ export async function fetchMissionLocationDetails(orderId: string): Promise<Miss
           restaurantName: isParcel ? 'Envoi de colis' : isRoundTrip ? 'Scooter Aller-retour' : 'Scooter Taxi',
           businessId: 'scooter_ride',
           stopsCount: isRoundTrip ? 2 : 1,
+          customerName,
           recipientPhone: customerPhone,
           destinationInstructions: rideRow.destination_address,
         };
@@ -389,12 +402,30 @@ export async function fetchMissionLocationDetails(orderId: string): Promise<Miss
       };
     }
 
+    let customerName: string | null = null;
+    if (orderRes.data?.customer_id) {
+      const { data: rpcProfs, error: rpcErr } = await (client as any).rpc('get_driver_customer_profiles', {
+        target_customer_ids: [orderRes.data.customer_id],
+      });
+      if (!rpcErr && Array.isArray(rpcProfs) && rpcProfs[0]) {
+        customerName = rpcProfs[0].full_name || null;
+      } else {
+        const { data: prof } = await (client as any)
+          .from('profiles')
+          .select('full_name')
+          .eq('id', orderRes.data.customer_id)
+          .maybeSingle();
+        customerName = prof?.full_name || null;
+      }
+    }
+
     return {
       pickupCoords,
       destinationCoords,
       restaurantName: firstStop?.business_name || null,
       businessId: firstStop?.business_id || null,
       stopsCount: stopsRes.data?.length ?? 1,
+      customerName,
       recipientPhone: orderRes.data?.recipient_phone || null,
       destinationInstructions: orderRes.data?.destination_instructions || null,
     };
@@ -960,13 +991,43 @@ export async function fetchDriverHistory(userId?: string): Promise<DriverHistory
       const client = requireSupabase();
       const { data, error } = await (client as any)
         .from('driver_missions')
-        .select('id, mission_type, status, created_at, completed_at, delivery_orders(reference, total_millimes, delivery_fee_millimes, destination_address, items:delivery_order_items(id, product_name, business_name, quantity, product:products(image_url))), scooter_rides(reference, fare_millimes, pickup_address, destination_address)')
+        .select('id, customer_id, delivery_order_id, scooter_ride_id, mission_type, status, created_at, completed_at, delivery_orders(reference, total_millimes, delivery_fee_millimes, destination_address, items:delivery_order_items(id, product_name, business_name, quantity, product:products(image_url))), scooter_rides(reference, fare_millimes, pickup_address, destination_address)')
         .eq('driver_id', userId)
         .eq('status', 'completed')
         .order('completed_at', { ascending: false })
         .limit(100);
 
       if (!error && data && data.length > 0) {
+        const customerIds = Array.from(new Set((data as any[]).map((r) => r.customer_id).filter(Boolean)));
+        const nameMap = new Map<string, string>();
+        const reviewByOrder = new Map<string, { rating: number; comment: string }>();
+        const reviewByRide = new Map<string, { rating: number; comment: string }>();
+
+        await Promise.all([
+          customerIds.length > 0
+            ? (client as any)
+                .rpc('get_driver_customer_profiles', { target_customer_ids: customerIds })
+                .then(({ data: rpcProfs, error: rpcErr }: { data: any[] | null; error: any }) => {
+                  if (!rpcErr && Array.isArray(rpcProfs)) {
+                    rpcProfs.forEach((p) => {
+                      if (p.id && p.full_name) nameMap.set(p.id, p.full_name);
+                    });
+                  }
+                })
+            : Promise.resolve(),
+          (client as any)
+            .from('driver_reviews')
+            .select('delivery_order_id, scooter_ride_id, rating, comment')
+            .eq('driver_id', userId)
+            .then(({ data: revs }: { data: any[] | null }) => {
+              (revs ?? []).forEach((rv) => {
+                const val = { rating: Number(rv.rating), comment: rv.comment || '' };
+                if (rv.delivery_order_id) reviewByOrder.set(rv.delivery_order_id, val);
+                if (rv.scooter_ride_id) reviewByRide.set(rv.scooter_ride_id, val);
+              });
+            }),
+        ]);
+
         const dbItems: DriverHistoryMission[] = (data as any[]).map((row) => {
           const isDelivery = row.mission_type === 'delivery';
           const order = row.delivery_orders;
@@ -984,11 +1045,15 @@ export async function fetchDriverHistory(userId?: string): Promise<DriverHistory
               }))
             : [];
           const shopNames = Array.from(new Set(orderItems.map((it) => it.businessName).filter(Boolean)));
+          const review = isDelivery
+            ? (row.delivery_order_id ? reviewByOrder.get(row.delivery_order_id) || null : null)
+            : (row.scooter_ride_id ? reviewByRide.get(row.scooter_ride_id) || null : null);
 
           return {
             id: row.id,
             reference: ref,
             missionType: row.mission_type,
+            customerName: nameMap.get(row.customer_id) || undefined,
             pickupAddress: isDelivery
               ? (shopNames.length > 0 ? shopNames.join(' · ') : 'Commerce partenaire')
               : (ride?.pickup_address || "M'Saken"),
@@ -998,6 +1063,7 @@ export async function fetchDriverHistory(userId?: string): Promise<DriverHistory
             status: row.status,
             completedAt: row.completed_at || row.created_at,
             items: orderItems,
+            review,
           };
         });
 

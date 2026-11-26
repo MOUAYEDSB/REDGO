@@ -4,15 +4,19 @@ import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Modal,
   Pressable,
   RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { colors } from '../../constants/theme';
 import { formatMillimes } from '../../services/cart';
+import { fetchCustomerReviewedDeliveryIds, submitDriverReview } from '../../services/driverReviews';
 import { requireSupabase } from '../../services/supabase';
 import {
   CustomerOrder,
@@ -33,6 +37,11 @@ import {
 
   export default function OrdersScreen() {
     const [orders, setOrders] = useState<CustomerOrder[]>([]);
+    const [reviewedMap, setReviewedMap] = useState<Record<string, { rating: number; comment: string }>>({});
+    const [reviewOrder, setReviewOrder] = useState<CustomerOrder | null>(null);
+    const [reviewRating, setReviewRating] = useState(5);
+    const [reviewComment, setReviewComment] = useState('');
+    const [isSubmittingReview, setIsSubmittingReview] = useState(false);
     const [activeTab, setActiveTab] = useState<FilterTab>('all');
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -40,6 +49,13 @@ import {
     const loadData = useCallback(async () => {
       const list = await fetchCustomerOrders();
       setOrders(list);
+      const completedIds = list
+        .filter((o) => o.status === 'delivered' || o.status === 'cash_collected')
+        .map((o) => o.id);
+      if (completedIds.length > 0) {
+        const revMap = await fetchCustomerReviewedDeliveryIds(completedIds);
+        setReviewedMap(revMap);
+      }
       setIsLoading(false);
       setRefreshing(false);
     }, []);
@@ -79,6 +95,34 @@ import {
       setRefreshing(true);
       void loadData();
     }, [loadData]);
+
+    const openReviewModal = (order: CustomerOrder) => {
+      setReviewOrder(order);
+      setReviewRating(5);
+      setReviewComment('');
+    };
+
+    const handleSubmitOrderReview = async () => {
+      if (!reviewOrder || isSubmittingReview) return;
+      setIsSubmittingReview(true);
+      try {
+        await submitDriverReview({
+          targetType: 'delivery',
+          targetId: reviewOrder.id,
+          rating: reviewRating,
+          comment: reviewComment,
+        });
+        setReviewedMap((prev) => ({
+          ...prev,
+          [reviewOrder.id]: { rating: reviewRating, comment: reviewComment.trim() },
+        }));
+        setReviewOrder(null);
+      } catch (err: any) {
+        Alert.alert('Avis non enregistré', err?.message || "Impossible d'enregistrer votre avis.");
+      } finally {
+        setIsSubmittingReview(false);
+      }
+    };
 
     const activeOrdersCount = useMemo(() => {
       return orders.filter(
@@ -344,41 +388,162 @@ import {
                   </Text>
                 </View>
 
-                <Pressable
-                  style={({ pressed }) => [
-                    isOngoing ? styles.trackButton : styles.detailsButton,
-                    pressed && { opacity: 0.8 },
-                  ]}
-                  onPress={() =>
-                    router.push({
-                      pathname: '/order/[id]',
-                      params: {
-                        id: order.id,
-                        reference: order.reference,
-                        hasCourses: order.hasCourses ? '1' : '0',
-                        hasFood: order.hasFood ? '1' : '0',
-                      },
-                    })
-                  }
-                >
-                  <Text
-                    style={
-                      isOngoing ? styles.trackButtonText : styles.detailsButtonText
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {(order.status === 'delivered' || order.status === 'cash_collected') ? (
+                    reviewedMap[order.id] ? (
+                      <View
+                        style={{
+                          width: 38,
+                          height: 38,
+                          borderRadius: 12,
+                          backgroundColor: 'rgba(251, 191, 36, 0.14)',
+                          borderWidth: 1,
+                          borderColor: 'rgba(251, 191, 36, 0.4)',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Ionicons name="star" size={17} color="#FBBF24" />
+                      </View>
+                    ) : (
+                      <Pressable
+                        accessibilityLabel="Donner un avis"
+                        style={({ pressed }) => [
+                          {
+                            width: 38,
+                            height: 38,
+                            borderRadius: 12,
+                            backgroundColor: 'rgba(251, 191, 36, 0.14)',
+                            borderWidth: 1,
+                            borderColor: 'rgba(251, 191, 36, 0.45)',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          },
+                          pressed && { opacity: 0.8 },
+                        ]}
+                        onPress={() => openReviewModal(order)}
+                      >
+                        <Ionicons name="star-outline" size={18} color="#FBBF24" />
+                      </Pressable>
+                    )
+                  ) : null}
+
+                  <Pressable
+                    accessibilityLabel={isOngoing ? 'Suivre en direct' : 'Reçu et détails'}
+                    style={({ pressed }) => [
+                      isOngoing
+                        ? styles.trackButton
+                        : {
+                            width: 38,
+                            height: 38,
+                            borderRadius: 12,
+                            backgroundColor: '#1E1E26',
+                            borderWidth: 1,
+                            borderColor: '#2E2E3A',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          },
+                      pressed && { opacity: 0.8 },
+                    ]}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/order/[id]',
+                        params: {
+                          id: order.id,
+                          reference: order.reference,
+                          hasCourses: order.hasCourses ? '1' : '0',
+                          hasFood: order.hasFood ? '1' : '0',
+                        },
+                      })
                     }
                   >
-                    {isOngoing ? 'Suivre en direct' : 'Reçu & Détails'}
-                  </Text>
-                  <Ionicons
-                    name={isOngoing ? 'arrow-forward' : 'receipt-outline'}
-                    size={14}
-                    color={isOngoing ? '#FFFFFF' : colors.textSecondary}
-                  />
-                </Pressable>
+                    {isOngoing ? (
+                      <>
+                        <Text style={styles.trackButtonText}>Suivre en direct</Text>
+                        <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
+                      </>
+                    ) : (
+                      <Ionicons name="receipt-outline" size={18} color="#E4E4E7" />
+                    )}
+                  </Pressable>
+                </View>
               </View>
             </Pressable>
           );
         })}
       </View>
+
+      <Modal
+        visible={Boolean(reviewOrder)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReviewOrder(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'center', padding: 20 }}>
+          <View style={{ backgroundColor: '#141418', borderRadius: 20, padding: 18, borderWidth: 1, borderColor: '#27272A', gap: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '900' }}>
+                Avis · #{reviewOrder?.reference}
+              </Text>
+              <Pressable onPress={() => setReviewOrder(null)} hitSlop={8}>
+                <Ionicons name="close" size={22} color="#A1A1AA" />
+              </Pressable>
+            </View>
+            <Text style={{ color: '#A1A1AA', fontSize: 12 }}>
+              Notez votre livreur pour cette commande :
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12, paddingVertical: 6 }}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <Pressable key={star} onPress={() => setReviewRating(star)} hitSlop={6}>
+                  <Ionicons
+                    name={star <= reviewRating ? 'star' : 'star-outline'}
+                    size={34}
+                    color={star <= reviewRating ? '#FBBF24' : '#52525B'}
+                  />
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              value={reviewComment}
+              onChangeText={setReviewComment}
+              placeholder="Un commentaire sur la livraison ? (optionnel)"
+              placeholderTextColor="#71717A"
+              multiline
+              numberOfLines={3}
+              style={{
+                backgroundColor: '#09090B',
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: '#27272A',
+                padding: 12,
+                color: '#FFFFFF',
+                fontSize: 13,
+                minHeight: 74,
+                textAlignVertical: 'top',
+              }}
+            />
+            <Pressable
+              onPress={() => void handleSubmitOrderReview()}
+              disabled={isSubmittingReview}
+              style={{
+                height: 46,
+                borderRadius: 12,
+                backgroundColor: colors.primary,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {isSubmittingReview ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '800' }}>
+                  Envoyer mon avis
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </Screen>
                   );
 }

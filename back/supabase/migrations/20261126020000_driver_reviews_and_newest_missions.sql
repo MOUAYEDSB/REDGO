@@ -211,4 +211,36 @@ $$;
 revoke all on function public.list_open_driver_missions() from public, anon, authenticated;
 grant execute on function public.list_open_driver_missions() to authenticated;
 
+create or replace function public.get_driver_customer_profiles(target_customer_ids uuid[])
+returns table (
+  id uuid,
+  full_name text,
+  phone text
+)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  if auth.uid() is null or not public.redgo_has_role('driver') then
+    raise exception 'An approved driver session is required.';
+  end if;
+
+  return query
+  select p.id, p.full_name, p.phone
+  from public.profiles p
+  where p.id = any(target_customer_ids)
+    and exists (
+      select 1
+      from public.driver_missions m
+      where m.driver_id = auth.uid()
+        and m.customer_id = p.id
+    );
+end;
+$$;
+
+revoke all on function public.get_driver_customer_profiles(uuid[]) from public, anon, authenticated;
+grant execute on function public.get_driver_customer_profiles(uuid[]) to authenticated;
+
 notify pgrst, 'reload schema';

@@ -56,6 +56,33 @@ export async function fetchCustomerReviewForTarget(
   }
 }
 
+export async function fetchCustomerReviewedDeliveryIds(
+  orderIds: string[],
+): Promise<Record<string, { rating: number; comment: string }>> {
+  const map: Record<string, { rating: number; comment: string }> = {};
+  if (!orderIds || orderIds.length === 0) return map;
+  try {
+    const client = requireSupabase();
+    const { data, error } = await (client as any)
+      .from('driver_reviews')
+      .select('delivery_order_id, rating, comment')
+      .in('delivery_order_id', orderIds);
+    if (!error && data) {
+      (data as any[]).forEach((row) => {
+        if (row.delivery_order_id) {
+          map[row.delivery_order_id] = {
+            rating: Number(row.rating),
+            comment: row.comment || '',
+          };
+        }
+      });
+    }
+  } catch {
+    // Ignorer
+  }
+  return map;
+}
+
 export async function fetchDriverReviews(driverId?: string): Promise<DriverReviewsSummary> {
   if (!driverId) {
     return { averageRating: null, totalReviews: 0, reviews: [] };
@@ -64,13 +91,34 @@ export async function fetchDriverReviews(driverId?: string): Promise<DriverRevie
     const client = requireSupabase();
     const { data, error } = await (client as any)
       .from('driver_reviews')
-      .select('id, mission_type, rating, comment, created_at, delivery_orders(reference), scooter_rides(reference)')
+      .select('id, customer_id, mission_type, rating, comment, created_at, delivery_orders(reference), scooter_rides(reference)')
       .eq('driver_id', driverId)
       .order('created_at', { ascending: false })
       .limit(30);
 
     if (error || !data || data.length === 0) {
       return { averageRating: null, totalReviews: 0, reviews: [] };
+    }
+
+    const customerIds = Array.from(new Set((data as any[]).map((r) => r.customer_id).filter(Boolean)));
+    const nameMap = new Map<string, string>();
+    if (customerIds.length > 0) {
+      const { data: rpcProfs, error: rpcErr } = await (client as any).rpc('get_driver_customer_profiles', {
+        target_customer_ids: customerIds,
+      });
+      if (!rpcErr && Array.isArray(rpcProfs)) {
+        rpcProfs.forEach((p: any) => {
+          if (p.id && p.full_name) nameMap.set(p.id, p.full_name);
+        });
+      } else {
+        const { data: profs } = await (client as any)
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', customerIds);
+        (profs ?? []).forEach((p: any) => {
+          if (p.id && p.full_name) nameMap.set(p.id, p.full_name);
+        });
+      }
     }
 
     const reviews: DriverReviewItem[] = (data as any[]).map((row) => ({
@@ -80,7 +128,7 @@ export async function fetchDriverReviews(driverId?: string): Promise<DriverRevie
         row.mission_type === 'delivery'
           ? row.delivery_orders?.reference || 'Commande'
           : row.scooter_rides?.reference || 'Course',
-      customerName: 'Client REDGO',
+      customerName: nameMap.get(row.customer_id) || 'Client REDGO',
       rating: Number(row.rating),
       comment: row.comment || '',
       createdAt: row.created_at,

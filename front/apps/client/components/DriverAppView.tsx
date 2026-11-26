@@ -707,9 +707,12 @@ export default function DriverAppView({
                 </View>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}>
-                <Ionicons name="call-outline" size={15} color="#38BDF8" />
-                <Text style={{ color: '#F4F4F5', fontSize: 13, fontWeight: '700', flex: 1 }}>
-                  Téléphone : {missionLocations.recipientPhone || 'Non renseigné'}
+                <Ionicons name="person-outline" size={15} color="#38BDF8" />
+                <Text style={{ color: '#F4F4F5', fontSize: 13, fontWeight: '800', flex: 1 }} numberOfLines={1}>
+                  {missionLocations.customerName || 'Client REDGO'}
+                  <Text style={{ color: '#A1A1AA', fontWeight: '600' }}>
+                    {' · '}{missionLocations.recipientPhone || 'Tél. non renseigné'}
+                  </Text>
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 6 }}>
@@ -1019,7 +1022,7 @@ export default function DriverAppView({
                     ))}
                   </View>
                   <Text style={{ color: '#A1A1AA', fontSize: 11 }}>
-                    #{rev.reference} · {new Date(rev.createdAt).toLocaleDateString('fr-TN', { day: 'numeric', month: 'short' })}
+                    {rev.customerName} · #{rev.reference}
                   </Text>
                 </View>
                 {rev.comment ? (
