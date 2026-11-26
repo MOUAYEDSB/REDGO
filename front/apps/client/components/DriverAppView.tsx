@@ -387,9 +387,17 @@ export default function DriverAppView({
           <Pressable
             accessibilityRole="button"
             onPress={() => router.push('/driver/profile')}
-            style={styles.avatarBtn}
+            style={[styles.avatarBtn, { overflow: 'hidden' }]}
           >
-            <Text style={styles.avatarText}>{name.slice(0, 1).toUpperCase()}</Text>
+            {authProfile?.avatar_path ? (
+              <Image
+                source={{ uri: authProfile.avatar_path }}
+                style={{ width: '100%', height: '100%' }}
+                contentFit="cover"
+              />
+            ) : (
+              <Text style={styles.avatarText}>{name.slice(0, 1).toUpperCase()}</Text>
+            )}
           </Pressable>
         </View>
       </View>

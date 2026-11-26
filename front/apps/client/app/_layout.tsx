@@ -2,20 +2,24 @@ import { Stack } from 'expo-router';
 import { AddToCartSheet } from '../components/AddToCartSheet';
 import { CartProvider } from '../context/CartContext';
 import { RedgoAuthProvider, useRedgoAuth } from '../context/RedgoAuthContext';
+import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { authEnabled } from '../services/auth';
 
 export default function RootLayout() {
   return (
-    <RedgoAuthProvider>
-      <CartProvider>
-        <RoleAwareStack />
-        <AddToCartSheet />
-      </CartProvider>
-    </RedgoAuthProvider>
+    <ThemeProvider>
+      <RedgoAuthProvider>
+        <CartProvider>
+          <RoleAwareStack />
+          <AddToCartSheet />
+        </CartProvider>
+      </RedgoAuthProvider>
+    </ThemeProvider>
   );
 }
 
 function RoleAwareStack() {
+  const { palette } = useTheme();
   const { user, roles, activeRole, driverApplicationStatus, previewRole, pendingVerification, isLoading } = useRedgoAuth();
   const isDriverAccount = Boolean(user) && (
     roles.includes('driver')
@@ -40,7 +44,7 @@ function RoleAwareStack() {
     && (driverApplicationStatus === 'rejected' || driverApplicationStatus === 'suspended');
 
   return (
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#09090B' } }}>
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: palette.background } }}>
       <Stack.Screen name="index" />
       <Stack.Protected guard={canShowOnboarding} redirectTo="/">
         <Stack.Screen name="welcome" />
@@ -72,6 +76,12 @@ function RoleAwareStack() {
       </Stack.Protected>
       <Stack.Protected guard={canUseDriver} redirectTo="/">
         <Stack.Screen name="driver" />
+      </Stack.Protected>
+      <Stack.Protected guard={canUseClient || canUseDriver} redirectTo="/">
+        <Stack.Screen name="profile/personal-info" />
+        <Stack.Screen name="profile/password" />
+        <Stack.Screen name="profile/notifications" />
+        <Stack.Screen name="profile/help" />
       </Stack.Protected>
       <Stack.Protected guard={canSeeDriverOnboarding} redirectTo="/">
         <Stack.Screen name="driver-auth/onboarding" />

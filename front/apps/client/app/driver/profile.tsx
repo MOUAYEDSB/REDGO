@@ -1,21 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
-import { colors } from '../../constants/theme';
 import { useRedgoAuth } from '../../context/RedgoAuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { authEnabled } from '../../services/auth';
 
-const items: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string }[] = [
-  { icon: 'person-outline', label: 'Informations personnelles' },
-  { icon: 'lock-closed-outline', label: 'Mot de passe' },
-  { icon: 'notifications-outline', label: 'Notifications' },
-  { icon: 'help-circle-outline', label: 'Centre d’aide' },
-];
-
 export default function DriverProfileScreen() {
-  const { user, profile, roles, activeRole, previewRole, selectRole, startPreview, signOut } = useRedgoAuth();
+  const { user, profile, activeRole, previewRole, selectRole, startPreview, signOut } = useRedgoAuth();
+  const { palette, isDark, toggleTheme } = useTheme();
   const [error, setError] = useState<string | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
 
@@ -50,72 +45,166 @@ export default function DriverProfileScreen() {
 
   return (
     <Screen scroll style={styles.screen}>
-      <Text style={styles.title}>Profil chauffeur</Text>
-      <View style={styles.header}>
-        <View style={styles.avatar}><Text style={styles.avatarText}>{name.slice(0, 1).toUpperCase()}</Text></View>
-        <View style={styles.identity}>
-          <Text style={styles.name}>{name}</Text>
-          <Text style={styles.info}>{phone}</Text>
-          <Text style={styles.info}>{email}</Text>
-        </View>
+      <View style={styles.topBar}>
+        <Pressable
+          onPress={() => router.back()}
+          style={[styles.backBtn, { backgroundColor: palette.card, borderColor: palette.border }]}
+        >
+          <Ionicons name="arrow-back" size={20} color={palette.text} />
+        </Pressable>
+        <Text style={[styles.title, { color: palette.text }]}>Profil chauffeur</Text>
       </View>
 
-      <Text style={styles.section}>Compte</Text>
-      {items.slice(0, 2).map((item) => (
-        <ProfileItem key={item.label} icon={item.icon} label={item.label} />
-      ))}
-
-      <Text style={styles.section}>Préférences</Text>
-      {items.slice(2).map((item) => (
-        <ProfileItem key={item.label} icon={item.icon} label={item.label} />
-      ))}
-
-        {!authEnabled ? (
-      <Pressable accessibilityRole="button" onPress={() => void changeSpace()} style={styles.switchSpace}>
-        <Ionicons name="swap-horizontal-outline" size={19} color={colors.primary} />
-        <Text style={styles.switchSpaceText}>
-          Passer à l’espace {previewRole === 'client' || activeRole === 'client' ? 'chauffeur' : 'client'}
-        </Text>
-        <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+      <Pressable style={styles.header} onPress={() => router.push('/profile/personal-info')}>
+        <View style={styles.avatarWrap}>
+          {profile?.avatar_path ? (
+            <Image source={{ uri: profile.avatar_path }} style={styles.avatarImg} contentFit="cover" />
+          ) : (
+            <View style={[styles.avatar, { backgroundColor: palette.primary }]}>
+              <Text style={styles.avatarText}>{name.slice(0, 1).toUpperCase()}</Text>
+            </View>
+          )}
+          <View style={[styles.camBadge, { backgroundColor: palette.primary, borderColor: palette.background }]}>
+            <Ionicons name="camera" size={12} color="#fff" />
+          </View>
+        </View>
+        <View style={styles.identity}>
+          <Text style={[styles.name, { color: palette.text }]}>{name}</Text>
+          <Text style={[styles.info, { color: palette.textSecondary }]}>{phone}</Text>
+          <Text style={[styles.info, { color: palette.textSecondary }]}>{email}</Text>
+        </View>
       </Pressable>
+
+      <Text style={[styles.section, { color: palette.textSecondary }]}>Compte</Text>
+      <ProfileItem
+        icon="person-outline"
+        label="Informations personnelles"
+        onPress={() => router.push('/profile/personal-info')}
+      />
+      <ProfileItem
+        icon="lock-closed-outline"
+        label="Mot de passe"
+        onPress={() => router.push('/profile/password')}
+      />
+
+      <Text style={[styles.section, { color: palette.textSecondary }]}>Préférences</Text>
+      <View style={[styles.item, { borderBottomColor: palette.border }]}>
+        <Ionicons name={isDark ? 'moon-outline' : 'sunny-outline'} size={21} color={palette.textSecondary} />
+        <Text style={[styles.itemText, { color: palette.text }]}>
+          {isDark ? 'Mode sombre' : 'Mode clair'}
+        </Text>
+        <Switch
+          value={isDark}
+          onValueChange={toggleTheme}
+          trackColor={{ false: '#CBD5E1', true: palette.primary }}
+          thumbColor="#FFFFFF"
+        />
+      </View>
+      <ProfileItem
+        icon="notifications-outline"
+        label="Notifications"
+        onPress={() => router.push('/profile/notifications')}
+      />
+
+      <Text style={[styles.section, { color: palette.textSecondary }]}>Support</Text>
+      <ProfileItem
+        icon="help-circle-outline"
+        label="Centre d’aide chauffeur"
+        onPress={() => router.push({ pathname: '/profile/help', params: { role: 'driver' } })}
+      />
+
+      {!authEnabled ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => void changeSpace()}
+          style={[styles.switchSpace, { borderColor: palette.border, backgroundColor: palette.card }]}
+        >
+          <Ionicons name="swap-horizontal-outline" size={19} color={palette.primary} />
+          <Text style={[styles.switchSpaceText, { color: palette.text }]}>
+            Passer à l’espace {previewRole === 'client' || activeRole === 'client' ? 'chauffeur' : 'client'}
+          </Text>
+          <Ionicons name="chevron-forward" size={18} color={palette.primary} />
+        </Pressable>
       ) : null}
 
-      {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+      {error ? <Text accessibilityRole="alert" style={[styles.error, { color: palette.error }]}>{error}</Text> : null}
 
       {authEnabled ? (
-        <Pressable accessibilityRole="button" disabled={isSigningOut} style={styles.logout} onPress={() => void handleSignOut()}>
-          <Text style={styles.logoutText}>{isSigningOut ? 'Déconnexion…' : 'Se déconnecter'}</Text>
+        <Pressable
+          accessibilityRole="button"
+          disabled={isSigningOut}
+          style={[styles.logout, { borderColor: palette.error }]}
+          onPress={() => void handleSignOut()}
+        >
+          <Text style={[styles.logoutText, { color: palette.error }]}>
+            {isSigningOut ? 'Déconnexion…' : 'Se déconnecter'}
+          </Text>
         </Pressable>
       ) : null}
     </Screen>
   );
 }
 
-function ProfileItem({ icon, label }: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string }) {
+function ProfileItem({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  label: string;
+  onPress: () => void;
+}) {
+  const { palette } = useTheme();
   return (
-    <Pressable accessibilityRole="button" style={styles.item}>
-      <Ionicons name={icon} size={21} color={colors.textSecondary} />
-      <Text style={styles.itemText}>{label}</Text>
-      <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[styles.item, { borderBottomColor: palette.border }]}
+    >
+      <Ionicons name={icon} size={21} color={palette.textSecondary} />
+      <Text style={[styles.itemText, { color: palette.text }]}>{label}</Text>
+      <Ionicons name="chevron-forward" size={18} color={palette.textSecondary} />
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { paddingHorizontal: 20 },
-  title: { color: colors.text, fontSize: 28, fontWeight: '900', marginVertical: 18 },
+  topBar: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 14 },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: { fontSize: 24, fontWeight: '900' },
   header: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingBottom: 22 },
   identity: { flex: 1 },
-  avatar: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  avatarWrap: { position: 'relative' },
+  avatar: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center' },
+  avatarImg: { width: 72, height: 72, borderRadius: 36 },
+  camBadge: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   avatarText: { color: '#fff', fontSize: 26, fontWeight: '900' },
-  name: { color: colors.text, fontSize: 18, fontWeight: '800' },
-  info: { color: colors.textSecondary, fontSize: 12, marginTop: 5 },
-  section: { color: colors.textSecondary, fontSize: 12, fontWeight: '800', letterSpacing: 1, marginTop: 18, marginBottom: 8 },
-  item: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
-  itemText: { flex: 1, color: colors.text, fontWeight: '700' },
-  switchSpace: { minHeight: 52, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 24 },
-  switchSpaceText: { flex: 1, color: colors.text, fontSize: 12, fontWeight: '800' },
-  logout: { height: 52, borderRadius: 14, borderWidth: 1, borderColor: colors.error, alignItems: 'center', justifyContent: 'center', marginVertical: 22 },
-  logoutText: { color: colors.error, fontWeight: '800' },
-  error: { color: colors.error, fontSize: 12, marginTop: 14 },
+  name: { fontSize: 18, fontWeight: '800' },
+  info: { fontSize: 12, marginTop: 5 },
+  section: { fontSize: 12, fontWeight: '800', letterSpacing: 1, marginTop: 18, marginBottom: 8 },
+  item: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 12, borderBottomWidth: 1 },
+  itemText: { flex: 1, fontWeight: '700' },
+  switchSpace: { minHeight: 52, borderRadius: 14, borderWidth: 1, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 24 },
+  switchSpaceText: { flex: 1, fontSize: 12, fontWeight: '800' },
+  logout: { height: 52, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginVertical: 22 },
+  logoutText: { fontWeight: '800' },
+  error: { fontSize: 12, marginTop: 14 },
 });
