@@ -117,20 +117,16 @@ export default function LiveDeliveryTrackingScreen() {
 
     void fetchStatus();
 
-    // Polling toutes les 2.5 secondes tant que la commande est active
-    const interval = setInterval(() => {
-      void fetchStatus();
-    }, 2500);
-
     // Écoute immédiate des mises à jour chauffeur (ex: acceptation de mission)
     const unsubscribeDriver = subscribeDriverUpdates(() => {
       if (isMounted) void fetchStatus();
     });
 
-    // Écoute Supabase Realtime
+    // Écoute Supabase Realtime (sans polling)
     const client = requireSupabase();
+    const channelName = `order-status-${id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const channel = client
-      .channel(`order-status-${id}`)
+      .channel(channelName)
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'delivery_orders', filter: `id=eq.${id}` },
@@ -149,7 +145,6 @@ export default function LiveDeliveryTrackingScreen() {
 
     return () => {
       isMounted = false;
-      clearInterval(interval);
       unsubscribeDriver();
       void client.removeChannel(channel);
     };

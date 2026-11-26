@@ -9,6 +9,14 @@ import { resolveBusinessCoordinates } from './businessCoordinates';
 import { formatHumanReadableAddress } from './geocoding';
 import { requireSupabase } from './supabase';
 
+export type DriverHistoryMissionItem = {
+  id: string;
+  productName: string;
+  businessName: string;
+  quantity: number;
+  imageUrl?: string | null;
+};
+
 export type DriverHistoryMission = {
   id: string;
   reference: string;
@@ -21,6 +29,7 @@ export type DriverHistoryMission = {
   driverEarningsMillimes: number;
   status: 'completed' | 'cancelled';
   completedAt: string;
+  items?: DriverHistoryMissionItem[];
 };
 
 export type DriverEarningsSummary = {
@@ -951,7 +960,7 @@ export async function fetchDriverHistory(userId?: string): Promise<DriverHistory
       const client = requireSupabase();
       const { data, error } = await (client as any)
         .from('driver_missions')
-        .select('id, mission_type, status, created_at, completed_at, delivery_orders(reference, total_millimes, delivery_fee_millimes, destination_address), scooter_rides(reference, fare_millimes, pickup_address, destination_address)')
+        .select('id, mission_type, status, created_at, completed_at, delivery_orders(reference, total_millimes, delivery_fee_millimes, destination_address, items:delivery_order_items(id, product_name, business_name, quantity, product:products(image_url))), scooter_rides(reference, fare_millimes, pickup_address, destination_address)')
         .eq('driver_id', userId)
         .eq('status', 'completed')
         .order('completed_at', { ascending: false })
@@ -965,17 +974,30 @@ export async function fetchDriverHistory(userId?: string): Promise<DriverHistory
           const ref = isDelivery ? (order?.reference || 'CMD') : (ride?.reference || 'TAX');
           const totalAmount = isDelivery ? (order?.total_millimes || 0) : (ride?.fare_millimes || 0);
           const earnings = isDelivery ? (order?.delivery_fee_millimes || 2500) : Math.max(2500, totalAmount - 500);
+          const orderItems: DriverHistoryMissionItem[] = isDelivery
+            ? (order?.items ?? []).map((it: any) => ({
+                id: it.id,
+                productName: it.product_name,
+                businessName: it.business_name,
+                quantity: Number(it.quantity ?? 1),
+                imageUrl: it.product?.image_url || null,
+              }))
+            : [];
+          const shopNames = Array.from(new Set(orderItems.map((it) => it.businessName).filter(Boolean)));
 
           return {
             id: row.id,
             reference: ref,
             missionType: row.mission_type,
-            pickupAddress: isDelivery ? 'Commerce partenaire' : (ride?.pickup_address || "M'Saken"),
+            pickupAddress: isDelivery
+              ? (shopNames.length > 0 ? shopNames.join(' · ') : 'Commerce partenaire')
+              : (ride?.pickup_address || "M'Saken"),
             destinationAddress: isDelivery ? (order?.destination_address || "M'Saken") : (ride?.destination_address || "M'Saken"),
             amountMillimes: totalAmount,
             driverEarningsMillimes: earnings,
             status: row.status,
             completedAt: row.completed_at || row.created_at,
+            items: orderItems,
           };
         });
 

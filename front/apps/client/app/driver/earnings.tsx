@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
@@ -16,7 +17,9 @@ import { useRedgoAuth } from '../../context/RedgoAuthContext';
 import { formatMillimes } from '../../services/cart';
 import {
   DriverEarningsSummary,
+  DriverHistoryMission,
   fetchDriverEarningsSummary,
+  fetchDriverHistory,
   subscribeDriverUpdates,
 } from '../../services/driverMissions';
 
@@ -34,16 +37,22 @@ export default function DriverEarningsScreen() {
     reviewsCount: 0,
     vehicleModel: '',
   });
+  const [history, setHistory] = useState<DriverHistoryMission[]>([]);
+  const [period, setPeriod] = useState<'today' | 'week' | 'all'>('today');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'delivery' | 'scooter_ride'>('all');
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
-    setIsLoading(true);
     try {
-      const summary = await fetchDriverEarningsSummary(user?.id);
+      const [summary, list] = await Promise.all([
+        fetchDriverEarningsSummary(user?.id),
+        fetchDriverHistory(user?.id),
+      ]);
       setEarnings(summary);
+      setHistory(list || []);
     } catch {
-      // Garde les valeurs par défaut
+      // Ignorer
     } finally {
       setIsLoading(false);
       setRefreshing(false);
@@ -64,6 +73,23 @@ export default function DriverEarningsScreen() {
     setRefreshing(true);
     void loadData();
   };
+
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay();
+  const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (dayOfWeek - 1)).getTime();
+
+  const filteredMissions = history.filter((item) => {
+    if (typeFilter !== 'all' && item.missionType !== typeFilter) return false;
+    const ts = new Date(item.completedAt).getTime();
+    if (period === 'today') return ts >= startOfDay;
+    if (period === 'week') return ts >= startOfWeek;
+    return true;
+  });
+
+  const filteredGainMillimes = filteredMissions.reduce((acc, m) => acc + m.driverEarningsMillimes, 0);
+  const filteredCashMillimes = filteredMissions.reduce((acc, m) => acc + m.amountMillimes, 0);
+  const periodLabel = period === 'today' ? "AUJOURD'HUI" : period === 'week' ? 'CETTE SEMAINE' : 'TOTAL CUMULÉ';
 
   return (
     <Screen
@@ -89,15 +115,70 @@ export default function DriverEarningsScreen() {
         </View>
       </View>
 
-      {/* Hero Card : Gains du jour */}
+      {/* Filtres période & type */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginBottom: 10 }}>
+        {(
+          [
+            { id: 'today', label: "Aujourd'hui" },
+            { id: 'week', label: 'Cette semaine' },
+            { id: 'all', label: 'Tout' },
+          ] as const
+        ).map((p) => (
+          <Pressable
+            key={p.id}
+            onPress={() => setPeriod(p.id)}
+            style={{
+              paddingHorizontal: 14,
+              paddingVertical: 7,
+              borderRadius: 12,
+              backgroundColor: period === p.id ? colors.primary : '#16161D',
+              borderWidth: 1,
+              borderColor: period === p.id ? colors.primary : '#262633',
+            }}
+          >
+            <Text style={{ color: period === p.id ? '#fff' : '#A1A1AA', fontSize: 12, fontWeight: '800' }}>
+              {p.label}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginBottom: 14 }}>
+        {(
+          [
+            { id: 'all', label: 'Toutes' },
+            { id: 'delivery', label: 'Livraisons' },
+            { id: 'scooter_ride', label: 'Scooter Taxi' },
+          ] as const
+        ).map((t) => (
+          <Pressable
+            key={t.id}
+            onPress={() => setTypeFilter(t.id)}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 10,
+              backgroundColor: typeFilter === t.id ? '#27272A' : '#121216',
+              borderWidth: 1,
+              borderColor: typeFilter === t.id ? '#52525B' : '#23232E',
+            }}
+          >
+            <Text style={{ color: typeFilter === t.id ? '#fff' : '#71717A', fontSize: 11, fontWeight: '700' }}>
+              {t.label}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      {/* Hero Card : Gains filtrés */}
       <View style={styles.heroCard}>
         <View style={styles.heroTop}>
           <View>
-            <Text style={styles.heroLabel}>RÉMUNÉRATION NETTE AUJOURD’HUI</Text>
-            <Text style={styles.heroAmount}>{formatMillimes(earnings.todayMillimes)}</Text>
+            <Text style={styles.heroLabel}>GAIN NET CHAUFFEUR · {periodLabel}</Text>
+            <Text style={styles.heroAmount}>{formatMillimes(filteredGainMillimes)}</Text>
           </View>
           <View style={styles.heroCountPill}>
-            <Text style={styles.heroCountText}>{earnings.todayCount} courses</Text>
+            <Text style={styles.heroCountText}>{filteredMissions.length} courses</Text>
           </View>
         </View>
 
@@ -105,12 +186,12 @@ export default function DriverEarningsScreen() {
 
         <View style={styles.heroFooter}>
           <View style={styles.heroSubMetric}>
-            <Text style={styles.heroSubLabel}>Semaine en cours</Text>
+            <Text style={styles.heroSubLabel}>Semaine</Text>
             <Text style={styles.heroSubValue}>{formatMillimes(earnings.weekMillimes)}</Text>
           </View>
           <View style={styles.heroSubMetric}>
-            <Text style={styles.heroSubLabel}>Courses semaine</Text>
-            <Text style={styles.heroSubValue}>{earnings.weekCount} missions</Text>
+            <Text style={styles.heroSubLabel}>Total cumulé</Text>
+            <Text style={styles.heroSubValue}>{formatMillimes(earnings.allTimeMillimes)}</Text>
           </View>
           <View style={styles.heroSubMetric}>
             <Text style={styles.heroSubLabel}>Note ({earnings.reviewsCount} avis)</Text>
@@ -128,13 +209,13 @@ export default function DriverEarningsScreen() {
             <Ionicons name="cash-outline" size={20} color="#34D399" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.cashTitle}>Total Espèces Encaissées</Text>
+            <Text style={styles.cashTitle}>Espèces encaissées ({periodLabel.toLowerCase()})</Text>
             <Text style={styles.cashSubtitle}>Argent liquide collecté auprès des clients</Text>
           </View>
         </View>
 
         <View style={styles.cashAmountRow}>
-          <Text style={styles.cashAmountBig}>{formatMillimes(earnings.cashCollectedMillimes)}</Text>
+          <Text style={styles.cashAmountBig}>{formatMillimes(filteredCashMillimes)}</Text>
           <Pressable
             onPress={() => router.push('/driver/cash-payment')}
             style={styles.qrScanBtn}
@@ -146,6 +227,52 @@ export default function DriverEarningsScreen() {
         <Text style={styles.cashNote}>
           Les frais de livraison sont automatiquement déduits et vos gains nets sont crédités sur votre compte chauffeur.
         </Text>
+      </View>
+
+      {/* Détail des missions de la sélection */}
+      <View style={[styles.rulesCard, { gap: 10 }]}>
+        <Text style={styles.rulesTitle}>Détail des missions ({filteredMissions.length})</Text>
+        {isLoading ? (
+          <ActivityIndicator color={colors.primary} style={{ marginVertical: 16 }} />
+        ) : filteredMissions.length === 0 ? (
+          <Text style={{ color: '#A1A1AA', fontSize: 12 }}>Aucune mission terminée pour cette sélection.</Text>
+        ) : (
+          filteredMissions.slice(0, 15).map((m) => (
+            <View
+              key={m.id}
+              style={{
+                backgroundColor: '#121216',
+                borderRadius: 12,
+                padding: 10,
+                borderWidth: 1,
+                borderColor: '#23232E',
+                gap: 6,
+              }}
+            >
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>{m.reference}</Text>
+                <Text style={{ color: '#34D399', fontSize: 13, fontWeight: '900' }}>+{formatMillimes(m.driverEarningsMillimes)}</Text>
+              </View>
+              <Text style={{ color: '#A1A1AA', fontSize: 11 }} numberOfLines={1}>
+                {m.pickupAddress} → {m.destinationAddress}
+              </Text>
+              {m.items && m.items.length > 0 ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                  {m.items.slice(0, 3).map((it) => (
+                    <View key={it.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#1C1C24', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 3 }}>
+                      {it.imageUrl ? (
+                        <Image source={{ uri: it.imageUrl }} style={{ width: 18, height: 18, borderRadius: 4 }} contentFit="cover" />
+                      ) : null}
+                      <Text style={{ color: '#E4E4E7', fontSize: 10, fontWeight: '600' }} numberOfLines={1}>
+                        {it.quantity}x {it.productName}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          ))
+        )}
       </View>
 
       {/* Règles de rémunération REDGO */}

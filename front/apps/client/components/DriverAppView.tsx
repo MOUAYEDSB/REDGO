@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -44,6 +44,7 @@ import {
 import { DriverReviewsSummary, fetchDriverReviews } from '../services/driverReviews';
 import { markMissionReadyForCash } from '../services/cashPayment';
 import { formatMillimes } from '../services/cart';
+import { requireSupabase } from '../services/supabase';
 
 type DriverAppViewProps = {
   userId: string | null;
@@ -105,6 +106,7 @@ export default function DriverAppView({
     reviews: [],
   });
   const [isLoadingMissions, setIsLoadingMissions] = useState(false);
+  const hasLoadedOnceRef = useRef(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -180,7 +182,9 @@ export default function DriverAppView({
       return;
     }
     setError(null);
-    setIsLoadingMissions(true);
+    if (!hasLoadedOnceRef.current) {
+      setIsLoadingMissions(true);
+    }
     try {
       const [nextProfile, nextActive, earningsSummary, nextReviews] = await Promise.all([
         getDriverProfile(userId).catch(() => null),
@@ -212,6 +216,7 @@ export default function DriverAppView({
       setError(errorMessage(cause));
       setOpenMissions([]);
     } finally {
+      hasLoadedOnceRef.current = true;
       setIsLoadingMissions(false);
       setIsRefreshing(false);
     }
@@ -220,18 +225,35 @@ export default function DriverAppView({
   useFocusEffect(
     useCallback(() => {
       void refresh();
-      // Écoute des mises à jour dynamiques + actualisation auto des missions
       const unsubscribe = subscribeDriverUpdates(() => {
         void refresh();
       });
-      const interval = setInterval(() => {
-        void refresh();
-      }, 4500);
+
+      let client: ReturnType<typeof requireSupabase> | null = null;
+      let channel: any = null;
+      if (userId && !isPreview) {
+        try {
+          client = requireSupabase();
+          const channelName = `driver-live-${userId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          channel = client
+            .channel(channelName)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'driver_missions' }, () => void refresh())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'delivery_orders' }, () => void refresh())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'scooter_rides' }, () => void refresh())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'driver_reviews' }, () => void refresh())
+            .subscribe();
+        } catch {
+          // Ignorer si client non prêt
+        }
+      }
+
       return () => {
         unsubscribe();
-        clearInterval(interval);
+        if (client && channel) {
+          void client.removeChannel(channel);
+        }
       };
-    }, [refresh]),
+    }, [refresh, userId, isPreview]),
   );
 
   const onPullRefresh = useCallback(() => {

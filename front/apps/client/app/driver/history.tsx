@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
@@ -204,6 +205,34 @@ export default function DriverHistoryScreen() {
                   <Ionicons name="location" size={13} color={colors.primary} />
                   <Text style={styles.addressTxt} numberOfLines={1}>{item.destinationAddress}</Text>
                 </View>
+
+                {item.items && item.items.length > 0 ? (
+                  <View style={{ backgroundColor: '#121216', borderRadius: 10, padding: 8, marginTop: 8, gap: 6, borderWidth: 1, borderColor: '#23232E' }}>
+                    {item.items.map((prod) => (
+                      <View key={prod.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        {prod.imageUrl ? (
+                          <Image
+                            source={{ uri: prod.imageUrl }}
+                            style={{ width: 32, height: 32, borderRadius: 7, backgroundColor: '#27272A' }}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <View style={{ width: 32, height: 32, borderRadius: 7, backgroundColor: '#27272A', alignItems: 'center', justifyContent: 'center' }}>
+                            <Ionicons name="fast-food-outline" size={14} color="#A1A1AA" />
+                          </View>
+                        )}
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: '#F4F4F5', fontSize: 12, fontWeight: '700' }} numberOfLines={1}>
+                            {prod.quantity}x {prod.productName}
+                          </Text>
+                          <Text style={{ color: '#A1A1AA', fontSize: 10 }} numberOfLines={1}>
+                            {prod.businessName}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
 
                 <View style={styles.cardBottom}>
                   <View style={styles.statusPill}>

@@ -46,10 +46,6 @@ export default function TabsLayout() {
     void refreshActiveCounts();
     if (!supabase || !user?.id) return;
 
-    const interval = setInterval(() => {
-      void refreshActiveCounts();
-    }, 5000);
-
     const channelName = `tabs-active-badge-${user.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const channel = supabase
       .channel(channelName)
@@ -66,7 +62,6 @@ export default function TabsLayout() {
       .subscribe();
 
     return () => {
-      clearInterval(interval);
       void supabase?.removeChannel(channel);
     };
   }, [user?.id, refreshActiveCounts]);
