@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 import { DeliveryStatusCard } from '../../components/DeliveryStatusCard';
 import { DriverInfoCard } from '../../components/DriverInfoCard';
 import { LiveTrackingMap } from '../../components/LiveTrackingMap';
@@ -85,6 +85,14 @@ export default function LiveDeliveryTrackingScreen() {
   const [isCancelling, setIsCancelling] = useState(false);
   const [driverLocation, setDriverLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [trackingState, setTrackingState] = useState<LocationConnectionState>('connecting');
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      router.replace('/(tabs)/home');
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     if (!id || id === 'order_default') return;

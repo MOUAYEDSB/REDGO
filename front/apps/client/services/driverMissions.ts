@@ -409,9 +409,41 @@ export async function listOpenDriverMissions(): Promise<OpenDriverMissionRow[]> 
       );
       if (rows.length === 0) return [];
 
-      // Vérifier côté DB qu'aucune commande/course sous-jacente n'est annulée
-      const deliveryIds = rows.filter((r) => r.mission_type === 'delivery' && r.target_id).map((r) => r.target_id);
-      const rideIds = rows.filter((r) => r.mission_type === 'scooter_ride' && r.target_id).map((r) => r.target_id);
+      // Vérifier côté DB qu'aucune mission ou commande/course sous-jacente n'est annulée
+      const missionIds = rows.map((r) => r.mission_id);
+      const { data: mRows } = await (client as any)
+        .from('driver_missions')
+        .select('id, status, delivery_order_id, scooter_ride_id')
+        .in('id', missionIds);
+
+      const cancelledMissionIds = new Set<string>();
+      const deliveryIdByMission = new Map<string, string>();
+      const rideIdByMission = new Map<string, string>();
+
+      (mRows ?? []).forEach((m: any) => {
+        if (m.status && m.status !== 'searching') {
+          cancelledMissionIds.add(m.id);
+        }
+        if (m.delivery_order_id) deliveryIdByMission.set(m.id, m.delivery_order_id);
+        if (m.scooter_ride_id) rideIdByMission.set(m.id, m.scooter_ride_id);
+      });
+
+      const deliveryIds = Array.from(
+        new Set(
+          rows
+            .filter((r) => r.mission_type === 'delivery')
+            .map((r) => r.target_id || deliveryIdByMission.get(r.mission_id))
+            .filter(Boolean) as string[],
+        ),
+      );
+      const rideIds = Array.from(
+        new Set(
+          rows
+            .filter((r) => r.mission_type === 'scooter_ride')
+            .map((r) => r.target_id || rideIdByMission.get(r.mission_id))
+            .filter(Boolean) as string[],
+        ),
+      );
 
       const cancelledTargets = new Set<string>();
       await Promise.all([
@@ -444,7 +476,16 @@ export async function listOpenDriverMissions(): Promise<OpenDriverMissionRow[]> 
       ]);
 
       return rows
-        .filter((row) => !cancelledTargets.has(row.target_id))
+        .filter((row) => {
+          if (cancelledMissionIds.has(row.mission_id)) return false;
+          const targetId =
+            row.target_id ||
+            (row.mission_type === 'delivery'
+              ? deliveryIdByMission.get(row.mission_id)
+              : rideIdByMission.get(row.mission_id));
+          if (targetId && cancelledTargets.has(targetId)) return false;
+          return true;
+        })
         .map((row) => ({
           ...row,
           pickup_address: formatHumanReadableAddress(row.pickup_address),

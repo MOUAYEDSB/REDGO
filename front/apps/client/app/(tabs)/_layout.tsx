@@ -50,8 +50,9 @@ export default function TabsLayout() {
       void refreshActiveCounts();
     }, 5000);
 
+    const channelName = `tabs-active-badge-${user.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const channel = supabase
-      .channel(`tabs-active-badge-${user.id}`)
+      .channel(channelName)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'delivery_orders' },

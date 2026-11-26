@@ -21,6 +21,9 @@ import { useRedgoAuth } from '../context/RedgoAuthContext';
 import { createDeliveryOrder } from '../services/delivery';
 import { formatMillimes } from '../services/cart';
 
+// Conserve les champs saisis lors de l'aller-retour vers la carte
+let checkoutDraft = { phone: '', instructions: '' };
+
 export default function CheckoutScreen() {
   const { items, pricing, clearCart } = useCart();
   const { profile } = useRedgoAuth();
@@ -36,12 +39,20 @@ export default function CheckoutScreen() {
     const longitude = Number(recipientLng);
     return Number.isFinite(latitude) && Number.isFinite(longitude) ? { latitude, longitude } : null;
   });
-  const [phone, setPhone] = useState(() => profile?.phone?.trim() || '');
-  const [instructions, setInstructions] = useState('');
+  const [phone, setPhone] = useState(() => checkoutDraft.phone || profile?.phone?.trim() || '');
+  const [instructions, setInstructions] = useState(() => checkoutDraft.instructions);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const finalAddress = mapAddress || '';
+
+  useEffect(() => {
+    checkoutDraft.phone = phone;
+  }, [phone]);
+
+  useEffect(() => {
+    checkoutDraft.instructions = instructions;
+  }, [instructions]);
 
   useEffect(() => {
     if (!phone && profile?.phone?.trim()) {
@@ -110,7 +121,8 @@ export default function CheckoutScreen() {
           recipientCoordinates: mapCoordinates,
         });
 
-        // Clear cart once order is confirmed
+        // Clear cart & draft once order is confirmed
+        checkoutDraft = { phone: '', instructions: '' };
         clearCart();
 
         // Navigate to order confirmation passing order reference & id

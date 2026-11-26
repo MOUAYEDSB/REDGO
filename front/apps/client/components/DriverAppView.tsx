@@ -635,7 +635,7 @@ export default function DriverAppView({
           ) : null}
 
           {/* Contact client & Instructions de remise + Montant à encaisser */}
-          {(missionLocations?.recipientPhone || missionLocations?.destinationInstructions) ? (
+          {missionLocations ? (
             <View style={[styles.orderItemsBox, { marginBottom: 12 }]}>
               <View style={styles.orderItemsHeader}>
                 <View style={styles.orderItemsHeaderLeft}>
@@ -643,16 +643,23 @@ export default function DriverAppView({
                   <Text style={styles.orderItemsTitle}>Contact & Remise client</Text>
                 </View>
               </View>
-              {missionLocations?.recipientPhone ? (
-                <Text style={{ color: '#E4E4E7', fontSize: 13, fontWeight: '700', marginTop: 6 }}>
-                  Téléphone : {missionLocations.recipientPhone}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                <Ionicons name="call-outline" size={15} color="#38BDF8" />
+                <Text style={{ color: '#F4F4F5', fontSize: 13, fontWeight: '700', flex: 1 }}>
+                  Téléphone : {missionLocations.recipientPhone || 'Non renseigné'}
                 </Text>
-              ) : null}
-              {missionLocations?.destinationInstructions ? (
-                <Text style={{ color: '#A1A1AA', fontSize: 12, marginTop: 4, lineHeight: 17 }}>
-                  Instructions : {missionLocations.destinationInstructions}
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 6 }}>
+                <Ionicons name="document-text-outline" size={15} color="#38BDF8" style={{ marginTop: 2 }} />
+                <Text style={{ color: '#F4F4F5', fontSize: 13, fontWeight: '700', flex: 1, lineHeight: 18 }}>
+                  Instructions :{' '}
+                  <Text style={{ color: missionLocations.destinationInstructions?.trim() ? '#E4E4E7' : '#A1A1AA', fontWeight: '600' }}>
+                    {missionLocations.destinationInstructions?.trim()
+                      ? missionLocations.destinationInstructions.trim()
+                      : 'Aucune instruction particulière'}
+                  </Text>
                 </Text>
-              ) : null}
+              </View>
             </View>
           ) : null}
 

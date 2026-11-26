@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect } from 'react';
+import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../components/Screen';
 import { colors } from '../constants/theme';
 import { formatMillimes } from '../services/cart';
@@ -24,6 +24,14 @@ import { formatMillimes } from '../services/cart';
     }>();
 
     const totalMillimes = parseInt(total, 10) || 24500;
+
+    useEffect(() => {
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        router.replace('/(tabs)/home');
+        return true;
+      });
+      return () => sub.remove();
+    }, []);
 
     const handleStartLiveTracking = () => {
       router.replace(`/order/${id}?reference=${reference}&hasCourses=${hasCourses}&hasFood=${hasFood}`);
