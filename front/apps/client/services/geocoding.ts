@@ -1,3 +1,5 @@
+import * as Location from 'expo-location';
+
 /**
  * Service de géocodage inversé et de formatage d'adresses pour REDGO
  * Transforme les coordonnées brutes GPS en véritables noms de rue et quartiers de M'Saken et Messaadine.
@@ -129,4 +131,63 @@ export function formatHumanReadableAddress(
   }
 
   return cleaned || 'Avenue Habib Bourguiba, M\'Saken';
+}
+
+/**
+ * Géocode inversé exact via le service natif (rue, quartier, ville),
+ * puis OpenStreetMap Nominatim si aucune rue n'est trouvée,
+ * avec repli final sur les rues locales de M'Saken / Messaadine.
+ */
+export async function reverseGeocodeAddress(lat: number, lng: number): Promise<string> {
+  try {
+    const results = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+    const first = results?.[0];
+    if (first) {
+      const streetPart = [first.streetNumber, first.street || first.name]
+        .filter((part) => typeof part === 'string' && part.trim().length > 0 && !/^\d+\.\d+$/.test(part.trim()))
+        .join(' ')
+        .trim();
+      const areaPart = first.district || first.subregion || first.city || "M'Saken";
+      if (streetPart) {
+        return streetPart.toLowerCase().includes(areaPart.toLowerCase())
+          ? streetPart
+          : `${streetPart}, ${areaPart}`;
+      }
+    }
+  } catch {
+    // Continuer vers Nominatim
+  }
+
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=fr&lat=${lat}&lon=${lng}`,
+      { headers: { 'User-Agent': 'REDGO-App/1.0' } },
+    );
+    if (res.ok) {
+      const data = (await res.json()) as {
+        name?: string;
+        address?: {
+          road?: string;
+          pedestrian?: string;
+          neighbourhood?: string;
+          suburb?: string;
+          town?: string;
+          city?: string;
+          village?: string;
+        };
+      };
+      const addr = data.address;
+      const road = addr?.road || addr?.pedestrian || data.name;
+      const area = addr?.neighbourhood || addr?.suburb || addr?.town || addr?.city || addr?.village;
+      if (road && area && !road.toLowerCase().includes(area.toLowerCase())) {
+        return `${road}, ${area}`;
+      }
+      if (road) return road;
+      if (area) return area;
+    }
+  } catch {
+    // Repli silencieux sur le mapping local
+  }
+
+  return getLocalStreetAndNeighborhood(lat, lng).fullAddress;
 }

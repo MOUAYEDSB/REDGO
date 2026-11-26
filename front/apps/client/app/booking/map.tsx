@@ -4,9 +4,11 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Circle, Marker, Polyline, PROVIDER_DEFAULT, Region } from 'react-native-maps';
+import { LocalLandmarkMarkers } from '../../components/LocalLandmarkMarkers';
+import { RestaurantMapMarkers } from '../../components/RestaurantMapMarkers';
 import { Button } from '../../components/ui';
 import { colors } from '../../constants/theme';
-import { formatHumanReadableAddress } from '../../services/geocoding';
+import { formatHumanReadableAddress, reverseGeocodeAddress } from '../../services/geocoding';
 
 const canRenderNativeMap =
   Platform.OS === 'ios' || Boolean(process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY);
@@ -98,7 +100,13 @@ export default function BookingMap() {
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [locationMessage, setLocationMessage] = useState('');
   const [activeSelection, setActiveSelection] = useState<'pickup' | 'destination'>('pickup');
-  const selectedDestinationAddress = `Destination choisie (${destinationPoint.latitude.toFixed(5)}, ${destinationPoint.longitude.toFixed(5)})`;
+  const [pickupLabel, setPickupLabel] = useState<string>(() =>
+    formatHumanReadableAddress(pickup || null, pickupPoint.latitude, pickupPoint.longitude),
+  );
+  const [destinationLabel, setDestinationLabel] = useState<string>(() =>
+    formatHumanReadableAddress(address || null, destinationPoint.latitude, destinationPoint.longitude),
+  );
+  const selectedDestinationAddress = destinationLabel;
 
   useEffect(() => {
     (async () => {
@@ -201,10 +209,10 @@ export default function BookingMap() {
       }
 
       const itineraryParams = {
-        pickup: `Position choisie (${pickupPoint.latitude.toFixed(5)}, ${pickupPoint.longitude.toFixed(5)})`,
+        pickup: pickupLabel,
         pickupLat: pickupPoint.latitude.toString(),
         pickupLng: pickupPoint.longitude.toString(),
-        destination: `Destination choisie (${destinationPoint.latitude.toFixed(5)}, ${destinationPoint.longitude.toFixed(5)})`,
+        destination: destinationLabel,
         destinationLat: destinationPoint.latitude.toString(),
         destinationLng: destinationPoint.longitude.toString(),
       };
@@ -239,12 +247,12 @@ export default function BookingMap() {
       pickupLat: selectedPoint.latitude.toString(),
       pickupLng: selectedPoint.longitude.toString(),
     };
-    const pickupAddress = `Position choisie (${selectedPoint.latitude.toFixed(5)}, ${selectedPoint.longitude.toFixed(5)})`;
+    const pickupAddress = pickupLabel;
     const destinationCoordinates = {
       destinationLat: selectedPoint.latitude.toString(),
       destinationLng: selectedPoint.longitude.toString(),
     };
-    const destinationAddress = `Destination choisie (${selectedPoint.latitude.toFixed(5)}, ${selectedPoint.longitude.toFixed(5)})`;
+    const destinationAddress = destinationLabel;
 
     if (mode === 'destination') {
       if (flow === 'booking') {
@@ -309,14 +317,19 @@ export default function BookingMap() {
             showsMyLocationButton
             onPress={(event) => {
               const point = event.nativeEvent.coordinate;
+              const fallbackLabel = formatHumanReadableAddress(null, point.latitude, point.longitude);
               if (mode === 'pickup' || (mode === 'itinerary' && activeSelection === 'pickup')) {
                 setPickupPoint(point);
+                setPickupLabel(fallbackLabel);
+                void reverseGeocodeAddress(point.latitude, point.longitude).then((exact) => setPickupLabel(exact));
                 if (mode === 'itinerary') {
                   setHasSelectedPickup(true);
                   setActiveSelection('destination');
                 }
               } else {
                 setDestinationPoint(point);
+                setDestinationLabel(fallbackLabel);
+                void reverseGeocodeAddress(point.latitude, point.longitude).then((exact) => setDestinationLabel(exact));
                 if (mode === 'delivery') {
                   setHasSelectedDelivery(true);
                   setIsCurrentPositionSelected(false);
@@ -325,6 +338,48 @@ export default function BookingMap() {
               }
             }}
           >
+            <LocalLandmarkMarkers
+              onSelectLandmark={(lm) => {
+                const point = { latitude: lm.latitude, longitude: lm.longitude };
+                if (mode === 'pickup' || (mode === 'itinerary' && activeSelection === 'pickup')) {
+                  setPickupPoint(point);
+                  setPickupLabel(lm.address);
+                  if (mode === 'itinerary') {
+                    setHasSelectedPickup(true);
+                    setActiveSelection('destination');
+                  }
+                } else {
+                  setDestinationPoint(point);
+                  setDestinationLabel(lm.address);
+                  if (mode === 'delivery') {
+                    setHasSelectedDelivery(true);
+                    setIsCurrentPositionSelected(false);
+                  }
+                  if (mode === 'itinerary') setHasSelectedDestination(true);
+                }
+              }}
+            />
+            <RestaurantMapMarkers
+              onSelectPlace={(place) => {
+                const point = { latitude: place.latitude, longitude: place.longitude };
+                if (mode === 'pickup' || (mode === 'itinerary' && activeSelection === 'pickup')) {
+                  setPickupPoint(point);
+                  setPickupLabel(place.name);
+                  if (mode === 'itinerary') {
+                    setHasSelectedPickup(true);
+                    setActiveSelection('destination');
+                  }
+                } else {
+                  setDestinationPoint(point);
+                  setDestinationLabel(place.name);
+                  if (mode === 'delivery') {
+                    setHasSelectedDelivery(true);
+                    setIsCurrentPositionSelected(false);
+                  }
+                  if (mode === 'itinerary') setHasSelectedDestination(true);
+                }
+              }}
+            />
             <Circle center={MSaken} radius={2600} fillColor="rgba(255,38,56,.08)" strokeColor="rgba(255,38,56,.45)" />
             <Circle center={Messaadine} radius={2200} fillColor="rgba(255,38,56,.08)" strokeColor="rgba(255,38,56,.45)" />
             {mode === 'delivery' ? (
@@ -390,9 +445,9 @@ export default function BookingMap() {
               ? formatHumanReadableAddress(null, destinationPoint.latitude, destinationPoint.longitude)
               : 'Touchez la carte pour choisir votre adresse de livraison.'
             : mode === 'itinerary'
-              ? `Départ : ${pickupPoint.latitude.toFixed(5)}, ${pickupPoint.longitude.toFixed(5)}\nArrivée : ${destinationPoint.latitude.toFixed(5)}, ${destinationPoint.longitude.toFixed(5)}`
+              ? `Départ : ${pickupLabel}\nArrivée : ${destinationLabel}`
               : mode === 'pickup'
-                ? `Position sélectionnée\n${pickupPoint.latitude.toFixed(5)}, ${pickupPoint.longitude.toFixed(5)}`
+                ? pickupLabel
                 : selectedDestinationAddress}
         </Text>
         {locationMessage ? <Text style={styles.notice}>{locationMessage}</Text> : null}

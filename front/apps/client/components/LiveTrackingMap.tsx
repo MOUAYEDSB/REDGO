@@ -14,6 +14,7 @@ import MapView, { Marker, Polyline, PROVIDER_DEFAULT, Region } from 'react-nativ
 import { colors } from '../constants/theme';
 import { fetchRoadRoute } from '../services/routing';
 import { Coordinates, DeliveryStop, DriverInfo } from '../types/delivery';
+import { LocalLandmarkMarkers } from './LocalLandmarkMarkers';
 import { RestaurantMapMarkers } from './RestaurantMapMarkers';
 
 const canRenderNativeMap =
@@ -343,6 +344,9 @@ export function LiveTrackingMap({
             if (followDriver) setFollowDriver(false);
           }}
         >
+          {/* Rues, avenues & repères reconnus M'Saken / Messaadine */}
+          <LocalLandmarkMarkers />
+
           {/* Restaurants & Hub Courses visibles sur la carte */}
           <RestaurantMapMarkers />
 

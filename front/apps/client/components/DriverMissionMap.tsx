@@ -15,6 +15,7 @@ import { colors } from '../constants/theme';
 import { resolveBusinessCoordinates } from '../services/businessCoordinates';
 import { publishDriverLocation } from '../services/driverLocation';
 import { fetchMissionLocationDetails } from '../services/driverMissions';
+import { LocalLandmarkMarkers } from './LocalLandmarkMarkers';
 import { RestaurantMapMarkers } from './RestaurantMapMarkers';
 import {
   fetchRoadRoute,
@@ -23,12 +24,6 @@ import {
 } from '../services/routing';
 
 const MSAKEN_CENTER = { latitude: 35.7273, longitude: 10.5815 };
-const LOCAL_LANDMARKS: { id: string; label: string; icon: keyof typeof Ionicons.glyphMap; latitude: number; longitude: number }[] = [
-  { id: 'msaken_centre', label: "M'Saken Centre", icon: 'business', latitude: 35.7273, longitude: 10.5815 },
-  { id: 'gare_msaken', label: "Gare M'Saken", icon: 'train', latitude: 35.7298, longitude: 10.5792 },
-  { id: 'hopital_msaken', label: "Hôpital M'Saken", icon: 'medkit', latitude: 35.7215, longitude: 10.5862 },
-  { id: 'messaadine_centre', label: 'Messaadine', icon: 'location', latitude: 35.7551, longitude: 10.5921 },
-];
 const canRenderNativeMap =
   Platform.OS === 'ios' || Boolean(process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY);
 
@@ -598,20 +593,8 @@ export function DriverMissionMap({
             if (isNavigating) setUserInteracted(true);
           }}
         >
-          {/* Repères locaux M'Saken & Messaadine pour une vue claire */}
-          {LOCAL_LANDMARKS.map((lm) => (
-            <Marker
-              key={lm.id}
-              coordinate={{ latitude: lm.latitude, longitude: lm.longitude }}
-              anchor={{ x: 0.5, y: 0.5 }}
-              zIndex={1}
-            >
-              <View style={styles.landmarkPill}>
-                <Ionicons name={lm.icon} size={10} color="#CBD5E1" />
-                <Text style={styles.landmarkText}>{lm.label}</Text>
-              </View>
-            </Marker>
-          ))}
+          {/* Rues, avenues & repères reconnus M'Saken / Messaadine */}
+          <LocalLandmarkMarkers />
 
           {/* Restaurants & Hub Courses visibles sur la carte */}
           <RestaurantMapMarkers />

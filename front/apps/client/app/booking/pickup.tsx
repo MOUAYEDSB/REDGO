@@ -16,11 +16,12 @@ import {
 } from 'react-native';
 import MapView, { Circle, Marker, Polyline, PROVIDER_DEFAULT, Region } from 'react-native-maps';
 import { Screen } from '../../components/Screen';
+import { LocalLandmarkMarkers } from '../../components/LocalLandmarkMarkers';
 import { RestaurantMapMarkers } from '../../components/RestaurantMapMarkers';
 import { colors } from '../../constants/theme';
 import { formatMillimes } from '../../services/cart';
 import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
-import { formatHumanReadableAddress } from '../../services/geocoding';
+import { formatHumanReadableAddress, reverseGeocodeAddress } from '../../services/geocoding';
 import { createScooterRide } from '../../services/ride';
 import { fetchRoadRoute } from '../../services/routing';
 
@@ -41,9 +42,10 @@ const DEFAULT_REGION: Region = {
 
 const QUICK_PLACES: { id: string; label: string; coords: Point }[] = [
   { id: 'msaken', label: "M'Saken Centre", coords: MSAKEN_CENTER },
-  { id: 'messaadine', label: 'Messaadine Centre', coords: MESSAADINE_CENTER },
-  { id: 'gare', label: "Gare de M'Saken", coords: { latitude: 35.7298, longitude: 10.5792 } },
-  { id: 'hopital', label: "Hôpital de M'Saken", coords: { latitude: 35.7215, longitude: 10.5862 } },
+  { id: 'messaadine', label: 'Messaadine Centre', coords: { latitude: 35.7613215, longitude: 10.5966672 } },
+  { id: 'marche', label: 'Marché Municipal', coords: { latitude: 35.7266265, longitude: 10.5829902 } },
+  { id: 'gare', label: "Gare de M'Saken", coords: { latitude: 35.7289523, longitude: 10.5999530 } },
+  { id: 'csb_nord', label: "CSB Nord M'Saken", coords: { latitude: 35.7337083, longitude: 10.5742259 } },
 ];
 
 export default function BookingPickupScreen() {
@@ -127,9 +129,11 @@ export default function BookingPickupScreen() {
       if (activeMapTarget === 'pickup') {
         setPickupPoint(pt);
         setPickupAddress(label);
+        void reverseGeocodeAddress(pt.latitude, pt.longitude).then((exact) => setPickupAddress(exact));
       } else {
         setDestinationPoint(pt);
         setDestinationAddress(label);
+        void reverseGeocodeAddress(pt.latitude, pt.longitude).then((exact) => setDestinationAddress(exact));
       }
       mapRef.current?.animateToRegion({
         ...pt,
@@ -584,9 +588,11 @@ export default function BookingPickupScreen() {
                     setPickupPoint(pt);
                     setPickupAddress(label);
                     setActiveMapTarget('destination');
+                    void reverseGeocodeAddress(pt.latitude, pt.longitude).then((exact) => setPickupAddress(exact));
                   } else {
                     setDestinationPoint(pt);
                     setDestinationAddress(label);
+                    void reverseGeocodeAddress(pt.latitude, pt.longitude).then((exact) => setDestinationAddress(exact));
                   }
                 }}
               >
@@ -601,6 +607,19 @@ export default function BookingPickupScreen() {
                   radius={2200}
                   fillColor="rgba(255,32,42,0.06)"
                   strokeColor="rgba(255,32,42,0.35)"
+                />
+                <LocalLandmarkMarkers
+                  onSelectLandmark={(lm) => {
+                    const pt = { latitude: lm.latitude, longitude: lm.longitude };
+                    if (activeMapTarget === 'pickup') {
+                      setPickupPoint(pt);
+                      setPickupAddress(lm.address);
+                      setActiveMapTarget('destination');
+                    } else {
+                      setDestinationPoint(pt);
+                      setDestinationAddress(lm.address);
+                    }
+                  }}
                 />
                 <RestaurantMapMarkers
                   onSelectPlace={(place) => {
