@@ -65,8 +65,8 @@ function RoleAwareStack() {
         <Stack.Screen name="checkout" />
         <Stack.Screen name="food" />
         <Stack.Screen name="market" />
-        <Stack.Screen name="order-confirmed" />
-        <Stack.Screen name="order/[id]" />
+        <Stack.Screen name="order-confirmed" options={{ gestureEnabled: false }} />
+        <Stack.Screen name="order/[id]" options={{ gestureEnabled: false }} />
         <Stack.Screen name="ride" />
         <Stack.Screen name="tracking/[id]" />
       </Stack.Protected>

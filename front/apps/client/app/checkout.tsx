@@ -125,6 +125,10 @@ export default function CheckoutScreen() {
         checkoutDraft = { phone: '', instructions: '' };
         clearCart();
 
+        // Clear navigation stack (/booking/map, /checkout, /cart) so back/swipe never returns to map
+        if (router.canDismiss()) {
+          router.dismissAll();
+        }
         // Navigate to order confirmation passing order reference & id
         router.replace({
           pathname: '/order-confirmed',

@@ -13,6 +13,7 @@ export type CustomerOrderItem = {
   unitPriceMillimes: number;
   optionsPriceMillimes: number;
   lineTotalMillimes: number;
+  imageUrl?: string | null;
   selectedOptions?: Array<{ id: string; name: string; priceMillimes: number }>;
 };
 
@@ -44,7 +45,7 @@ export async function fetchCustomerOrders(): Promise<CustomerOrder[]> {
     const client = requireSupabase();
     const { data, error } = await (client as any)
       .from('delivery_orders')
-      .select('*, items:delivery_order_items(*), stops:delivery_order_stops(*)')
+      .select('*, items:delivery_order_items(*, product:products(image_url)), stops:delivery_order_stops(*)')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -54,16 +55,26 @@ export async function fetchCustomerOrders(): Promise<CustomerOrder[]> {
     if (!data || data.length === 0) return [];
 
     return (data as any[]).map((row) => {
-      const itemsList: CustomerOrderItem[] = (row.items ?? []).map((it: any) => ({
-        id: it.id,
-        productName: it.product_name,
-        businessName: it.business_name,
-        quantity: it.quantity,
-        unitPriceMillimes: it.unit_price_millimes,
-        optionsPriceMillimes: it.options_price_millimes ?? 0,
-        lineTotalMillimes: it.line_total_millimes,
-        selectedOptions: Array.isArray(it.selected_options) ? it.selected_options : [],
-      }));
+      const itemsList: CustomerOrderItem[] = (row.items ?? []).map((it: any) => {
+        const unitPrice = Number(it.unit_price_millimes ?? 0);
+        const optionsPrice = Number(it.options_price_millimes ?? 0);
+        const qty = Number(it.quantity ?? 1);
+        const lineTotal =
+          typeof it.line_total_millimes === 'number'
+            ? it.line_total_millimes
+            : (unitPrice + optionsPrice) * qty;
+        return {
+          id: it.id,
+          productName: it.product_name,
+          businessName: it.business_name,
+          quantity: qty,
+          unitPriceMillimes: unitPrice,
+          optionsPriceMillimes: optionsPrice,
+          lineTotalMillimes: lineTotal,
+          imageUrl: it.product?.image_url || null,
+          selectedOptions: Array.isArray(it.selected_options) ? it.selected_options : [],
+        };
+      });
 
       const stopsList: DeliveryStop[] = (row.stops ?? []).map((s: any) => ({
         id: s.id,

@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -265,16 +266,48 @@ import {
 
               {/* Items Preview */}
               <View style={styles.itemsPreviewBox}>
-                <View style={styles.itemsTextRow}>
-                  <Text style={styles.itemsCountText}>
-                    {order.itemsCount} article{order.itemsCount > 1 ? 's' : ''} :
-                  </Text>
-                  <Text style={styles.itemsSummaryText} numberOfLines={1}>
-                    {order.items.length > 0
-                      ? order.items.map((i: CustomerOrderItem) => `${i.quantity}x ${i.productName}`).join(' · ')
-                      : 'Articles divers commandés'}
-                  </Text>
-                </View>
+                {order.items.length > 0 ? (
+                  <View style={styles.itemsRowsList}>
+                    {order.items.map((item: CustomerOrderItem) => (
+                      <View key={item.id} style={styles.itemRowCard}>
+                        <View style={styles.itemThumbWrap}>
+                          {item.imageUrl ? (
+                            <Image
+                              source={{ uri: item.imageUrl }}
+                              style={styles.itemThumbImg}
+                              contentFit="cover"
+                            />
+                          ) : (
+                            <View style={styles.itemThumbPlaceholder}>
+                              <Ionicons
+                                name={order.hasFood ? 'fast-food-outline' : 'cube-outline'}
+                                size={18}
+                                color={colors.textSecondary}
+                              />
+                            </View>
+                          )}
+                        </View>
+                        <View style={styles.itemRowInfo}>
+                          <Text style={styles.itemRowName} numberOfLines={1}>
+                            {item.quantity}x {item.productName}
+                          </Text>
+                          <Text style={styles.itemRowMeta} numberOfLines={1}>
+                            {item.businessName} · {formatMillimes(item.lineTotalMillimes)}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={styles.itemsTextRow}>
+                    <Text style={styles.itemsCountText}>
+                      {order.itemsCount} article{order.itemsCount > 1 ? 's' : ''} :
+                    </Text>
+                    <Text style={styles.itemsSummaryText} numberOfLines={1}>
+                      Articles divers commandés
+                    </Text>
+                  </View>
+                )}
 
                 {/* Destination snippet */}
                 <View style={styles.destinationRow}>
@@ -572,8 +605,47 @@ import {
                   borderRadius: 12,
                   padding: 10,
                   marginTop: 12,
-                  gap: 6,
+                  gap: 8,
   },
+                  itemsRowsList: {
+                    gap: 8,
+                  },
+                  itemRowCard: {
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 10,
+                  },
+                  itemThumbWrap: {
+                    width: 42,
+                    height: 42,
+                    borderRadius: 10,
+                    overflow: 'hidden',
+                    backgroundColor: '#1C1C22',
+                    borderWidth: 1,
+                    borderColor: '#27272A',
+                  },
+                  itemThumbImg: {
+                    width: '100%',
+                    height: '100%',
+                  },
+                  itemThumbPlaceholder: {
+                    flex: 1,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  },
+                  itemRowInfo: {
+                    flex: 1,
+                    gap: 2,
+                  },
+                  itemRowName: {
+                    color: '#F4F4F5',
+                    fontSize: 12,
+                    fontWeight: '700',
+                  },
+                  itemRowMeta: {
+                    color: colors.textSecondary,
+                    fontSize: 11,
+                  },
                   itemsTextRow: {
                     flexDirection: 'row',
                   alignItems: 'center',
