@@ -571,8 +571,12 @@ export default function BookingPickupScreen() {
                 ref={mapRef}
                 style={StyleSheet.absoluteFill}
                 provider={PROVIDER_DEFAULT}
+                mapType="standard"
                 initialRegion={DEFAULT_REGION}
-                userInterfaceStyle="dark"
+                userInterfaceStyle="light"
+                showsBuildings
+                showsPointsOfInterests
+                showsIndoors
                 onPress={(e) => {
                   const pt = e.nativeEvent.coordinate;
                   const label = formatHumanReadableAddress(null, pt.latitude, pt.longitude);

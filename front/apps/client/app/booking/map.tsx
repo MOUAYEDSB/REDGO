@@ -3,7 +3,7 @@ import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import MapView, { Circle, Marker, Polyline, Region, UrlTile } from 'react-native-maps';
+import MapView, { Circle, Marker, Polyline, PROVIDER_DEFAULT, Region } from 'react-native-maps';
 import { Button } from '../../components/ui';
 import { colors } from '../../constants/theme';
 import { formatHumanReadableAddress } from '../../services/geocoding';
@@ -298,7 +298,12 @@ export default function BookingMap() {
           <MapView
             ref={mapRef}
             style={styles.map}
-            mapType={Platform.OS === 'android' ? 'none' : 'standard'}
+            provider={PROVIDER_DEFAULT}
+            mapType="standard"
+            userInterfaceStyle="light"
+            showsBuildings
+            showsPointsOfInterests
+            showsIndoors
             initialRegion={DEFAULT_REGION}
             showsUserLocation
             showsMyLocationButton
@@ -320,12 +325,6 @@ export default function BookingMap() {
               }
             }}
           >
-            <UrlTile
-              urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-              maximumZ={19}
-              tileSize={256}
-              zIndex={-1}
-            />
             <Circle center={MSaken} radius={2600} fillColor="rgba(255,38,56,.08)" strokeColor="rgba(255,38,56,.45)" />
             <Circle center={Messaadine} radius={2200} fillColor="rgba(255,38,56,.08)" strokeColor="rgba(255,38,56,.45)" />
             {mode === 'delivery' ? (

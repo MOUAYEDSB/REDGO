@@ -584,9 +584,12 @@ export function DriverMissionMap({
           ref={mapRef}
           style={styles.map}
           provider={PROVIDER_DEFAULT}
+          mapType="standard"
           initialRegion={initialRegion}
-          userInterfaceStyle="dark"
+          userInterfaceStyle="light"
           showsBuildings
+          showsPointsOfInterests
+          showsIndoors
           showsTraffic={false}
           showsUserLocation={false}
           showsCompass={false}

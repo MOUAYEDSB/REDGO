@@ -330,9 +330,13 @@ export function LiveTrackingMap({
         <MapView
           ref={mapRef}
           provider={PROVIDER_DEFAULT}
+          mapType="standard"
           style={StyleSheet.absoluteFill}
           initialRegion={initialRegion}
-          userInterfaceStyle="dark"
+          userInterfaceStyle="light"
+          showsBuildings
+          showsPointsOfInterests
+          showsIndoors
           showsCompass={false}
           showsScale={false}
           onPanDrag={() => {
