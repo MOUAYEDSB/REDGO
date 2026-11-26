@@ -48,6 +48,8 @@ as $$
 declare
   current_user_id uuid := auth.uid();
   v_driver_id uuid;
+  v_status text;
+  v_paid boolean := false;
   v_review_id uuid;
   v_avg numeric(3, 2);
 begin
@@ -60,14 +62,26 @@ begin
   end if;
 
   if target_type = 'delivery' then
-    select o.driver_id into v_driver_id
+    select o.driver_id, o.status
+    into v_driver_id, v_status
     from public.delivery_orders o
     where o.id = target_id
-      and o.customer_id = current_user_id
-      and o.status in ('delivered', 'cash_collected');
+      and o.customer_id = current_user_id;
 
     if not found or v_driver_id is null then
-      raise exception 'Commande livrée introuvable ou sans livreur assigné.';
+      raise exception 'Commande introuvable ou sans livreur assigné.';
+    end if;
+
+    v_paid := exists (
+      select 1
+      from public.driver_missions m
+      join public.cash_payments cp on cp.mission_id = m.id
+      where m.delivery_order_id = target_id
+        and cp.status = 'paid'
+    );
+
+    if v_status not in ('delivered', 'cash_collected') and not v_paid then
+      raise exception 'Commande non encore livrée.';
     end if;
 
     insert into public.driver_reviews (
@@ -82,14 +96,26 @@ begin
     returning id into v_review_id;
 
   elsif target_type = 'scooter_ride' then
-    select r.driver_id into v_driver_id
+    select r.driver_id, r.status
+    into v_driver_id, v_status
     from public.scooter_rides r
     where r.id = target_id
-      and r.customer_id = current_user_id
-      and r.status = 'ride_completed';
+      and r.customer_id = current_user_id;
 
     if not found or v_driver_id is null then
-      raise exception 'Course terminée introuvable ou sans chauffeur assigné.';
+      raise exception 'Course introuvable ou sans chauffeur assigné.';
+    end if;
+
+    v_paid := exists (
+      select 1
+      from public.driver_missions m
+      join public.cash_payments cp on cp.mission_id = m.id
+      where m.scooter_ride_id = target_id
+        and cp.status = 'paid'
+    );
+
+    if v_status <> 'ride_completed' and not v_paid then
+      raise exception 'Course non encore terminée.';
     end if;
 
     insert into public.driver_reviews (

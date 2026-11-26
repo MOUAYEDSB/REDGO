@@ -14,6 +14,8 @@ import {
 import QRCode from 'react-native-qrcode-svg';
 import { colors } from '../constants/theme';
 import { formatMillimes } from '../services/cart';
+import { fetchCustomerReviewForTarget, submitDriverReview } from '../services/driverReviews';
+import { requireSupabase } from '../services/supabase';
 import { getCashPaymentStatus, issueCashPaymentQr } from '../services/cashPayment';
 
 type Props = {
@@ -53,7 +55,14 @@ export function CashPaymentPanel({ targetType, targetId }: Props) {
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    void fetchCustomerReviewForTarget(targetType, targetId).then((existing) => {
+      if (existing) {
+        setRating(existing.rating);
+        setComment(existing.comment);
+        setReviewSubmitted(true);
+      }
+    });
+  }, [refresh, targetType, targetId]);
 
   useEffect(() => {
     if (!qr) return;
@@ -61,12 +70,23 @@ export function CashPaymentPanel({ targetType, targetId }: Props) {
     return () => clearInterval(timer);
   }, [qr]);
 
-  // Polling automatique pour détecter quand le chauffeur valide l'encaissement
+  // Écoute temps réel Supabase pour détecter dès que le chauffeur valide l'encaissement
   useEffect(() => {
     if (!payment || payment.payment_status === 'paid') return;
-    const timer = setInterval(() => void refresh(), 3000);
-    return () => clearInterval(timer);
-  }, [payment, refresh]);
+    try {
+      const client = requireSupabase();
+      const channelName = `cash-payment-${targetType}-${targetId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const channel = client
+        .channel(channelName)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'cash_payments' }, () => void refresh())
+        .subscribe();
+      return () => {
+        void client.removeChannel(channel);
+      };
+    } catch {
+      return undefined;
+    }
+  }, [payment, refresh, targetType, targetId]);
 
   const handleIssueQr = async () => {
     setIsIssuing(true);
@@ -89,13 +109,22 @@ export function CashPaymentPanel({ targetType, targetId }: Props) {
   };
 
   const handleSendReview = async () => {
+    if (isSubmittingReview) return;
     setIsSubmittingReview(true);
+    setError(null);
+    const finalComment = [...selectedTags, comment.trim()].filter(Boolean).join(' · ');
     try {
+      await submitDriverReview({
+        targetType,
+        targetId,
+        rating,
+        comment: finalComment,
+      });
       await AsyncStorage.setItem(
         `@redgo_review_${targetId}`,
         JSON.stringify({
           rating,
-          comment,
+          comment: finalComment,
           selectedTags,
           targetType,
           targetId,
@@ -103,9 +132,8 @@ export function CashPaymentPanel({ targetType, targetId }: Props) {
         }),
       );
       setReviewSubmitted(true);
-    } catch (err) {
-      console.warn('save review catch :', err);
-      setReviewSubmitted(true);
+    } catch (err: any) {
+      setError(err?.message || "Impossible d'enregistrer votre avis pour le moment.");
     } finally {
       setIsSubmittingReview(false);
     }
