@@ -25,6 +25,7 @@ export default function DriverHistoryScreen() {
   const { user } = useRedgoAuth();
   const [history, setHistory] = useState<DriverHistoryMission[]>([]);
   const [filter, setFilter] = useState<'all' | 'delivery' | 'scooter_ride'>('all');
+  const [period, setPeriod] = useState<'today' | 'week' | 'all'>('all');
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -56,12 +57,21 @@ export default function DriverHistoryScreen() {
     void loadData();
   };
 
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay();
+  const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (dayOfWeek - 1)).getTime();
+
   const filteredHistory = history.filter((item) => {
-    if (filter === 'all') return true;
-    return item.missionType === filter;
+    if (filter !== 'all' && item.missionType !== filter) return false;
+    const ts = new Date(item.completedAt).getTime();
+    if (period === 'today') return ts >= startOfDay;
+    if (period === 'week') return ts >= startOfWeek;
+    return true;
   });
 
   const totalEarnings = filteredHistory.reduce((acc, h) => acc + h.driverEarningsMillimes, 0);
+  const totalCollected = filteredHistory.reduce((acc, h) => acc + h.amountMillimes, 0);
 
   return (
     <Screen
@@ -90,12 +100,36 @@ export default function DriverHistoryScreen() {
       {/* Recap Banner */}
       <View style={styles.recapCard}>
         <View>
-          <Text style={styles.recapLabel}>GAINS DE CETTE SÉLECTION</Text>
+          <Text style={styles.recapLabel}>GAIN NET CHAUFFEUR</Text>
           <Text style={styles.recapValue}>{formatMillimes(totalEarnings)}</Text>
+          <Text style={{ color: '#A1A1AA', fontSize: 11, marginTop: 2 }}>
+            Total encaissé : {formatMillimes(totalCollected)}
+          </Text>
         </View>
         <View style={styles.recapCountBadge}>
           <Text style={styles.recapCountText}>{filteredHistory.length} courses</Text>
         </View>
+      </View>
+
+      {/* Filtre période (Jour / Semaine / Tout) */}
+      <View style={styles.filterRow}>
+        {(
+          [
+            { id: 'today', label: "Aujourd'hui" },
+            { id: 'week', label: 'Cette semaine' },
+            { id: 'all', label: 'Tout' },
+          ] as const
+        ).map((p) => (
+          <Pressable
+            key={p.id}
+            onPress={() => setPeriod(p.id)}
+            style={[styles.filterChip, period === p.id && styles.filterChipActive]}
+          >
+            <Text style={[styles.filterText, period === p.id && styles.filterTextActive]}>
+              {p.label}
+            </Text>
+          </Pressable>
+        ))}
       </View>
 
       {/* Filtres */}

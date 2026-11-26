@@ -23,13 +23,16 @@ import {
 export default function DriverEarningsScreen() {
   const { user } = useRedgoAuth();
   const [earnings, setEarnings] = useState<DriverEarningsSummary>({
-    todayMillimes: 10300,
-    todayCount: 3,
-    weekMillimes: 41200,
-    weekCount: 12,
-    cashCollectedMillimes: 47000,
-    rating: 4.95,
-    vehicleModel: 'Peugeot Tweet 125',
+    todayMillimes: 0,
+    todayCount: 0,
+    weekMillimes: 0,
+    weekCount: 0,
+    allTimeMillimes: 0,
+    allTimeCount: 0,
+    cashCollectedMillimes: 0,
+    rating: null,
+    reviewsCount: 0,
+    vehicleModel: '',
   });
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -110,8 +113,10 @@ export default function DriverEarningsScreen() {
             <Text style={styles.heroSubValue}>{earnings.weekCount} missions</Text>
           </View>
           <View style={styles.heroSubMetric}>
-            <Text style={styles.heroSubLabel}>Note moyenne</Text>
-            <Text style={styles.heroSubValue}>{earnings.rating} ★</Text>
+            <Text style={styles.heroSubLabel}>Note ({earnings.reviewsCount} avis)</Text>
+            <Text style={styles.heroSubValue}>
+              {earnings.rating !== null ? `${earnings.rating.toFixed(1)} ★` : 'Nouveau'}
+            </Text>
           </View>
         </View>
       </View>

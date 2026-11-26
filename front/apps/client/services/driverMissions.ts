@@ -28,9 +28,26 @@ export type DriverEarningsSummary = {
   todayCount: number;
   weekMillimes: number;
   weekCount: number;
+  allTimeMillimes: number;
+  allTimeCount: number;
   cashCollectedMillimes: number;
-  rating: number;
+  rating: number | null;
+  reviewsCount: number;
   vehicleModel: string;
+};
+
+export type OpenMissionDetail = {
+  totalAmountMillimes: number;
+  driverGainMillimes: number;
+  shopName?: string | null;
+  items: Array<{
+    id: string;
+    productName: string;
+    quantity: number;
+    imageUrl?: string | null;
+  }>;
+  distanceKm?: number | null;
+  instructions?: string | null;
 };
 
 export type DriverOrderItem = {
@@ -490,13 +507,118 @@ export async function listOpenDriverMissions(): Promise<OpenDriverMissionRow[]> 
           ...row,
           pickup_address: formatHumanReadableAddress(row.pickup_address),
           destination_address: formatHumanReadableAddress(row.destination_address),
-        }));
+        }))
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     }
     return [];
   } catch (cause) {
     console.warn('listOpenDriverMissions catch :', cause);
     return [];
   }
+}
+
+export async function fetchOpenMissionDetailsBatch(
+  missions: OpenDriverMissionRow[],
+): Promise<Record<string, OpenMissionDetail>> {
+  const result: Record<string, OpenMissionDetail> = {};
+  if (!missions || missions.length === 0) return result;
+
+  try {
+    const client = requireSupabase();
+    const missionIds = missions.map((m) => m.mission_id);
+    const { data: mRows } = await (client as any)
+      .from('driver_missions')
+      .select('id, delivery_order_id, scooter_ride_id')
+      .in('id', missionIds);
+
+    const deliveryIdByMission = new Map<string, string>();
+    const rideIdByMission = new Map<string, string>();
+    (mRows ?? []).forEach((m: any) => {
+      if (m.delivery_order_id) deliveryIdByMission.set(m.id, m.delivery_order_id);
+      if (m.scooter_ride_id) rideIdByMission.set(m.id, m.scooter_ride_id);
+    });
+
+    const deliveryIds = Array.from(
+      new Set(
+        missions
+          .filter((m) => m.mission_type === 'delivery')
+          .map((m) => m.target_id || deliveryIdByMission.get(m.mission_id))
+          .filter(Boolean) as string[],
+      ),
+    );
+    const rideIds = Array.from(
+      new Set(
+        missions
+          .filter((m) => m.mission_type === 'scooter_ride')
+          .map((m) => m.target_id || rideIdByMission.get(m.mission_id))
+          .filter(Boolean) as string[],
+      ),
+    );
+
+    const orderMap = new Map<string, any>();
+    const rideMap = new Map<string, any>();
+
+    await Promise.all([
+      deliveryIds.length > 0
+        ? (client as any)
+            .from('delivery_orders')
+            .select(
+              'id, total_millimes, delivery_fee_millimes, destination_instructions, items:delivery_order_items(id, product_name, business_name, quantity, product:products(image_url))',
+            )
+            .in('id', deliveryIds)
+            .then(({ data }: { data: any[] | null }) => {
+              (data ?? []).forEach((o) => orderMap.set(o.id, o));
+            })
+        : Promise.resolve(),
+      rideIds.length > 0
+        ? (client as any)
+            .from('scooter_rides')
+            .select('id, fare_millimes, estimated_distance_km')
+            .in('id', rideIds)
+            .then(({ data }: { data: any[] | null }) => {
+              (data ?? []).forEach((r) => rideMap.set(r.id, r));
+            })
+        : Promise.resolve(),
+    ]);
+
+    missions.forEach((m) => {
+      if (m.mission_type === 'delivery') {
+        const oid = m.target_id || deliveryIdByMission.get(m.mission_id);
+        const o = oid ? orderMap.get(oid) : null;
+        if (o) {
+          const items = (o.items ?? []).map((it: any) => ({
+            id: it.id,
+            productName: it.product_name,
+            quantity: Number(it.quantity ?? 1),
+            imageUrl: it.product?.image_url || null,
+          }));
+          const shopNames = Array.from(new Set((o.items ?? []).map((it: any) => it.business_name).filter(Boolean)));
+          result[m.mission_id] = {
+            totalAmountMillimes: Number(o.total_millimes ?? 0),
+            driverGainMillimes: Number(o.delivery_fee_millimes ?? 2500),
+            shopName: shopNames.length > 0 ? shopNames.join(' · ') : null,
+            items,
+            instructions: o.destination_instructions || null,
+          };
+        }
+      } else {
+        const rid = m.target_id || rideIdByMission.get(m.mission_id);
+        const r = rid ? rideMap.get(rid) : null;
+        if (r) {
+          const fare = Number(r.fare_millimes ?? 2500);
+          result[m.mission_id] = {
+            totalAmountMillimes: fare,
+            driverGainMillimes: Math.max(2500, fare - 500),
+            items: [],
+            distanceKm: typeof r.estimated_distance_km === 'number' ? r.estimated_distance_km : Number(r.estimated_distance_km || 0),
+          };
+        }
+      }
+    });
+  } catch (err) {
+    console.warn('fetchOpenMissionDetailsBatch catch :', err);
+  }
+  return result;
 }
 
 export async function getMyActiveDriverMission(): Promise<ActiveDriverMissionRow | null> {
@@ -833,7 +955,7 @@ export async function fetchDriverHistory(userId?: string): Promise<DriverHistory
         .eq('driver_id', userId)
         .eq('status', 'completed')
         .order('completed_at', { ascending: false })
-        .limit(20);
+        .limit(100);
 
       if (!error && data && data.length > 0) {
         const dbItems: DriverHistoryMission[] = (data as any[]).map((row) => {
@@ -880,33 +1002,64 @@ export async function fetchDriverEarningsSummary(userId?: string): Promise<Drive
   const history = await fetchDriverHistory(userId);
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime();
+  // Lundi comme début de semaine
+  const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay();
+  const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (dayOfWeek - 1)).getTime();
 
-  // Filtrer les missions d'aujourd'hui
-  const todayMissions = history.filter((h) => {
-    const d = new Date(h.completedAt).getTime();
-    return d >= startOfDay;
-  });
-
-  // Filtrer les missions de la semaine
-  const weekMissions = history.filter((h) => {
-    const d = new Date(h.completedAt).getTime();
-    return d >= startOfWeek;
-  });
+  const todayMissions = history.filter((h) => new Date(h.completedAt).getTime() >= startOfDay);
+  const weekMissions = history.filter((h) => new Date(h.completedAt).getTime() >= startOfWeek);
 
   const todayCount = todayMissions.length;
-  const todayEarnings = todayMissions.reduce((acc, h) => acc + h.driverEarningsMillimes, 0);
+  const todayMillimes = todayMissions.reduce((acc, h) => acc + h.driverEarningsMillimes, 0);
   const weekCount = weekMissions.length;
-  const weekEarnings = weekMissions.reduce((acc, h) => acc + h.driverEarningsMillimes, 0);
-  const cashCollected = todayMissions.reduce((acc, h) => acc + h.amountMillimes, 0);
+  const weekMillimes = weekMissions.reduce((acc, h) => acc + h.driverEarningsMillimes, 0);
+  const allTimeCount = history.length;
+  const allTimeMillimes = history.reduce((acc, h) => acc + h.driverEarningsMillimes, 0);
+  const cashCollectedMillimes = todayMissions.reduce((acc, h) => acc + h.amountMillimes, 0);
+
+  let rating: number | null = null;
+  let reviewsCount = 0;
+  let vehicleModel = '';
+
+  if (userId) {
+    try {
+      const client = requireSupabase();
+      const [reviewsRes, profileRes] = await Promise.all([
+        (client as any)
+          .from('driver_reviews')
+          .select('rating')
+          .eq('driver_id', userId),
+        (client as any)
+          .from('driver_profiles')
+          .select('vehicle_model, rating')
+          .eq('user_id', userId)
+          .maybeSingle(),
+      ]);
+
+      const reviewRows = reviewsRes.data ?? [];
+      reviewsCount = reviewRows.length;
+      if (reviewsCount > 0) {
+        const sum = reviewRows.reduce((acc: number, r: any) => acc + Number(r.rating || 0), 0);
+        rating = Number((sum / reviewsCount).toFixed(2));
+      } else if (typeof profileRes.data?.rating === 'number' && profileRes.data.rating > 0) {
+        rating = Number(profileRes.data.rating);
+      }
+      vehicleModel = profileRes.data?.vehicle_model || '';
+    } catch {
+      // Ignorer si table driver_reviews pas encore créée
+    }
+  }
 
   return {
-    todayMillimes: todayEarnings || (history.length > 0 ? history.reduce((acc, h) => acc + h.driverEarningsMillimes, 0) : 0),
-    todayCount: todayCount || history.length,
-    weekMillimes: weekEarnings || (todayEarnings ? Math.round(todayEarnings * 3.5) : 0),
-    weekCount: weekCount || (todayCount ? todayCount * 3 : 0),
-    cashCollectedMillimes: cashCollected || (history.length > 0 ? history.reduce((acc, h) => acc + h.amountMillimes, 0) : 0),
-    rating: 4.95,
-    vehicleModel: 'Peugeot Tweet 125',
+    todayMillimes,
+    todayCount,
+    weekMillimes,
+    weekCount,
+    allTimeMillimes,
+    allTimeCount,
+    cashCollectedMillimes,
+    rating,
+    reviewsCount,
+    vehicleModel,
   };
 }

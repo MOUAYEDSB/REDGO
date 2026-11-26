@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, BackHandler, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { DeliveryStatusCard } from '../../components/DeliveryStatusCard';
 import { DriverInfoCard } from '../../components/DriverInfoCard';
 import { LiveTrackingMap } from '../../components/LiveTrackingMap';
@@ -14,6 +14,7 @@ import { LocationConnectionState, subscribeToDriverLocation } from '../../servic
 import { fetchCustomerOrderById } from '../../services/ordersHistory';
 import { DeliveryOrder } from '../../types/delivery';
 import { subscribeDriverUpdates } from '../../services/driverMissions';
+import { fetchCustomerReviewForTarget, submitDriverReview } from '../../services/driverReviews';
 import { requireSupabase } from '../../services/supabase';
 
 export default function LiveDeliveryTrackingScreen() {
@@ -83,6 +84,10 @@ export default function LiveDeliveryTrackingScreen() {
   const [order, setOrder] = useState<DeliveryOrder>(initialOrder);
   const [hasLoadedRealOrder, setHasLoadedRealOrder] = useState(id === 'order_default');
   const [isCancelling, setIsCancelling] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [submittedReview, setSubmittedReview] = useState<{ rating: number; comment: string } | null>(null);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [driverLocation, setDriverLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [trackingState, setTrackingState] = useState<LocationConnectionState>('connecting');
 
@@ -160,6 +165,33 @@ export default function LiveDeliveryTrackingScreen() {
       (state) => setTrackingState(state),
     );
   }, [id]);
+
+  useEffect(() => {
+    if (!id || id === 'order_default') return;
+    void fetchCustomerReviewForTarget('delivery', String(id)).then((existing) => {
+      if (existing) {
+        setSubmittedReview({ rating: existing.rating, comment: existing.comment });
+      }
+    });
+  }, [id]);
+
+  const handleSubmitReview = async () => {
+    if (isSubmittingReview || id === 'order_default') return;
+    setIsSubmittingReview(true);
+    try {
+      await submitDriverReview({
+        targetType: 'delivery',
+        targetId: String(id),
+        rating: reviewRating,
+        comment: reviewComment,
+      });
+      setSubmittedReview({ rating: reviewRating, comment: reviewComment.trim() });
+    } catch (err: any) {
+      Alert.alert('Avis non enregistré', err?.message || 'Impossible d’enregistrer votre avis pour le moment.');
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
 
   const canCancel =
     id !== 'order_default' &&
@@ -266,6 +298,73 @@ export default function LiveDeliveryTrackingScreen() {
 
           {id !== 'order_default' && order.status !== 'cancelled' ? (
             <CashPaymentPanel targetType="delivery" targetId={String(id)} />
+          ) : null}
+
+          {id !== 'order_default' &&
+          (order.status === 'delivered' || order.status === 'cash_collected') &&
+          order.driver ? (
+            <View style={styles.reviewCard}>
+              <View style={styles.reviewHeader}>
+                <Ionicons name="star" size={18} color="#FACC15" />
+                <Text style={styles.reviewTitle}>
+                  {submittedReview ? 'Votre avis sur le livreur' : 'Évaluer votre livreur'}
+                </Text>
+              </View>
+
+              {submittedReview ? (
+                <View style={{ gap: 6 }}>
+                  <View style={styles.starsRow}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Ionicons
+                        key={star}
+                        name={star <= submittedReview.rating ? 'star' : 'star-outline'}
+                        size={22}
+                        color={star <= submittedReview.rating ? '#FACC15' : '#52525B'}
+                      />
+                    ))}
+                  </View>
+                  <Text style={styles.reviewSubmittedText}>
+                    {submittedReview.comment
+                      ? `« ${submittedReview.comment} »`
+                      : 'Merci pour votre note !'}
+                  </Text>
+                </View>
+              ) : (
+                <View style={{ gap: 10 }}>
+                  <View style={styles.starsRow}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Pressable key={star} onPress={() => setReviewRating(star)} hitSlop={6}>
+                        <Ionicons
+                          name={star <= reviewRating ? 'star' : 'star-outline'}
+                          size={28}
+                          color={star <= reviewRating ? '#FACC15' : '#52525B'}
+                        />
+                      </Pressable>
+                    ))}
+                  </View>
+                  <TextInput
+                    value={reviewComment}
+                    onChangeText={setReviewComment}
+                    placeholder="Un commentaire sur la livraison ? (optionnel)"
+                    placeholderTextColor={colors.textSecondary}
+                    multiline
+                    numberOfLines={2}
+                    style={styles.reviewInput}
+                  />
+                  <Pressable
+                    style={({ pressed }) => [styles.reviewSubmitBtn, pressed && { opacity: 0.85 }]}
+                    onPress={() => void handleSubmitReview()}
+                    disabled={isSubmittingReview}
+                  >
+                    {isSubmittingReview ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.reviewSubmitBtnText}>Envoyer mon avis</Text>
+                    )}
+                  </Pressable>
+                </View>
+              )}
+            </View>
           ) : null}
 
           {canCancel ? (
@@ -381,5 +480,58 @@ const styles = StyleSheet.create({
     color: colors.error,
     fontSize: 14,
     fontWeight: '800',
+  },
+  reviewCard: {
+    backgroundColor: '#141418',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#27272A',
+    padding: 16,
+    marginTop: 12,
+    gap: 10,
+  },
+  reviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  reviewTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  starsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  reviewInput: {
+    backgroundColor: '#09090B',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#27272A',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#FFFFFF',
+    fontSize: 13,
+    minHeight: 62,
+    textAlignVertical: 'top',
+  },
+  reviewSubmitBtn: {
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reviewSubmitBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  reviewSubmittedText: {
+    color: '#D4D4D8',
+    fontSize: 13,
+    fontStyle: 'italic',
   },
 });

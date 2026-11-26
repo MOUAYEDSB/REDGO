@@ -20,6 +20,7 @@ import { DriverMissionMap } from './DriverMissionMap';
 import {
   acceptDriverMission,
   callCustomer,
+  DriverEarningsSummary,
   DriverOrderFeeBreakdown,
   DriverOrderItem,
   estimateOpenMissionDriverFeeMillimes,
@@ -27,17 +28,20 @@ import {
   fetchMissionFeeBreakdown,
   fetchMissionLocationDetails,
   fetchMissionOrderItems,
+  fetchOpenMissionDetailsBatch,
   finalizeMissionAndRecord,
   getDriverProfile,
   getMyActiveDriverMission,
   listOpenDriverMissions,
   MissionLocationDetails,
+  OpenMissionDetail,
   openGoogleMapsTurnByTurn,
   openNavigationApp,
   setDriverOnline,
   subscribeDriverUpdates,
   updateDriverMissionStatus,
 } from '../services/driverMissions';
+import { DriverReviewsSummary, fetchDriverReviews } from '../services/driverReviews';
 import { markMissionReadyForCash } from '../services/cashPayment';
 import { formatMillimes } from '../services/cart';
 
@@ -82,7 +86,24 @@ export default function DriverAppView({
   const [profile, setProfile] = useState<DriverProfileRow | null>(null);
   const [activeMission, setActiveMission] = useState<ActiveDriverMissionRow | null>(null);
   const [openMissions, setOpenMissions] = useState<OpenDriverMissionRow[]>([]);
-  const [todayEarnings, setTodayEarnings] = useState({ todayMillimes: 10300, todayCount: 3, rating: 4.95 });
+  const [openMissionDetails, setOpenMissionDetails] = useState<Record<string, OpenMissionDetail>>({});
+  const [todayEarnings, setTodayEarnings] = useState<DriverEarningsSummary>({
+    todayMillimes: 0,
+    todayCount: 0,
+    weekMillimes: 0,
+    weekCount: 0,
+    allTimeMillimes: 0,
+    allTimeCount: 0,
+    cashCollectedMillimes: 0,
+    rating: null,
+    reviewsCount: 0,
+    vehicleModel: '',
+  });
+  const [reviewsSummary, setReviewsSummary] = useState<DriverReviewsSummary>({
+    averageRating: null,
+    totalReviews: 0,
+    reviews: [],
+  });
   const [isLoadingMissions, setIsLoadingMissions] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -161,22 +182,31 @@ export default function DriverAppView({
     setError(null);
     setIsLoadingMissions(true);
     try {
-      const [nextProfile, nextActive, earningsSummary] = await Promise.all([
+      const [nextProfile, nextActive, earningsSummary, nextReviews] = await Promise.all([
         getDriverProfile(userId).catch(() => null),
         getMyActiveDriverMission().catch(() => null),
         fetchDriverEarningsSummary(userId).catch(() => null),
+        fetchDriverReviews(userId).catch(() => null),
       ]);
 
       if (nextProfile) setProfile(nextProfile);
       setActiveMission(nextActive);
       if (earningsSummary) setTodayEarnings(earningsSummary);
+      if (nextReviews) setReviewsSummary(nextReviews);
 
       const isOnline = nextProfile ? nextProfile.is_online : true;
       if (isOnline && !nextActive) {
         const nextOpen = await listOpenDriverMissions();
         setOpenMissions(nextOpen);
+        if (nextOpen.length > 0) {
+          const detailsMap = await fetchOpenMissionDetailsBatch(nextOpen).catch(() => ({}));
+          setOpenMissionDetails(detailsMap);
+        } else {
+          setOpenMissionDetails({});
+        }
       } else {
         setOpenMissions([]);
+        setOpenMissionDetails({});
       }
     } catch (cause) {
       setError(errorMessage(cause));
@@ -387,30 +417,41 @@ export default function DriverAppView({
         </View>
       ) : null}
 
-      {/* Statistiques dynamiques du jour (mise à jour en temps réel) */}
+      {/* Statistiques dynamiques (jour, semaine, note) */}
       <View style={styles.metricsRow}>
         <View style={styles.metricCard}>
           <View style={styles.metricIconWrap}>
             <Ionicons name="wallet-outline" size={18} color="#34D399" />
           </View>
-          <Text style={styles.metricLabel}>Gains aujourd’hui</Text>
+          <Text style={styles.metricLabel}>Gain aujourd’hui</Text>
           <Text style={styles.metricValue}>{formatMillimes(todayEarnings.todayMillimes)}</Text>
+          <Text style={{ color: '#A1A1AA', fontSize: 10, marginTop: 2 }}>
+            {todayEarnings.todayCount} course{todayEarnings.todayCount > 1 ? 's' : ''}
+          </Text>
         </View>
 
         <View style={styles.metricCard}>
           <View style={styles.metricIconWrap}>
-            <Ionicons name="bicycle-outline" size={18} color={colors.primary} />
+            <Ionicons name="calendar-outline" size={18} color="#60A5FA" />
           </View>
-          <Text style={styles.metricLabel}>Missions du jour</Text>
-          <Text style={styles.metricValue}>{todayEarnings.todayCount} courses</Text>
+          <Text style={styles.metricLabel}>Gain semaine</Text>
+          <Text style={styles.metricValue}>{formatMillimes(todayEarnings.weekMillimes)}</Text>
+          <Text style={{ color: '#A1A1AA', fontSize: 10, marginTop: 2 }}>
+            {todayEarnings.weekCount} course{todayEarnings.weekCount > 1 ? 's' : ''}
+          </Text>
         </View>
 
         <View style={styles.metricCard}>
           <View style={styles.metricIconWrap}>
             <Ionicons name="star" size={18} color="#FBBF24" />
           </View>
-          <Text style={styles.metricLabel}>Note chauffeur</Text>
-          <Text style={styles.metricValue}>{todayEarnings.rating} ★</Text>
+          <Text style={styles.metricLabel}>Note client</Text>
+          <Text style={styles.metricValue}>
+            {todayEarnings.rating !== null ? `${todayEarnings.rating.toFixed(1)} ★` : 'Nouveau'}
+          </Text>
+          <Text style={{ color: '#A1A1AA', fontSize: 10, marginTop: 2 }}>
+            {todayEarnings.reviewsCount} avis
+          </Text>
         </View>
       </View>
 
@@ -774,6 +815,12 @@ export default function DriverAppView({
           ) : (
             openMissions.map((mission) => {
               const isFood = mission.mission_type === 'delivery';
+              const detail = openMissionDetails[mission.mission_id];
+              const gainMillimes = detail
+                ? detail.driverGainMillimes
+                : isFood
+                  ? estimateOpenMissionDriverFeeMillimes(mission.pickup_address)
+                  : 2500;
               return (
                 <View key={mission.mission_id} style={styles.feedCard}>
                   <View style={styles.feedCardTop}>
@@ -787,14 +834,12 @@ export default function DriverAppView({
                     <View style={{ flex: 1 }}>
                       <Text style={styles.feedRef}>{mission.reference}</Text>
                       <Text style={styles.feedTypeLabel}>
-                        {isFood ? 'LIVRAISON FOOD / HUB' : 'COURSE SCOOTER TAXI'} · {formatTimeAgo(mission.created_at)}
+                        {isFood ? (detail?.shopName || 'LIVRAISON FOOD / HUB') : 'COURSE SCOOTER TAXI'} · {formatTimeAgo(mission.created_at)}
                       </Text>
                     </View>
                     <View style={styles.rewardBadge}>
                       <Text style={styles.rewardText}>
-                        {isFood
-                          ? formatMillimes(estimateOpenMissionDriverFeeMillimes(mission.pickup_address))
-                          : 'Course Taxi'}
+                        +{formatMillimes(gainMillimes)}
                       </Text>
                     </View>
                   </View>
@@ -813,6 +858,52 @@ export default function DriverAppView({
                       </Text>
                     </View>
                   </View>
+
+                  {/* Détails commande & articles sur la carte mission */}
+                  {detail ? (
+                    <View style={{ backgroundColor: '#121216', borderRadius: 12, padding: 10, marginBottom: 10, gap: 6, borderWidth: 1, borderColor: '#27272A' }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ color: '#A1A1AA', fontSize: 11, fontWeight: '700' }}>
+                          {isFood ? `${detail.items.reduce((s, i) => s + i.quantity, 0)} article(s)` : `Distance ~ ${detail.distanceKm || 0} km`}
+                        </Text>
+                        <Text style={{ color: '#E4E4E7', fontSize: 11, fontWeight: '800' }}>
+                          À encaisser : {formatMillimes(detail.totalAmountMillimes)}
+                        </Text>
+                      </View>
+                      {detail.items.length > 0 ? (
+                        <View style={{ gap: 6, marginTop: 2 }}>
+                          {detail.items.slice(0, 4).map((it) => (
+                            <View key={it.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                              {it.imageUrl ? (
+                                <Image
+                                  source={{ uri: it.imageUrl }}
+                                  style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: '#27272A' }}
+                                  contentFit="cover"
+                                />
+                              ) : (
+                                <View style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: '#27272A', alignItems: 'center', justifyContent: 'center' }}>
+                                  <Ionicons name="fast-food-outline" size={14} color="#A1A1AA" />
+                                </View>
+                              )}
+                              <Text style={{ color: '#F4F4F5', fontSize: 12, fontWeight: '600', flex: 1 }} numberOfLines={1}>
+                                {it.quantity}x {it.productName}
+                              </Text>
+                            </View>
+                          ))}
+                          {detail.items.length > 4 ? (
+                            <Text style={{ color: '#A1A1AA', fontSize: 11 }}>
+                              + {detail.items.length - 4} autre(s) article(s)
+                            </Text>
+                          ) : null}
+                        </View>
+                      ) : null}
+                      {detail.instructions?.trim() ? (
+                        <Text style={{ color: '#93C5FD', fontSize: 11, marginTop: 2 }} numberOfLines={2}>
+                          Note client : {detail.instructions.trim()}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ) : null}
 
                   {expandedOpenMapId === mission.mission_id ? (
                     <View style={{ marginBottom: 10 }}>
@@ -859,6 +950,70 @@ export default function DriverAppView({
           )}
         </View>
       ) : null}
+
+      {/* Avis & Score des clients (100% dynamique) */}
+      <View style={styles.shortcutsSection}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text style={styles.shortcutsTitle}>Avis des clients</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Ionicons name="star" size={14} color="#FBBF24" />
+            <Text style={{ color: '#F4F4F5', fontSize: 13, fontWeight: '800' }}>
+              {reviewsSummary.averageRating !== null
+                ? `${reviewsSummary.averageRating.toFixed(1)} (${reviewsSummary.totalReviews} avis)`
+                : 'Aucun avis'}
+            </Text>
+          </View>
+        </View>
+
+        {reviewsSummary.reviews.length === 0 ? (
+          <View style={{ backgroundColor: '#18181B', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#27272A' }}>
+            <Text style={{ color: '#A1A1AA', fontSize: 12 }}>
+              Les notes et commentaires laissés par les clients après livraison apparaîtront ici en direct.
+            </Text>
+          </View>
+        ) : (
+          <View style={{ gap: 8 }}>
+            {reviewsSummary.reviews.slice(0, 5).map((rev) => (
+              <View
+                key={rev.id}
+                style={{
+                  backgroundColor: '#18181B',
+                  borderRadius: 14,
+                  padding: 12,
+                  borderWidth: 1,
+                  borderColor: '#27272A',
+                  gap: 6,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Ionicons
+                        key={s}
+                        name={s <= rev.rating ? 'star' : 'star-outline'}
+                        size={13}
+                        color={s <= rev.rating ? '#FBBF24' : '#52525B'}
+                      />
+                    ))}
+                  </View>
+                  <Text style={{ color: '#A1A1AA', fontSize: 11 }}>
+                    #{rev.reference} · {new Date(rev.createdAt).toLocaleDateString('fr-TN', { day: 'numeric', month: 'short' })}
+                  </Text>
+                </View>
+                {rev.comment ? (
+                  <Text style={{ color: '#E4E4E7', fontSize: 12, lineHeight: 17 }}>
+                    « {rev.comment} »
+                  </Text>
+                ) : (
+                  <Text style={{ color: '#71717A', fontSize: 11, fontStyle: 'italic' }}>
+                    Note attribuée sans commentaire
+                  </Text>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
 
       {/* Raccourcis Chauffeur & Gestion */}
       <View style={styles.shortcutsSection}>
