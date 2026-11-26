@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ActiveDriverMissionRow, DriverProfileRow, OpenDriverMissionRow } from '@redgo/shared';
 import { colors } from '../constants/theme';
 import { useRedgoAuth } from '../context/RedgoAuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { authEnabled } from '../services/auth';
 import { DriverMissionMap } from './DriverMissionMap';
 import {
@@ -84,6 +85,7 @@ export default function DriverAppView({
   onSwitchSpace,
 }: DriverAppViewProps) {
   const insets = useSafeAreaInsets();
+  const { palette } = useTheme();
   const [profile, setProfile] = useState<DriverProfileRow | null>(null);
   const [activeMission, setActiveMission] = useState<ActiveDriverMissionRow | null>(null);
   const [openMissions, setOpenMissions] = useState<OpenDriverMissionRow[]>([]);
@@ -337,7 +339,7 @@ export default function DriverAppView({
 
   return (
     <ScrollView
-      style={styles.screen}
+      style={[styles.screen, { backgroundColor: palette.background }]}
       contentContainerStyle={[
         styles.content,
         {
@@ -364,12 +366,12 @@ export default function DriverAppView({
           />
           <View>
             <View style={styles.brandRow}>
-              <Text style={styles.brandTitle}>REDGO</Text>
+              <Text style={[styles.brandTitle, { color: palette.text }]}>REDGO</Text>
               <View style={styles.driverBadge}>
                 <Text style={styles.driverBadgeText}>CHAUFFEUR</Text>
               </View>
             </View>
-            <Text style={styles.driverName}>
+            <Text style={[styles.driverName, { color: palette.textSecondary }]}>
               Bonjour, {name.split(' ')[0]} · {liveClock}
             </Text>
           </View>
@@ -380,9 +382,9 @@ export default function DriverAppView({
             accessibilityRole="button"
             accessibilityLabel="Actualiser"
             onPress={() => void refresh()}
-            style={styles.actionBtn}
+            style={[styles.actionBtn, { backgroundColor: palette.card, borderColor: palette.border }]}
           >
-            <Ionicons name="refresh" size={19} color={colors.text} />
+            <Ionicons name="refresh" size={19} color={palette.text} />
           </Pressable>
           <Pressable
             accessibilityRole="button"

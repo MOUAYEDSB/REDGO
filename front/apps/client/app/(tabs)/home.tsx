@@ -16,6 +16,7 @@ import { Screen } from '../../components/Screen';
 import { colors } from '../../constants/theme';
 import { useCart } from '../../context/CartContext';
 import { useRedgoAuth } from '../../context/RedgoAuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { formatMillimes } from '../../services/cart';
 import {
   CatalogBusiness,
@@ -79,6 +80,7 @@ const categories = [
 export default function Home() {
   const { profile, user } = useRedgoAuth();
   const { addProduct } = useCart();
+  const { palette } = useTheme();
 
   const [dbProducts, setDbProducts] = useState<HomeFeaturedProduct[]>([]);
   const [dbRestaurants, setDbRestaurants] = useState<CatalogBusiness[]>([]);
@@ -227,39 +229,46 @@ export default function Home() {
             contentFit="cover"
           />
           <View>
-            <Text style={styles.brand}>REDGO</Text>
-            <Text style={styles.greeting}>{userGreeting}</Text>
+            <Text style={[styles.brand, { color: palette.text }]}>REDGO</Text>
+            <Text style={[styles.greeting, { color: palette.textSecondary }]}>{userGreeting}</Text>
           </View>
         </View>
 
         <View style={styles.headerActions}>
           <CartBadge />
           <Pressable
-            style={styles.iconButton}
+            style={[styles.iconButton, { backgroundColor: palette.card, borderColor: palette.border }]}
             onPress={() => router.push('/(tabs)/notifications')}
           >
-            <Ionicons name="notifications-outline" size={21} color={colors.text} />
+            <Ionicons name="notifications-outline" size={21} color={palette.text} />
             <View style={styles.badge}>
               <Text style={styles.badgeText}>2</Text>
             </View>
           </Pressable>
           <Pressable
-            style={styles.avatar}
+            style={[styles.avatar, { overflow: 'hidden' }]}
             onPress={() => router.push('/(tabs)/profile')}
           >
-            <Text style={styles.avatarText}>{userInitial}</Text>
+            {profile?.avatar_path ? (
+              <Image source={{ uri: profile.avatar_path }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+            ) : (
+              <Text style={styles.avatarText}>{userInitial}</Text>
+            )}
           </Pressable>
         </View>
       </View>
 
       {/* Location Bar */}
-      <Pressable style={styles.location} onPress={() => router.push('/booking/map')}>
+      <Pressable
+        style={[styles.location, { backgroundColor: palette.card, borderColor: palette.border }]}
+        onPress={() => router.push('/booking/map')}
+      >
         <Ionicons name="location" size={18} color={colors.primary} />
         <View style={{ flex: 1 }}>
-          <Text style={styles.locationLabel}>Zone de service couverte</Text>
-          <Text style={styles.locationText}>M'Saken & Messaadine, Tunisie</Text>
+          <Text style={[styles.locationLabel, { color: palette.textSecondary }]}>Zone de service couverte</Text>
+          <Text style={[styles.locationText, { color: palette.text }]}>M'Saken & Messaadine, Tunisie</Text>
         </View>
-        <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+        <Ionicons name="chevron-forward" size={16} color={palette.textSecondary} />
       </Pressable>
 
       {/* Live Active Order / Ride Banner */}

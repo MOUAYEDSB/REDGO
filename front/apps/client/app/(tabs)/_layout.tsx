@@ -3,10 +3,12 @@ import { Tabs } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { colors } from '../../constants/theme';
 import { useRedgoAuth } from '../../context/RedgoAuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { supabase } from '../../services/supabase';
 
 export default function TabsLayout() {
   const { user } = useRedgoAuth();
+  const { palette } = useTheme();
   const [activeOrdersCount, setActiveOrdersCount] = useState(0);
   const [activeRidesCount, setActiveRidesCount] = useState(0);
 
@@ -68,7 +70,7 @@ export default function TabsLayout() {
 
   const iconSize = 22;
   const tabColor = (color: string | null | number | object | undefined) =>
-    typeof color === 'string' ? color : colors.textSecondary;
+    typeof color === 'string' ? color : palette.textSecondary;
 
   return (
     <Tabs
@@ -77,11 +79,11 @@ export default function TabsLayout() {
         tabBarStyle: {
           height: 70,
           paddingTop: 6,
-          backgroundColor: colors.secondary,
-          borderTopColor: colors.border,
+          backgroundColor: palette.secondary,
+          borderTopColor: palette.border,
         },
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textSecondary,
+        tabBarActiveTintColor: palette.primary,
+        tabBarInactiveTintColor: palette.textSecondary,
         tabBarBadgeStyle: {
           backgroundColor: colors.primary,
           color: '#FFFFFF',

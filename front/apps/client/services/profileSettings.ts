@@ -91,3 +91,58 @@ export async function changeAccountPassword(newPassword: string): Promise<void> 
   }
   await updatePassword(newPassword);
 }
+
+export type DriverScooterProfile = {
+  vehicleModel: string;
+  plateNumber: string;
+  deliveriesEnabled: boolean;
+  scooterTaxiEnabled: boolean;
+  rating: number;
+  completedMissionsCount: number;
+};
+
+export async function fetchDriverScooterProfile(userId: string): Promise<DriverScooterProfile | null> {
+  try {
+    const client = requireSupabase();
+    const { data, error } = await (client as any)
+      .from('driver_profiles')
+      .select('vehicle_model, plate_number, deliveries_enabled, scooter_taxi_enabled, rating, completed_missions_count')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return {
+      vehicleModel: data.vehicle_model || '',
+      plateNumber: data.plate_number || '',
+      deliveriesEnabled: Boolean(data.deliveries_enabled),
+      scooterTaxiEnabled: Boolean(data.scooter_taxi_enabled),
+      rating: Number(data.rating || 0),
+      completedMissionsCount: Number(data.completed_missions_count || 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function updateDriverScooterProfile(
+  userId: string,
+  input: {
+    vehicleModel: string;
+    plateNumber: string;
+    deliveriesEnabled: boolean;
+    scooterTaxiEnabled: boolean;
+  },
+): Promise<void> {
+  const client = requireSupabase();
+  const { error } = await (client as any)
+    .from('driver_profiles')
+    .update({
+      vehicle_model: input.vehicleModel.trim(),
+      plate_number: input.plateNumber.trim(),
+      deliveries_enabled: input.deliveriesEnabled,
+      scooter_taxi_enabled: input.scooterTaxiEnabled,
+    })
+    .eq('user_id', userId);
+
+  if (error) throw error;
+}

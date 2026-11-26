@@ -17,6 +17,7 @@ import { getCategoryIconImage } from '../../components/FoodCategoryNeonIcon';
 import { Screen } from '../../components/Screen';
 import { colors } from '../../constants/theme';
 import { useCart } from '../../context/CartContext';
+import { useTheme } from '../../context/ThemeContext';
 import { formatMillimes } from '../../services/cart';
 import {
   CatalogBusinessWithCategories,

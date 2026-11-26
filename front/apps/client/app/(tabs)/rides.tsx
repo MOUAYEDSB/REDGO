@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { colors } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 import { formatMillimes } from '../../services/cart';
 import { requireSupabase } from '../../services/supabase';
 import { RideStage } from '../../types/ride';
@@ -47,6 +48,7 @@ function getRideStatusMeta(status: RideStage) {
 }
 
 export default function RidesHistoryScreen() {
+  const { palette } = useTheme();
   const [rides, setRides] = useState<RideHistoryRow[]>([]);
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [isLoading, setIsLoading] = useState(true);
@@ -127,8 +129,8 @@ export default function RidesHistoryScreen() {
       }
     >
       <View style={styles.header}>
-        <Text style={styles.title}>Mes courses & colis</Text>
-        <Text style={styles.subtitle}>Scooter Taxi et envois de colis REDGO</Text>
+        <Text style={[styles.title, { color: palette.text }]}>Mes courses & colis</Text>
+        <Text style={[styles.subtitle, { color: palette.textSecondary }]}>Scooter Taxi et envois de colis REDGO</Text>
       </View>
 
       <View style={styles.tabs}>

@@ -9,6 +9,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -16,17 +17,28 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRedgoAuth } from '../../context/RedgoAuthContext';
 import { useTheme } from '../../context/ThemeContext';
-import { updatePersonalProfile, uploadProfileAvatar } from '../../services/profileSettings';
+import {
+  fetchDriverScooterProfile,
+  updateDriverScooterProfile,
+  updatePersonalProfile,
+  uploadProfileAvatar,
+} from '../../services/profileSettings';
 
 export default function PersonalInfoScreen() {
-  const { user, profile, refreshAccess } = useRedgoAuth();
+  const { user, profile, roles, activeRole, previewRole, refreshAccess } = useRedgoAuth();
   const { palette } = useTheme();
+  const isDriver = roles.includes('driver') || activeRole === 'driver' || previewRole === 'driver';
 
   const [fullName, setFullName] = useState(
     profile?.full_name || (user?.user_metadata?.full_name as string) || '',
   );
   const [phone, setPhone] = useState(profile?.phone || user?.phone || '');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(profile?.avatar_path || null);
+  const [vehicleModel, setVehicleModel] = useState('');
+  const [plateNumber, setPlateNumber] = useState('');
+  const [deliveriesEnabled, setDeliveriesEnabled] = useState(true);
+  const [scooterTaxiEnabled, setScooterTaxiEnabled] = useState(true);
+  const [driverStats, setDriverStats] = useState<{ rating: number; count: number } | null>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -35,6 +47,19 @@ export default function PersonalInfoScreen() {
     if (profile?.phone) setPhone(profile.phone);
     if (profile?.avatar_path) setAvatarUrl(profile.avatar_path);
   }, [profile?.full_name, profile?.phone, profile?.avatar_path]);
+
+  useEffect(() => {
+    if (!user?.id || !isDriver) return;
+    void fetchDriverScooterProfile(user.id).then((dp) => {
+      if (dp) {
+        setVehicleModel(dp.vehicleModel);
+        setPlateNumber(dp.plateNumber);
+        setDeliveriesEnabled(dp.deliveriesEnabled);
+        setScooterTaxiEnabled(dp.scooterTaxiEnabled);
+        setDriverStats({ rating: dp.rating, count: dp.completedMissionsCount });
+      }
+    });
+  }, [user?.id, isDriver]);
 
   const handlePickAvatar = async () => {
     if (!user?.id) {
@@ -75,6 +100,14 @@ export default function PersonalInfoScreen() {
     setIsSaving(true);
     try {
       await updatePersonalProfile(user.id, { fullName, phone });
+      if (isDriver) {
+        await updateDriverScooterProfile(user.id, {
+          vehicleModel,
+          plateNumber,
+          deliveriesEnabled,
+          scooterTaxiEnabled,
+        });
+      }
       await refreshAccess();
       Alert.alert('Profil enregistré', 'Vos informations personnelles ont été mises à jour.');
       router.back();
@@ -170,6 +203,76 @@ export default function PersonalInfoScreen() {
             />
           </View>
         </View>
+
+        {isDriver ? (
+          <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border, marginTop: 14 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={{ color: palette.text, fontSize: 15, fontWeight: '900' }}>
+                Mon Scooter & Services
+              </Text>
+              {driverStats ? (
+                <Text style={{ color: palette.primary, fontSize: 12, fontWeight: '800' }}>
+                  {driverStats.rating > 0 ? `${driverStats.rating.toFixed(1)} ★` : 'Nouveau'} · {driverStats.count} courses
+                </Text>
+              ) : null}
+            </View>
+
+            <View style={styles.field}>
+              <Text style={[styles.label, { color: palette.textSecondary }]}>Modèle du scooter</Text>
+              <TextInput
+                value={vehicleModel}
+                onChangeText={setVehicleModel}
+                placeholder="Ex: Peugeot Tweet 125, SYM Symphony..."
+                placeholderTextColor={palette.textSecondary}
+                style={[
+                  styles.input,
+                  { backgroundColor: palette.background, borderColor: palette.border, color: palette.text },
+                ]}
+              />
+            </View>
+
+            <View style={styles.field}>
+              <Text style={[styles.label, { color: palette.textSecondary }]}>Plaque / Matricule</Text>
+              <TextInput
+                value={plateNumber}
+                onChangeText={setPlateNumber}
+                placeholder="Ex: 216 TN 4070"
+                placeholderTextColor={palette.textSecondary}
+                autoCapitalize="characters"
+                style={[
+                  styles.input,
+                  { backgroundColor: palette.background, borderColor: palette.border, color: palette.text },
+                ]}
+              />
+            </View>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 }}>
+              <View style={{ flex: 1, paddingRight: 10 }}>
+                <Text style={{ color: palette.text, fontSize: 13, fontWeight: '700' }}>Livraisons Food & Hub</Text>
+                <Text style={{ color: palette.textSecondary, fontSize: 11 }}>Recevoir les commandes restaurants et courses</Text>
+              </View>
+              <Switch
+                value={deliveriesEnabled}
+                onValueChange={setDeliveriesEnabled}
+                trackColor={{ false: '#64748B', true: palette.primary }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 }}>
+              <View style={{ flex: 1, paddingRight: 10 }}>
+                <Text style={{ color: palette.text, fontSize: 13, fontWeight: '700' }}>Scooter Taxi & Colis</Text>
+                <Text style={{ color: palette.textSecondary, fontSize: 11 }}>Recevoir les courses passagers et envois express</Text>
+              </View>
+              <Switch
+                value={scooterTaxiEnabled}
+                onValueChange={setScooterTaxiEnabled}
+                trackColor={{ false: '#64748B', true: palette.primary }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+          </View>
+        ) : null}
 
         <Pressable
           onPress={() => void handleSave()}
