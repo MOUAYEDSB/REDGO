@@ -283,6 +283,8 @@ export type MissionLocationDetails = {
   restaurantName: string | null;
   businessId: string | null;
   stopsCount: number;
+  recipientPhone?: string | null;
+  destinationInstructions?: string | null;
 };
 
 export async function fetchMissionLocationDetails(orderId: string): Promise<MissionLocationDetails> {
@@ -301,7 +303,7 @@ export async function fetchMissionLocationDetails(orderId: string): Promise<Miss
     const client = requireSupabase();
     const [stopsRes, orderRes] = await Promise.all([
       (client as any).from('delivery_order_stops').select('*').eq('order_id', orderId).order('sequence_number', { ascending: true }),
-      (client as any).from('delivery_orders').select('destination_address, destination_latitude, destination_longitude').eq('id', orderId).single(),
+      (client as any).from('delivery_orders').select('destination_address, destination_latitude, destination_longitude, recipient_phone, destination_instructions').eq('id', orderId).single(),
     ]);
 
     // Si non trouvé directement par order_id, tenter via driver_missions
@@ -320,19 +322,30 @@ export async function fetchMissionLocationDetails(orderId: string): Promise<Miss
 
       const { data: rideRow } = await (client as any)
         .from('scooter_rides')
-        .select('pickup_address, pickup_latitude, pickup_longitude, destination_address, destination_latitude, destination_longitude')
+        .select('customer_id, pickup_address, pickup_latitude, pickup_longitude, destination_address, destination_latitude, destination_longitude')
         .eq('id', orderId)
         .maybeSingle();
 
       if (rideRow) {
         const isRoundTrip = typeof rideRow.destination_address === 'string' && rideRow.destination_address.startsWith('[ALLER-RETOUR]');
         const isParcel = typeof rideRow.destination_address === 'string' && rideRow.destination_address.startsWith('[COLIS');
+        let customerPhone: string | null = null;
+        if (rideRow.customer_id) {
+          const { data: prof } = await (client as any)
+            .from('profiles')
+            .select('phone')
+            .eq('id', rideRow.customer_id)
+            .maybeSingle();
+          customerPhone = prof?.phone || null;
+        }
         return {
           pickupCoords: { latitude: rideRow.pickup_latitude, longitude: rideRow.pickup_longitude },
           destinationCoords: { latitude: rideRow.destination_latitude, longitude: rideRow.destination_longitude },
           restaurantName: isParcel ? 'Envoi de colis' : isRoundTrip ? 'Scooter Aller-retour' : 'Scooter Taxi',
           businessId: 'scooter_ride',
           stopsCount: isRoundTrip ? 2 : 1,
+          recipientPhone: customerPhone,
+          destinationInstructions: rideRow.destination_address,
         };
       }
     }
@@ -356,6 +369,8 @@ export async function fetchMissionLocationDetails(orderId: string): Promise<Miss
       restaurantName: firstStop?.business_name || null,
       businessId: firstStop?.business_id || null,
       stopsCount: stopsRes.data?.length ?? 1,
+      recipientPhone: orderRes.data?.recipient_phone || null,
+      destinationInstructions: orderRes.data?.destination_instructions || null,
     };
   } catch (err) {
     console.warn('fetchMissionLocationDetails error :', err);
@@ -382,17 +397,59 @@ export async function setDriverOnline(userId: string, isOnline: boolean): Promis
 
 export async function listOpenDriverMissions(): Promise<OpenDriverMissionRow[]> {
   try {
-    const { data, error } = await requireSupabase().rpc('list_open_driver_missions');
+    const client = requireSupabase();
+    const { data, error } = await client.rpc('list_open_driver_missions');
     if (error) {
       console.warn('list_open_driver_missions RPC info :', error.message);
       return [];
     }
     if (data && data.length > 0) {
-      return (data as OpenDriverMissionRow[]).map((row) => ({
-        ...row,
-        pickup_address: formatHumanReadableAddress(row.pickup_address),
-        destination_address: formatHumanReadableAddress(row.destination_address),
-      }));
+      const rows = (data as OpenDriverMissionRow[]).filter(
+        (row) => row.service_status !== 'cancelled' && row.mission_status !== 'cancelled',
+      );
+      if (rows.length === 0) return [];
+
+      // Vérifier côté DB qu'aucune commande/course sous-jacente n'est annulée
+      const deliveryIds = rows.filter((r) => r.mission_type === 'delivery' && r.target_id).map((r) => r.target_id);
+      const rideIds = rows.filter((r) => r.mission_type === 'scooter_ride' && r.target_id).map((r) => r.target_id);
+
+      const cancelledTargets = new Set<string>();
+      await Promise.all([
+        deliveryIds.length > 0
+          ? (client as any)
+              .from('delivery_orders')
+              .select('id, status')
+              .in('id', deliveryIds)
+              .then(({ data: dRows }: { data: any[] | null }) => {
+                (dRows ?? []).forEach((d) => {
+                  if (d.status === 'cancelled' || d.status === 'delivered' || d.status === 'cash_collected') {
+                    cancelledTargets.add(d.id);
+                  }
+                });
+              })
+          : Promise.resolve(),
+        rideIds.length > 0
+          ? (client as any)
+              .from('scooter_rides')
+              .select('id, status')
+              .in('id', rideIds)
+              .then(({ data: rRows }: { data: any[] | null }) => {
+                (rRows ?? []).forEach((r) => {
+                  if (r.status === 'cancelled' || r.status === 'ride_completed') {
+                    cancelledTargets.add(r.id);
+                  }
+                });
+              })
+          : Promise.resolve(),
+      ]);
+
+      return rows
+        .filter((row) => !cancelledTargets.has(row.target_id))
+        .map((row) => ({
+          ...row,
+          pickup_address: formatHumanReadableAddress(row.pickup_address),
+          destination_address: formatHumanReadableAddress(row.destination_address),
+        }));
     }
     return [];
   } catch (cause) {
@@ -406,6 +463,10 @@ export async function getMyActiveDriverMission(): Promise<ActiveDriverMissionRow
     const { data, error } = await requireSupabase().rpc('get_my_active_driver_mission');
     if (!error && data && data.length > 0) {
       const active = data[0] as ActiveDriverMissionRow;
+      if (active.service_status === 'cancelled' || active.mission_status === 'cancelled') {
+        await setLocalActiveMission(null);
+        return null;
+      }
       const isDone = await isMissionIdCompleted(active.mission_id);
       if (!isDone) {
         return {
@@ -418,9 +479,13 @@ export async function getMyActiveDriverMission(): Promise<ActiveDriverMissionRow
   } catch (cause) {
     console.warn('getMyActiveDriverMission rpc catch :', cause);
   }
-  // Secours persistant local (uniquement les vraies missions non-démo)
+  // Secours persistant local (uniquement les vraies missions non-démo non annulées)
   const local = await getLocalActiveMission();
   if (local && !local.mission_id.startsWith('demo-')) {
+    if (local.service_status === 'cancelled' || local.mission_status === 'cancelled') {
+      await setLocalActiveMission(null);
+      return null;
+    }
     const isDone = await isMissionIdCompleted(local.mission_id);
     if (!isDone) {
       return {

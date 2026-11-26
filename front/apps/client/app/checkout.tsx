@@ -17,57 +17,46 @@ import { CartSummary } from '../components/CartSummary';
 import { Screen } from '../components/Screen';
 import { colors } from '../constants/theme';
 import { useCart } from '../context/CartContext';
-import { createDeliveryOrder, MESSAADINE_CENTER, MSAKEN_CENTER } from '../services/delivery';
+import { useRedgoAuth } from '../context/RedgoAuthContext';
+import { createDeliveryOrder } from '../services/delivery';
 import { formatMillimes } from '../services/cart';
 
-  const PRESET_ADDRESSES = [
-    {
-      id: 'msaken_center',
-      label: 'M\'Saken Centre',
-      detail: 'Avenue Habib Bourguiba, près de la Grande Mosquée',
-      coords: MSAKEN_CENTER,
-    },
-    {
-      id: 'messaadine_main',
-      label: 'Messaadine Centre',
-      detail: 'Route Principale GP1, Messaadine',
-      coords: MESSAADINE_CENTER,
-    },
-  ];
+export default function CheckoutScreen() {
+  const { items, pricing, clearCart } = useCart();
+  const { profile } = useRedgoAuth();
+  const { deliveryAddress, recipientLat, recipientLng } = useLocalSearchParams<{
+    deliveryAddress?: string;
+    recipientLat?: string;
+    recipientLng?: string;
+  }>();
 
-  export default function CheckoutScreen() {
-    const { items, groups, pricing, clearCart } = useCart();
-    const { deliveryAddress, recipientLat, recipientLng } = useLocalSearchParams<{
-      deliveryAddress?: string;
-      recipientLat?: string;
-      recipientLng?: string;
-    }>();
+  const [mapAddress, setMapAddress] = useState<string | null>(deliveryAddress || null);
+  const [mapCoordinates, setMapCoordinates] = useState<{ latitude: number; longitude: number } | null>(() => {
+    const latitude = Number(recipientLat);
+    const longitude = Number(recipientLng);
+    return Number.isFinite(latitude) && Number.isFinite(longitude) ? { latitude, longitude } : null;
+  });
+  const [phone, setPhone] = useState(() => profile?.phone?.trim() || '');
+  const [instructions, setInstructions] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-    const [selectedAddressIndex, setSelectedAddressIndex] = useState(0);
-    const [customAddress, setCustomAddress] = useState('');
-    const [mapAddress, setMapAddress] = useState<string | null>(deliveryAddress || null);
-    const [mapCoordinates, setMapCoordinates] = useState<{ latitude: number; longitude: number } | null>(() => {
-      const latitude = Number(recipientLat);
-      const longitude = Number(recipientLng);
-      return Number.isFinite(latitude) && Number.isFinite(longitude) ? { latitude, longitude } : null;
-    });
-    const [phone, setPhone] = useState('+216 22 123 456');
-    const [instructions, setInstructions] = useState('');
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const finalAddress = mapAddress || '';
 
-    const activePreset = PRESET_ADDRESSES[selectedAddressIndex];
-    const finalAddress = mapAddress || customAddress.trim() || `${activePreset.label} — ${activePreset.detail}`;
+  useEffect(() => {
+    if (!phone && profile?.phone?.trim()) {
+      setPhone(profile.phone.trim());
+    }
+  }, [profile?.phone, phone]);
 
-    useEffect(() => {
-      const latitude = Number(recipientLat);
-      const longitude = Number(recipientLng);
-      if (deliveryAddress && Number.isFinite(latitude) && Number.isFinite(longitude)) {
-        setMapAddress(deliveryAddress);
-        setMapCoordinates({ latitude, longitude });
-        setCustomAddress('');
-      }
-    }, [deliveryAddress, recipientLat, recipientLng]);
+  useEffect(() => {
+    const latitude = Number(recipientLat);
+    const longitude = Number(recipientLng);
+    if (deliveryAddress && Number.isFinite(latitude) && Number.isFinite(longitude)) {
+      setMapAddress(deliveryAddress);
+      setMapCoordinates({ latitude, longitude });
+    }
+  }, [deliveryAddress, recipientLat, recipientLng]);
 
     const openDeliveryMap = (useCurrentLocation: boolean) => {
       router.push({
@@ -96,6 +85,14 @@ import { formatMillimes } from '../services/cart';
         return;
       }
 
+      if (!mapAddress || !mapCoordinates) {
+        Alert.alert(
+          'Adresse requise',
+          'Utilisez votre position GPS actuelle ou choisissez un point sur la carte pour la livraison.',
+        );
+        return;
+      }
+
       if (!phone.trim() || phone.trim().length < 8) {
         Alert.alert('Téléphone requis', 'Veuillez saisir un numéro de téléphone valide pour le coursier.');
         return;
@@ -110,7 +107,7 @@ import { formatMillimes } from '../services/cart';
           destinationAddress: finalAddress,
           destinationInstructions: instructions.trim(),
           recipientPhone: phone.trim(),
-          recipientCoordinates: mapCoordinates || activePreset.coords,
+          recipientCoordinates: mapCoordinates,
         });
 
         // Clear cart once order is confirmed
@@ -169,32 +166,8 @@ import { formatMillimes } from '../services/cart';
               {/* Address Selection */}
               <Text style={styles.sectionTitle}>1. Adresse de livraison</Text>
               <View style={styles.addressesList}>
-                {PRESET_ADDRESSES.map((preset, idx) => {
-                  const isSelected = selectedAddressIndex === idx && !customAddress && !mapAddress;
-                  return (
-                    <Pressable
-                      key={preset.id}
-                      style={[styles.addressCard, isSelected && styles.addressCardActive]}
-                      onPress={() => {
-                        setSelectedAddressIndex(idx);
-                        setCustomAddress('');
-                        setMapAddress(null);
-                        setMapCoordinates(null);
-                      }}
-                    >
-                      <View style={[styles.radioCircle, isSelected && styles.radioCircleActive]}>
-                        {isSelected && <View style={styles.radioInner} />}
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.addressLabel}>{preset.label}</Text>
-                        <Text style={styles.addressDetail}>{preset.detail}</Text>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-
                 <Pressable
-                  style={styles.mapAddressButton}
+                  style={[styles.mapAddressButton, mapAddress && styles.addressCardActive]}
                   onPress={() => openDeliveryMap(true)}
                 >
                   <View style={styles.mapAddressIcon}>
@@ -202,13 +175,13 @@ import { formatMillimes } from '../services/cart';
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.addressLabel}>Utiliser ma position actuelle</Text>
-                    <Text style={styles.addressDetail}>Le GPS indiquera le lieu de livraison</Text>
+                    <Text style={styles.addressDetail}>Le GPS indiquera le lieu exact de livraison</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
                 </Pressable>
 
                 <Pressable
-                  style={styles.mapAddressButton}
+                  style={[styles.mapAddressButton, mapAddress && styles.addressCardActive]}
                   onPress={() => openDeliveryMap(false)}
                 >
                   <View style={[styles.mapAddressIcon, styles.mapAddressIconPin]}>
@@ -223,23 +196,14 @@ import { formatMillimes } from '../services/cart';
                   <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
                 </Pressable>
 
-                {/* Custom address field */}
-                <View style={styles.customAddressBox}>
-                  <Text style={styles.inputLabel}>Autre adresse précise (M'Saken ou Messaadine)</Text>
-                  <TextInput
-                    value={customAddress}
-                    onChangeText={(value) => {
-                      setCustomAddress(value);
-                      if (value.trim()) {
-                        setMapAddress(null);
-                        setMapCoordinates(null);
-                      }
-                    }}
-                    placeholder="Ex: Rue 2 mars, face au collège M'Saken..."
-                    placeholderTextColor={colors.textSecondary}
-                    style={styles.textInput}
-                  />
-                </View>
+                {mapAddress ? (
+                  <View style={styles.zoneNoticeCard}>
+                    <Ionicons name="location" size={18} color={colors.primary} />
+                    <Text style={[styles.zoneNoticeText, { color: '#FFFFFF', flex: 1 }]}>
+                      Adresse sélectionnée : {mapAddress}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
 
               {/* Contact & Instructions */}

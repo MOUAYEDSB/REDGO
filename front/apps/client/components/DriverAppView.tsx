@@ -190,11 +190,17 @@ export default function DriverAppView({
   useFocusEffect(
     useCallback(() => {
       void refresh();
-      // Écoute des mises à jour dynamiques
+      // Écoute des mises à jour dynamiques + actualisation auto des missions
       const unsubscribe = subscribeDriverUpdates(() => {
         void refresh();
       });
-      return () => unsubscribe();
+      const interval = setInterval(() => {
+        void refresh();
+      }, 4500);
+      return () => {
+        unsubscribe();
+        clearInterval(interval);
+      };
     }, [refresh]),
   );
 
@@ -628,7 +634,28 @@ export default function DriverAppView({
             </View>
           ) : null}
 
-          {/* Contact client & Montant à encaisser */}
+          {/* Contact client & Instructions de remise + Montant à encaisser */}
+          {(missionLocations?.recipientPhone || missionLocations?.destinationInstructions) ? (
+            <View style={[styles.orderItemsBox, { marginBottom: 12 }]}>
+              <View style={styles.orderItemsHeader}>
+                <View style={styles.orderItemsHeaderLeft}>
+                  <Ionicons name="person-circle-outline" size={18} color="#38BDF8" />
+                  <Text style={styles.orderItemsTitle}>Contact & Remise client</Text>
+                </View>
+              </View>
+              {missionLocations?.recipientPhone ? (
+                <Text style={{ color: '#E4E4E7', fontSize: 13, fontWeight: '700', marginTop: 6 }}>
+                  Téléphone : {missionLocations.recipientPhone}
+                </Text>
+              ) : null}
+              {missionLocations?.destinationInstructions ? (
+                <Text style={{ color: '#A1A1AA', fontSize: 12, marginTop: 4, lineHeight: 17 }}>
+                  Instructions : {missionLocations.destinationInstructions}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+
           <View style={styles.activeFooter}>
             <View>
               <Text style={styles.amountPrompt}>À ENCAISSER EN ESPÈCES</Text>
@@ -636,7 +663,7 @@ export default function DriverAppView({
             </View>
 
             <Pressable
-              onPress={() => callCustomer(phone)}
+              onPress={() => callCustomer(missionLocations?.recipientPhone || phone)}
               style={styles.callClientBtn}
             >
               <Ionicons name="call" size={16} color="#fff" />

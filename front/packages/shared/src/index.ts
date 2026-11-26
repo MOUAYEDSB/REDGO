@@ -360,9 +360,15 @@ export type DriverProfileRow = {
 export type OpenDriverMissionRow = {
   mission_id: string;
   mission_type: CashPaymentMissionType;
+  /** ID de la commande ou course sous-jacente */
+  target_id: string;
   reference: string;
   pickup_address: string;
   destination_address: string;
+  /** Statut de la mission dans driver_missions */
+  mission_status: 'assigned' | 'accepted' | 'in_progress' | 'cancelled' | 'completed';
+  /** Statut du service sous-jacent (delivery_orders.status ou scooter_rides.status) */
+  service_status: string;
   created_at: string;
 };
 
@@ -371,7 +377,7 @@ export type ActiveDriverMissionRow = {
   mission_type: CashPaymentMissionType;
   target_id: string;
   reference: string;
-  mission_status: 'assigned' | 'accepted' | 'in_progress';
+  mission_status: 'assigned' | 'accepted' | 'in_progress' | 'cancelled' | 'completed';
   service_status: string;
   pickup_address: string | null;
   destination_address: string;

@@ -178,27 +178,17 @@ export async function fetchAssignedDriverForOrder(
     }
   } catch {}
 
-  // 3. Si un chauffeur est assigné ou le statut confirme l'acceptation
-  const isDriverAccepted =
-    Boolean(driverId) ||
-    orderStatus === 'driver_assigned' ||
-    orderStatus === 'driver_shopping_courses' ||
-    orderStatus === 'collecting_restaurant' ||
-    orderStatus === 'on_the_way' ||
-    orderStatus === 'delivered' ||
-    orderStatus === 'cash_collected';
-
-  if (isDriverAccepted) {
+  // 3. Si un chauffeur est assigné mais le profil complet est indisponible
+  if (driverId) {
     return {
-      id: driverId || 'driver-assigned',
-      name: 'Ghaith gaa',
-      phone: '+216 50 443 951',
-      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
-      rating: 4.95,
-      completedRidesCount: 14,
-      vehicleModel: 'Scooter Peugeot Tweet 125',
-      plateNumber: '216 TN 4070',
-      currentLocation: { latitude: 35.7318, longitude: 10.5842 },
+      id: driverId,
+      name: 'Livreur REDGO',
+      phone: '',
+      rating: 4.9,
+      completedRidesCount: 0,
+      vehicleModel: 'Scooter REDGO',
+      plateNumber: '',
+      currentLocation: { latitude: 35.7273, longitude: 10.5815 },
     };
   }
 

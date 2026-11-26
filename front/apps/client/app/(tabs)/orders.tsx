@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -12,6 +12,7 @@ import {
 import { Screen } from '../../components/Screen';
 import { colors } from '../../constants/theme';
 import { formatMillimes } from '../../services/cart';
+import { requireSupabase } from '../../services/supabase';
 import {
   CustomerOrder,
   CustomerOrderItem,
@@ -42,8 +43,35 @@ import {
       setRefreshing(false);
     }, []);
 
+    useFocusEffect(
+      useCallback(() => {
+        void loadData();
+      }, [loadData]),
+    );
+
     useEffect(() => {
-      void loadData();
+      let active = true;
+      try {
+        const client = requireSupabase();
+        const channel = client
+          .channel('customer-orders-live')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'delivery_orders' },
+            () => {
+              if (active) void loadData();
+            },
+          )
+          .subscribe();
+        return () => {
+          active = false;
+          void client.removeChannel(channel);
+        };
+      } catch {
+        return () => {
+          active = false;
+        };
+      }
     }, [loadData]);
 
     const onRefresh = useCallback(() => {

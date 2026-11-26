@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { DeliveryStatusCard } from '../../components/DeliveryStatusCard';
 import { DriverInfoCard } from '../../components/DriverInfoCard';
 import { LiveTrackingMap } from '../../components/LiveTrackingMap';
@@ -81,6 +81,8 @@ export default function LiveDeliveryTrackingScreen() {
   };
 
   const [order, setOrder] = useState<DeliveryOrder>(initialOrder);
+  const [hasLoadedRealOrder, setHasLoadedRealOrder] = useState(id === 'order_default');
+  const [isCancelling, setIsCancelling] = useState(false);
   const [driverLocation, setDriverLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [trackingState, setTrackingState] = useState<LocationConnectionState>('connecting');
 
@@ -93,6 +95,7 @@ export default function LiveDeliveryTrackingScreen() {
         const realOrder = await fetchCustomerOrderById(String(id));
         if (realOrder && isMounted) {
           setOrder(realOrder);
+          setHasLoadedRealOrder(true);
         }
       } catch (err) {
         console.warn('fetchStatus error :', err);
@@ -150,6 +153,55 @@ export default function LiveDeliveryTrackingScreen() {
     );
   }, [id]);
 
+  const canCancel =
+    id !== 'order_default' &&
+    (order.status === 'confirmed' || order.status === 'searching_driver') &&
+    !order.driver;
+
+  const handleCancelOrder = () => {
+    Alert.alert(
+      'Annuler la commande ?',
+      'Souhaitez-vous vraiment annuler cette commande ? Elle sera enregistrée comme annulée dans votre historique.',
+      [
+        { text: 'Non, conserver', style: 'cancel' },
+        {
+          text: 'Oui, annuler',
+          style: 'destructive',
+          onPress: async () => {
+            setIsCancelling(true);
+            try {
+              const client = requireSupabase();
+              const { error: rpcErr } = await (client as any).rpc('cancel_customer_delivery_order', {
+                target_order_id: order.id,
+              });
+
+              if (rpcErr) {
+                // Repli direct si la RPC n'est pas encore déployée
+                const { error: orderErr } = await (client as any)
+                  .from('delivery_orders')
+                  .update({ status: 'cancelled' })
+                  .eq('id', order.id)
+                  .in('status', ['confirmed', 'searching_driver']);
+                if (orderErr) throw orderErr;
+
+                await (client as any)
+                  .from('driver_missions')
+                  .update({ status: 'cancelled' })
+                  .eq('delivery_order_id', order.id);
+              }
+
+              setOrder((prev) => ({ ...prev, status: 'cancelled' }));
+            } catch (err: any) {
+              Alert.alert('Annulation impossible', err?.message || 'Veuillez réessayer.');
+            } finally {
+              setIsCancelling(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   return (
     <Screen scroll style={styles.screen}>
       {/* Top Bar */}
@@ -168,36 +220,64 @@ export default function LiveDeliveryTrackingScreen() {
         </View>
       </View>
 
-      {/* Live Map */}
-      <LiveTrackingMap
-        customerLocation={order.destination.location}
-        customerAddress={order.destination.address}
-        driver={order.driver}
-        driverLocation={driverLocation}
-        pickupStops={order.stops}
-        height={360}
-      />
+      {!hasLoadedRealOrder ? (
+        <View style={{ paddingVertical: 60, alignItems: 'center', gap: 12 }}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
+            Chargement de votre commande…
+          </Text>
+        </View>
+      ) : (
+        <>
+          {/* Live Map */}
+          <LiveTrackingMap
+            customerLocation={order.destination.location}
+            customerAddress={order.destination.address}
+            driver={order.driver}
+            driverLocation={driverLocation}
+            pickupStops={order.stops}
+            height={360}
+          />
 
-      {/* Status Card */}
-      <DeliveryStatusCard order={order} />
+          {/* Status Card */}
+          <DeliveryStatusCard order={order} />
 
-      {/* Driver Card */}
-      <DriverInfoCard
-        driver={order.driver}
-        roleDescription="Livreur REDGO"
-        isAssigned={Boolean(order.driver)}
-      />
+          {/* Driver Card */}
+          <DriverInfoCard
+            driver={order.driver}
+            roleDescription="Livreur REDGO"
+            isAssigned={Boolean(order.driver)}
+          />
 
-      {/* Timeline with only relevant stages */}
-      <OrderStatusTimeline
-        currentStage={order.status}
-        hasCourses={order.hasCourses}
-        hasFood={order.hasFood}
-      />
+          {/* Timeline with only relevant stages */}
+          <OrderStatusTimeline
+            currentStage={order.status}
+            hasCourses={order.hasCourses}
+            hasFood={order.hasFood}
+          />
 
-      {id !== 'order_default' ? (
-        <CashPaymentPanel targetType="delivery" targetId={String(id)} />
-      ) : null}
+          {id !== 'order_default' && order.status !== 'cancelled' ? (
+            <CashPaymentPanel targetType="delivery" targetId={String(id)} />
+          ) : null}
+
+          {canCancel ? (
+            <Pressable
+              style={({ pressed }) => [styles.cancelButton, pressed && { opacity: 0.85 }]}
+              onPress={handleCancelOrder}
+              disabled={isCancelling}
+            >
+              {isCancelling ? (
+                <ActivityIndicator size="small" color={colors.error} />
+              ) : (
+                <>
+                  <Ionicons name="close-circle-outline" size={18} color={colors.error} />
+                  <Text style={styles.cancelButtonText}>Annuler la commande</Text>
+                </>
+              )}
+            </Pressable>
+          ) : null}
+        </>
+      )}
 
       {/* Help & Support Button */}
       <Pressable
@@ -276,5 +356,22 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 13,
     fontWeight: '700',
+  },
+  cancelButton: {
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#181822',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.45)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  cancelButtonText: {
+    color: colors.error,
+    fontSize: 14,
+    fontWeight: '800',
   },
 });

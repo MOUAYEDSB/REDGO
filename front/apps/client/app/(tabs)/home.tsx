@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -29,6 +29,7 @@ import {
   fetchPromoAnnouncements,
   PromoAnnouncement,
 } from '../../services/promos';
+import { supabase } from '../../services/supabase';
 
 const primaryServices = [
   {
@@ -84,6 +85,8 @@ export default function Home() {
   const [promos, setPromos] = useState<PromoAnnouncement[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [activeOrder, setActiveOrder] = useState<{ id: string; reference: string } | null>(null);
+  const [activeRide, setActiveRide] = useState<{ id: string; reference: string; status: string } | null>(null);
 
   // Nom dynamique utilisateur
   const userGreeting = useMemo(() => {
@@ -120,14 +123,53 @@ export default function Home() {
     setRefreshing(false);
   }, []);
 
+  const loadActiveTracking = useCallback(async () => {
+    if (!supabase || !user?.id) {
+      setActiveOrder(null);
+      setActiveRide(null);
+      return;
+    }
+    try {
+      const [ordRes, rideRes] = await Promise.all([
+        (supabase as any)
+          .from('delivery_orders')
+          .select('id, reference')
+          .eq('customer_id', user.id)
+          .not('status', 'in', '("delivered","cash_collected","cancelled")')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        (supabase as any)
+          .from('scooter_rides')
+          .select('id, reference, status')
+          .eq('customer_id', user.id)
+          .not('status', 'in', '("ride_completed","cancelled")')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      setActiveOrder(ordRes.data ?? null);
+      setActiveRide(rideRes.data ?? null);
+    } catch {
+      // Ignorer
+    }
+  }, [user?.id]);
+
   useEffect(() => {
     void loadHomeData();
   }, [loadHomeData]);
 
+  useFocusEffect(
+    useCallback(() => {
+      void loadActiveTracking();
+    }, [loadActiveTracking]),
+  );
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     void loadHomeData();
-  }, [loadHomeData]);
+    void loadActiveTracking();
+  }, [loadHomeData, loadActiveTracking]);
 
   const products = dbProducts;
 
@@ -219,6 +261,46 @@ export default function Home() {
         </View>
         <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
       </Pressable>
+
+      {/* Live Active Order / Ride Banner */}
+      {activeOrder ? (
+        <Pressable
+          style={[
+            styles.activeTrackingBanner,
+            { borderColor: 'rgba(255, 32, 42, 0.55)', backgroundColor: 'rgba(255, 32, 42, 0.10)' },
+          ]}
+          onPress={() => router.push({ pathname: '/order/[id]', params: { id: activeOrder.id, reference: activeOrder.reference } })}
+        >
+          <Ionicons name="receipt" size={15} color={colors.primary} />
+          <Text style={styles.activeTrackingText} numberOfLines={1}>
+            <Text style={[styles.activeTrackingBadge, { color: colors.primary }]}>Commande en cours · </Text>
+            Suivre {activeOrder.reference}
+          </Text>
+          <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+        </Pressable>
+      ) : null}
+
+      {activeRide ? (
+        <Pressable
+          style={[
+            styles.activeTrackingBanner,
+            { borderColor: 'rgba(34, 197, 94, 0.55)', backgroundColor: 'rgba(34, 197, 94, 0.10)' },
+          ]}
+          onPress={() =>
+            router.push({
+              pathname: activeRide.status === 'searching' ? '/booking/searching' : `/ride/tracking/${activeRide.id}`,
+              params: { id: activeRide.id, reference: activeRide.reference },
+            })
+          }
+        >
+          <Ionicons name="bicycle" size={15} color={colors.success} />
+          <Text style={styles.activeTrackingText} numberOfLines={1}>
+            <Text style={[styles.activeTrackingBadge, { color: colors.success }]}>Course en cours · </Text>
+            Suivre {activeRide.reference}
+          </Text>
+          <Ionicons name="chevron-forward" size={14} color={colors.success} />
+        </Pressable>
+      ) : null}
 
       {/* Annonces Promotionnelles */}
       {promos.length > 0 ? (
@@ -627,58 +709,80 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginTop: 2,
   },
+  activeTrackingBanner: {
+    marginHorizontal: 20,
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  activeTrackingText: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  activeTrackingBadge: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
   bannerTrack: {
     paddingLeft: 20,
     paddingRight: 20,
+    gap: 10,
   },
   banner: {
-    width: 350,
-    height: 175,
-    borderRadius: 22,
+    width: 300,
+    height: 132,
+    borderRadius: 18,
     overflow: 'hidden',
-    marginTop: 18,
+    marginTop: 12,
   },
   bannerOverlay: {
     ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(9,9,11,0.68)',
   },
   bannerCopy: {
-    padding: 20,
+    padding: 14,
     flex: 1,
     justifyContent: 'center',
   },
   bannerLabel: {
     color: '#FFB3BA',
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '900',
-    letterSpacing: 1.1,
+    letterSpacing: 1,
   },
   bannerTitle: {
     color: '#fff',
-    fontSize: 22,
-    lineHeight: 28,
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: '900',
-    marginTop: 6,
+    marginTop: 3,
   },
   bannerSubtitle: {
     color: '#D4D4D8',
     fontSize: 11,
-    lineHeight: 16,
-    marginTop: 4,
+    lineHeight: 15,
+    marginTop: 2,
   },
   bannerCta: {
     alignSelf: 'flex-start',
-    height: 36,
-    borderRadius: 12,
+    height: 30,
+    borderRadius: 10,
     backgroundColor: colors.primary,
-    paddingHorizontal: 16,
+    paddingHorizontal: 13,
     justifyContent: 'center',
-    marginTop: 12,
+    marginTop: 8,
   },
   bannerCtaText: {
     color: '#fff',
     fontWeight: '800',
-    fontSize: 12,
+    fontSize: 11,
   },
   sectionTitle: {
     color: colors.text,

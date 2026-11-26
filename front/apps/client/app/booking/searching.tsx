@@ -164,10 +164,14 @@ export default function BookingSearchingScreen() {
           onPress: async () => {
             // Optionally mark ride as cancelled in DB
             if (id && supabase) {
-              void (supabase as any)
+              await (supabase as any)
                 .from('scooter_rides')
                 .update({ status: 'cancelled' })
                 .eq('id', id);
+              await (supabase as any)
+                .from('driver_missions')
+                .update({ status: 'cancelled' })
+                .eq('scooter_ride_id', id);
             }
             router.replace('/(tabs)/home');
           },
