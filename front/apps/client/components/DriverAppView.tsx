@@ -398,7 +398,7 @@ export default function DriverAppView({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Notifications"
-            onPress={() => router.push('/driver/notifications')}
+            onPress={() => router.push('/notifications')}
             style={[styles.actionBtn, { backgroundColor: palette.card, borderColor: palette.border, position: 'relative' }]}
           >
             <Ionicons name="notifications-outline" size={19} color={palette.text} />
@@ -422,14 +422,6 @@ export default function DriverAppView({
                 </Text>
               </View>
             ) : null}
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Actualiser"
-            onPress={() => void refresh()}
-            style={[styles.actionBtn, { backgroundColor: palette.card, borderColor: palette.border }]}
-          >
-            <Ionicons name="refresh" size={19} color={palette.text} />
           </Pressable>
           <Pressable
             accessibilityRole="button"

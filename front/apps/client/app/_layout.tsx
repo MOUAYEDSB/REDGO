@@ -80,6 +80,7 @@ function RoleAwareStack() {
         <Stack.Screen name="driver" />
       </Stack.Protected>
       <Stack.Protected guard={canUseClient || canUseDriver} redirectTo="/">
+        <Stack.Screen name="notifications" />
         <Stack.Screen name="profile/personal-info" />
         <Stack.Screen name="profile/password" />
         <Stack.Screen name="profile/notifications" />
