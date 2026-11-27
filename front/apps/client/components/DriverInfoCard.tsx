@@ -3,6 +3,7 @@ import { Image } from 'expo-image';
 import React from 'react';
 import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors } from '../constants/theme';
+import { openContactPicker, openWhatsAppDirect } from '../services/contact';
 import { DriverInfo } from '../types/delivery';
 
 type DriverInfoCardProps = {
@@ -36,17 +37,13 @@ export function DriverInfoCard({
 
   const handleCall = () => {
     if (driver.phone) {
-      Linking.openURL(`tel:${driver.phone}`).catch(() => {
-        Alert.alert('Appel direct', `Numéro du livreur : ${driver.phone}`);
-      });
+      openContactPicker(driver.phone, 'Contacter le livreur');
     }
   };
 
   const handleMessage = () => {
     if (driver.phone) {
-      Linking.openURL(`sms:${driver.phone}`).catch(() => {
-        Alert.alert('SMS direct', `Numéro du livreur : ${driver.phone}`);
-      });
+      void openWhatsAppDirect(driver.phone);
     }
   };
 

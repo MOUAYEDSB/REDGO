@@ -6,6 +6,7 @@ import type {
   OpenDriverMissionRow,
 } from '@redgo/shared';
 import { resolveBusinessCoordinates } from './businessCoordinates';
+import { openContactPicker } from './contact';
 import { formatHumanReadableAddress } from './geocoding';
 import { requireSupabase } from './supabase';
 
@@ -209,10 +210,7 @@ export function openNavigationApp(address?: string | null, lat?: number | null, 
 }
 
 export function callCustomer(phone: string) {
-  const cleaned = phone.replace(/[^\d+]/g, '');
-  if (cleaned) {
-    void Linking.openURL(`tel:${cleaned}`);
-  }
+  openContactPicker(phone, 'Contacter le client');
 }
 
 export async function getDriverProfile(userId: string): Promise<DriverProfileRow> {
@@ -506,29 +504,29 @@ export async function listOpenDriverMissions(): Promise<OpenDriverMissionRow[]> 
       await Promise.all([
         deliveryIds.length > 0
           ? (client as any)
-              .from('delivery_orders')
-              .select('id, status')
-              .in('id', deliveryIds)
-              .then(({ data: dRows }: { data: any[] | null }) => {
-                (dRows ?? []).forEach((d) => {
-                  if (d.status === 'cancelled' || d.status === 'delivered' || d.status === 'cash_collected') {
-                    cancelledTargets.add(d.id);
-                  }
-                });
-              })
+            .from('delivery_orders')
+            .select('id, status')
+            .in('id', deliveryIds)
+            .then(({ data: dRows }: { data: any[] | null }) => {
+              (dRows ?? []).forEach((d) => {
+                if (d.status === 'cancelled' || d.status === 'delivered' || d.status === 'cash_collected') {
+                  cancelledTargets.add(d.id);
+                }
+              });
+            })
           : Promise.resolve(),
         rideIds.length > 0
           ? (client as any)
-              .from('scooter_rides')
-              .select('id, status')
-              .in('id', rideIds)
-              .then(({ data: rRows }: { data: any[] | null }) => {
-                (rRows ?? []).forEach((r) => {
-                  if (r.status === 'cancelled' || r.status === 'ride_completed') {
-                    cancelledTargets.add(r.id);
-                  }
-                });
-              })
+            .from('scooter_rides')
+            .select('id, status')
+            .in('id', rideIds)
+            .then(({ data: rRows }: { data: any[] | null }) => {
+              (rRows ?? []).forEach((r) => {
+                if (r.status === 'cancelled' || r.status === 'ride_completed') {
+                  cancelledTargets.add(r.id);
+                }
+              });
+            })
           : Promise.resolve(),
       ]);
 
@@ -601,23 +599,23 @@ export async function fetchOpenMissionDetailsBatch(
     await Promise.all([
       deliveryIds.length > 0
         ? (client as any)
-            .from('delivery_orders')
-            .select(
-              'id, total_millimes, delivery_fee_millimes, destination_instructions, items:delivery_order_items(id, product_name, business_name, quantity, product:products(image_url))',
-            )
-            .in('id', deliveryIds)
-            .then(({ data }: { data: any[] | null }) => {
-              (data ?? []).forEach((o) => orderMap.set(o.id, o));
-            })
+          .from('delivery_orders')
+          .select(
+            'id, total_millimes, delivery_fee_millimes, destination_instructions, items:delivery_order_items(id, product_name, business_name, quantity, product:products(image_url))',
+          )
+          .in('id', deliveryIds)
+          .then(({ data }: { data: any[] | null }) => {
+            (data ?? []).forEach((o) => orderMap.set(o.id, o));
+          })
         : Promise.resolve(),
       rideIds.length > 0
         ? (client as any)
-            .from('scooter_rides')
-            .select('id, fare_millimes, estimated_distance_km')
-            .in('id', rideIds)
-            .then(({ data }: { data: any[] | null }) => {
-              (data ?? []).forEach((r) => rideMap.set(r.id, r));
-            })
+          .from('scooter_rides')
+          .select('id, fare_millimes, estimated_distance_km')
+          .in('id', rideIds)
+          .then(({ data }: { data: any[] | null }) => {
+            (data ?? []).forEach((r) => rideMap.set(r.id, r));
+          })
         : Promise.resolve(),
     ]);
 
@@ -1006,14 +1004,14 @@ export async function fetchDriverHistory(userId?: string): Promise<DriverHistory
         await Promise.all([
           customerIds.length > 0
             ? (client as any)
-                .rpc('get_driver_customer_profiles', { target_customer_ids: customerIds })
-                .then(({ data: rpcProfs, error: rpcErr }: { data: any[] | null; error: any }) => {
-                  if (!rpcErr && Array.isArray(rpcProfs)) {
-                    rpcProfs.forEach((p) => {
-                      if (p.id && p.full_name) nameMap.set(p.id, p.full_name);
-                    });
-                  }
-                })
+              .rpc('get_driver_customer_profiles', { target_customer_ids: customerIds })
+              .then(({ data: rpcProfs, error: rpcErr }: { data: any[] | null; error: any }) => {
+                if (!rpcErr && Array.isArray(rpcProfs)) {
+                  rpcProfs.forEach((p) => {
+                    if (p.id && p.full_name) nameMap.set(p.id, p.full_name);
+                  });
+                }
+              })
             : Promise.resolve(),
           (client as any)
             .from('driver_reviews')
@@ -1037,12 +1035,12 @@ export async function fetchDriverHistory(userId?: string): Promise<DriverHistory
           const earnings = isDelivery ? (order?.delivery_fee_millimes || 2500) : Math.max(2500, totalAmount - 500);
           const orderItems: DriverHistoryMissionItem[] = isDelivery
             ? (order?.items ?? []).map((it: any) => ({
-                id: it.id,
-                productName: it.product_name,
-                businessName: it.business_name,
-                quantity: Number(it.quantity ?? 1),
-                imageUrl: it.product?.image_url || null,
-              }))
+              id: it.id,
+              productName: it.product_name,
+              businessName: it.business_name,
+              quantity: Number(it.quantity ?? 1),
+              imageUrl: it.product?.image_url || null,
+            }))
             : [];
           const shopNames = Array.from(new Set(orderItems.map((it) => it.businessName).filter(Boolean)));
           const review = isDelivery

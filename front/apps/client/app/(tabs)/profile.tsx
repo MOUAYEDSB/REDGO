@@ -81,14 +81,14 @@ export default function Profile() {
 
       <Text style={[styles.section, { color: palette.textSecondary }]}>Préférences</Text>
       <View style={[styles.item, { borderBottomColor: palette.border }]}>
-        <Ionicons name={isDark ? 'moon-outline' : 'sunny-outline'} size={21} color={palette.textSecondary} />
+        <Ionicons name={!isDark ? 'sunny' : 'moon-outline'} size={21} color={!isDark ? palette.primary : palette.textSecondary} />
         <Text style={[styles.itemText, { color: palette.text }]}>
-          {isDark ? 'Mode sombre' : 'Mode clair'}
+          Mode clair
         </Text>
         <Switch
-          value={isDark}
+          value={!isDark}
           onValueChange={toggleTheme}
-          trackColor={{ false: '#CBD5E1', true: palette.primary }}
+          trackColor={{ false: '#3F3F46', true: palette.primary }}
           thumbColor="#FFFFFF"
         />
       </View>
