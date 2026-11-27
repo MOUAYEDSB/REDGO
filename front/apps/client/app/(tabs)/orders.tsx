@@ -194,10 +194,14 @@ export default function OrdersScreen() {
           return (
             <Pressable
               key={tab.id}
-              style={[styles.filterPill, isActive && styles.filterPillActive]}
+              style={[
+                styles.filterPill,
+                { backgroundColor: palette.card, borderColor: palette.border },
+                isActive && styles.filterPillActive,
+              ]}
               onPress={() => setActiveTab(tab.id)}
             >
-              <Text style={[styles.filterText, isActive && styles.filterTextActive]}>
+              <Text style={[styles.filterText, { color: palette.textSecondary }, isActive && styles.filterTextActive]}>
                 {tab.label}
               </Text>
             </Pressable>
@@ -251,6 +255,7 @@ export default function OrdersScreen() {
                 key={order.id}
                 style={({ pressed }) => [
                   styles.orderCard,
+                  { backgroundColor: palette.card, borderColor: palette.border },
                   isOngoing && styles.orderCardOngoing,
                   pressed && { opacity: 0.9 },
                 ]}
@@ -283,13 +288,13 @@ export default function OrdersScreen() {
                       />
                     </View>
                     <View style={styles.shopInfo}>
-                      <Text style={styles.shopName} numberOfLines={1}>
+                      <Text style={[styles.shopName, { color: palette.text }]} numberOfLines={1}>
                         {order.primaryShopName}
                       </Text>
                       <View style={styles.referenceRow}>
                         <Text style={styles.referenceText}>#{order.reference}</Text>
                         <View style={styles.dotSeparator} />
-                        <Text style={styles.dateText}>{formatOrderDate(order.createdAt)}</Text>
+                        <Text style={[styles.dateText, { color: palette.textSecondary }]}>{formatOrderDate(order.createdAt)}</Text>
                       </View>
                     </View>
                   </View>
@@ -327,11 +332,11 @@ export default function OrdersScreen() {
                             )}
                           </View>
                           <View style={styles.itemRowInfo}>
-                            <Text style={styles.itemRowName} numberOfLines={1}>
+                            <Text style={[styles.itemRowName, { color: palette.text }]} numberOfLines={1}>
                               {item.quantity}x {item.productName}
                             </Text>
-                            <Text style={styles.itemRowMeta} numberOfLines={1}>
-                              {item.businessName} Â· {formatMillimes(item.lineTotalMillimes)}
+                            <Text style={[styles.itemRowMeta, { color: palette.textSecondary }]} numberOfLines={1}>
+                              {item.businessName} · {formatMillimes(item.lineTotalMillimes)}
                             </Text>
                           </View>
                         </View>
@@ -350,8 +355,8 @@ export default function OrdersScreen() {
 
                   {/* Destination snippet */}
                   <View style={styles.destinationRow}>
-                    <Ionicons name="location-outline" size={13} color={colors.textSecondary} />
-                    <Text style={styles.destinationText} numberOfLines={1}>
+                    <Ionicons name="location-outline" size={13} color={palette.textSecondary} />
+                    <Text style={[styles.destinationText, { color: palette.textSecondary }]} numberOfLines={1}>
                       {order.destinationAddress}
                     </Text>
                   </View>
@@ -377,8 +382,8 @@ export default function OrdersScreen() {
                 {/* Card Footer */}
                 <View style={styles.cardFooter}>
                   <View>
-                    <Text style={styles.totalLabel}>Total Ã  payer</Text>
-                    <Text style={styles.totalValue}>
+                    <Text style={[styles.totalLabel, { color: palette.textSecondary }]}>Total à payer</Text>
+                    <Text style={[styles.totalValue, { color: palette.text }]}>
                       {formatMillimes(order.totalMillimes)}
                     </Text>
                   </View>

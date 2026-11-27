@@ -16,6 +16,7 @@ import { getCategoryFoodImage, getCategoryIconImage } from '../../components/Foo
 import { Screen } from '../../components/Screen';
 import { colors } from '../../constants/theme';
 import { useCart } from '../../context/CartContext';
+import { ThemePalette, useTheme } from '../../context/ThemeContext';
 import { formatMillimes } from '../../services/cart';
 import {
   CatalogBusinessWithCategories,
@@ -168,6 +169,8 @@ function FoodDishCard({
   onPress: () => void;
   onQuickAdd: () => void;
 }) {
+  const { palette } = useTheme();
+  const styles = useMemo(() => createStyles(palette), [palette]);
   return (
     <Pressable
       style={({ pressed }) => [
@@ -235,6 +238,8 @@ function FoodDishCard({
 }
 
 export default function FoodHome() {
+  const { palette } = useTheme();
+  const styles = useMemo(() => createStyles(palette), [palette]);
   const [selectedCatId, setSelectedCatId] = useState('all');
   const [dbRestaurants, setDbRestaurants] = useState<CatalogBusinessWithCategories[]>([]);
   const [dbDishes, setDbDishes] = useState<CatalogProduct[]>([]);
@@ -727,7 +732,8 @@ export default function FoodHome() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemePalette) {
+  return StyleSheet.create({
   screen: {
     flex: 1,
     paddingHorizontal: 18,
@@ -1168,3 +1174,4 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
+}

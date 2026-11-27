@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CartBadge } from '../../components/CartBadge';
 import { colors } from '../../constants/theme';
 import { useCart } from '../../context/CartContext';
+import { ThemePalette, useTheme } from '../../context/ThemeContext';
 import { formatMillimes } from '../../services/cart';
 import { CatalogProduct, fetchCoursesProducts } from '../../services/catalog';
 
@@ -48,6 +49,8 @@ function getCategoryIcon(cat: string): keyof typeof Ionicons.glyphMap {
 }
 
 export default function MarketScreen() {
+  const { palette } = useTheme();
+  const styles = useMemo(() => createStyles(palette), [palette]);
   const [selectedCategory, setSelectedCategory] = useState('Tous');
   const [searchQuery, setSearchQuery] = useState('');
   const [dbProducts, setDbProducts] = useState<CatalogProduct[]>([]);
@@ -375,7 +378,8 @@ export default function MarketScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemePalette) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
@@ -751,3 +755,4 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
 });
+}

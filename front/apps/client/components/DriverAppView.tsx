@@ -451,37 +451,37 @@ export default function DriverAppView({
 
       {/* Statistiques dynamiques (jour, semaine, note) */}
       <View style={styles.metricsRow}>
-        <View style={styles.metricCard}>
+        <View style={[styles.metricCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
           <View style={styles.metricIconWrap}>
             <Ionicons name="wallet-outline" size={18} color="#34D399" />
           </View>
-          <Text style={styles.metricLabel}>Gain aujourd’hui</Text>
-          <Text style={styles.metricValue}>{formatMillimes(todayEarnings.todayMillimes)}</Text>
-          <Text style={{ color: '#A1A1AA', fontSize: 10, marginTop: 2 }}>
+          <Text style={[styles.metricLabel, { color: palette.textSecondary }]}>Gain aujourd’hui</Text>
+          <Text style={[styles.metricValue, { color: palette.text }]}>{formatMillimes(todayEarnings.todayMillimes)}</Text>
+          <Text style={{ color: palette.textSecondary, fontSize: 10, marginTop: 2 }}>
             {todayEarnings.todayCount} course{todayEarnings.todayCount > 1 ? 's' : ''}
           </Text>
         </View>
 
-        <View style={styles.metricCard}>
+        <View style={[styles.metricCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
           <View style={styles.metricIconWrap}>
             <Ionicons name="calendar-outline" size={18} color="#60A5FA" />
           </View>
-          <Text style={styles.metricLabel}>Gain semaine</Text>
-          <Text style={styles.metricValue}>{formatMillimes(todayEarnings.weekMillimes)}</Text>
-          <Text style={{ color: '#A1A1AA', fontSize: 10, marginTop: 2 }}>
+          <Text style={[styles.metricLabel, { color: palette.textSecondary }]}>Gain semaine</Text>
+          <Text style={[styles.metricValue, { color: palette.text }]}>{formatMillimes(todayEarnings.weekMillimes)}</Text>
+          <Text style={{ color: palette.textSecondary, fontSize: 10, marginTop: 2 }}>
             {todayEarnings.weekCount} course{todayEarnings.weekCount > 1 ? 's' : ''}
           </Text>
         </View>
 
-        <View style={styles.metricCard}>
+        <View style={[styles.metricCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
           <View style={styles.metricIconWrap}>
             <Ionicons name="star" size={18} color="#FBBF24" />
           </View>
-          <Text style={styles.metricLabel}>Note client</Text>
-          <Text style={styles.metricValue}>
+          <Text style={[styles.metricLabel, { color: palette.textSecondary }]}>Note client</Text>
+          <Text style={[styles.metricValue, { color: palette.text }]}>
             {todayEarnings.rating !== null ? `${todayEarnings.rating.toFixed(1)} ★` : 'Nouveau'}
           </Text>
-          <Text style={{ color: '#A1A1AA', fontSize: 10, marginTop: 2 }}>
+          <Text style={{ color: palette.textSecondary, fontSize: 10, marginTop: 2 }}>
             {todayEarnings.reviewsCount} avis
           </Text>
         </View>
@@ -989,10 +989,10 @@ export default function DriverAppView({
       {/* Avis & Score des clients (100% dynamique) */}
       <View style={styles.shortcutsSection}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Text style={styles.shortcutsTitle}>Avis des clients</Text>
+          <Text style={[styles.shortcutsTitle, { color: palette.text }]}>Avis des clients</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <Ionicons name="star" size={14} color="#FBBF24" />
-            <Text style={{ color: '#F4F4F5', fontSize: 13, fontWeight: '800' }}>
+            <Text style={{ color: palette.text, fontSize: 13, fontWeight: '800' }}>
               {reviewsSummary.averageRating !== null
                 ? `${reviewsSummary.averageRating.toFixed(1)} (${reviewsSummary.totalReviews} avis)`
                 : 'Aucun avis'}
@@ -1001,8 +1001,8 @@ export default function DriverAppView({
         </View>
 
         {reviewsSummary.reviews.length === 0 ? (
-          <View style={{ backgroundColor: '#18181B', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#27272A' }}>
-            <Text style={{ color: '#A1A1AA', fontSize: 12 }}>
+          <View style={{ backgroundColor: palette.card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: palette.border }}>
+            <Text style={{ color: palette.textSecondary, fontSize: 12 }}>
               Les notes et commentaires laissés par les clients après livraison apparaîtront ici en direct.
             </Text>
           </View>
@@ -1012,11 +1012,11 @@ export default function DriverAppView({
               <View
                 key={rev.id}
                 style={{
-                  backgroundColor: '#18181B',
+                  backgroundColor: palette.card,
                   borderRadius: 14,
                   padding: 12,
                   borderWidth: 1,
-                  borderColor: '#27272A',
+                  borderColor: palette.border,
                   gap: 6,
                 }}
               >
@@ -1027,20 +1027,20 @@ export default function DriverAppView({
                         key={s}
                         name={s <= rev.rating ? 'star' : 'star-outline'}
                         size={13}
-                        color={s <= rev.rating ? '#FBBF24' : '#52525B'}
+                        color={s <= rev.rating ? '#FBBF24' : '#64748B'}
                       />
                     ))}
                   </View>
-                  <Text style={{ color: '#A1A1AA', fontSize: 11 }}>
+                  <Text style={{ color: palette.textSecondary, fontSize: 11 }}>
                     {rev.customerName} · #{rev.reference}
                   </Text>
                 </View>
                 {rev.comment ? (
-                  <Text style={{ color: '#E4E4E7', fontSize: 12, lineHeight: 17 }}>
+                  <Text style={{ color: palette.text, fontSize: 12, lineHeight: 17 }}>
                     « {rev.comment} »
                   </Text>
                 ) : (
-                  <Text style={{ color: '#71717A', fontSize: 11, fontStyle: 'italic' }}>
+                  <Text style={{ color: palette.textSecondary, fontSize: 11, fontStyle: 'italic' }}>
                     Note attribuée sans commentaire
                   </Text>
                 )}

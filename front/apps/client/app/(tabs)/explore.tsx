@@ -17,7 +17,7 @@ import { getCategoryIconImage } from '../../components/FoodCategoryNeonIcon';
 import { Screen } from '../../components/Screen';
 import { colors } from '../../constants/theme';
 import { useCart } from '../../context/CartContext';
-import { useTheme } from '../../context/ThemeContext';
+import { ThemePalette, useTheme } from '../../context/ThemeContext';
 import { formatMillimes } from '../../services/cart';
 import {
   CatalogBusinessWithCategories,
@@ -125,6 +125,8 @@ function matchesFoodCategory(dish: CatalogProduct, catId: string): boolean {
 }
 
 export default function Explore() {
+  const { palette } = useTheme();
+  const styles = useMemo(() => createStyles(palette), [palette]);
   const { addProduct } = useCart();
 
   const [restaurants, setRestaurants] = useState<CatalogBusinessWithCategories[]>([]);
@@ -667,7 +669,8 @@ export default function Explore() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemePalette) {
+  return StyleSheet.create({
   screen: {
     paddingHorizontal: 18,
   },
@@ -1090,3 +1093,4 @@ const styles = StyleSheet.create({
     height: 36,
   },
 });
+}

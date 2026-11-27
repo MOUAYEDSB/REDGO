@@ -140,9 +140,13 @@ export default function RidesHistoryScreen() {
             <Pressable
               key={tab.id}
               onPress={() => setActiveTab(tab.id)}
-              style={[styles.tab, isActive && styles.activeTab]}
+              style={[
+                styles.tab,
+                { backgroundColor: palette.card, borderColor: palette.border },
+                isActive && styles.activeTab,
+              ]}
             >
-              <Text style={[styles.tabText, isActive && styles.activeTabText]}>{tab.label}</Text>
+              <Text style={[styles.tabText, { color: palette.textSecondary }, isActive && styles.activeTabText]}>{tab.label}</Text>
             </Pressable>
           );
         })}
@@ -179,7 +183,7 @@ export default function RidesHistoryScreen() {
           });
 
           return (
-            <Pressable key={ride.id} style={styles.card} onPress={() => openRide(ride)}>
+            <Pressable key={ride.id} style={[styles.card, { backgroundColor: palette.card, borderColor: palette.border }]} onPress={() => openRide(ride)}>
               <View style={styles.cardHeader}>
                 <View style={styles.typeBadge}>
                   <Ionicons
@@ -187,31 +191,31 @@ export default function RidesHistoryScreen() {
                     size={14}
                     color={isParcel ? colors.warning : colors.primary}
                   />
-                  <Text style={styles.typeText}>
+                  <Text style={[styles.typeText, { color: palette.text }]}>
                     {isParcel ? 'Envoi de colis' : isRoundTrip ? 'Scooter Aller-retour' : 'Scooter Taxi'}
                   </Text>
                 </View>
-                <Text style={styles.price}>{formatMillimes(ride.fare_millimes)}</Text>
+                <Text style={[styles.price, { color: palette.text }]}>{formatMillimes(ride.fare_millimes)}</Text>
               </View>
 
               <View style={styles.routeBlock}>
                 <View style={styles.routeRow}>
                   <View style={styles.dotGreen} />
-                  <Text style={styles.address} numberOfLines={1}>
+                  <Text style={[styles.address, { color: palette.text }]} numberOfLines={1}>
                     {ride.pickup_address}
                   </Text>
                 </View>
                 <View style={styles.line} />
                 <View style={styles.routeRow}>
                   <View style={styles.dotRed} />
-                  <Text style={styles.address} numberOfLines={2}>
+                  <Text style={[styles.address, { color: palette.text }]} numberOfLines={2}>
                     {ride.destination_address}
                   </Text>
                 </View>
               </View>
 
               <View style={styles.cardFooter}>
-                <Text style={styles.date}>
+                <Text style={[styles.date, { color: palette.textSecondary }]}>
                   {ride.reference} · {dateLabel}
                 </Text>
                 <Text style={[styles.status, { color: statusMeta.color }]}>{statusMeta.label}</Text>

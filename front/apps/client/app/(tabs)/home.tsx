@@ -281,7 +281,7 @@ export default function Home() {
           onPress={() => router.push({ pathname: '/order/[id]', params: { id: activeOrder.id, reference: activeOrder.reference } })}
         >
           <Ionicons name="receipt" size={15} color={colors.primary} />
-          <Text style={styles.activeTrackingText} numberOfLines={1}>
+          <Text style={[styles.activeTrackingText, { color: palette.text }]} numberOfLines={1}>
             <Text style={[styles.activeTrackingBadge, { color: colors.primary }]}>Commande en cours · </Text>
             Suivre {activeOrder.reference}
           </Text>
@@ -303,7 +303,7 @@ export default function Home() {
           }
         >
           <Ionicons name="bicycle" size={15} color={colors.success} />
-          <Text style={styles.activeTrackingText} numberOfLines={1}>
+          <Text style={[styles.activeTrackingText, { color: palette.text }]} numberOfLines={1}>
             <Text style={[styles.activeTrackingBadge, { color: colors.success }]}>Course en cours · </Text>
             Suivre {activeRide.reference}
           </Text>
@@ -367,7 +367,7 @@ export default function Home() {
       ) : null}
 
       {/* 3 Core Services */}
-      <Text style={styles.sectionTitle}>Nos 3 Services Dédiés</Text>
+      <Text style={[styles.sectionTitle, { color: palette.text }]}>Nos 3 Services Dédiés</Text>
       <View style={styles.servicesGrid}>
         {primaryServices.map((service) => (
           <Pressable
@@ -417,8 +417,8 @@ export default function Home() {
       {/* Catégories populaires */}
       <View style={styles.sectionHeader}>
         <View>
-          <Text style={styles.sectionTitleInline}>Catégories populaires</Text>
-          <Text style={styles.sectionSubtitle}>À M'Saken et Messaadine</Text>
+          <Text style={[styles.sectionTitleInline, { color: palette.text }]}>Catégories populaires</Text>
+          <Text style={[styles.sectionSubtitle, { color: palette.textSecondary }]}>À M'Saken et Messaadine</Text>
         </View>
       </View>
 
@@ -450,8 +450,8 @@ export default function Home() {
         <>
           <View style={styles.sectionHeader}>
             <View>
-              <Text style={styles.sectionTitleInline}>Restaurants partenaires</Text>
-              <Text style={styles.sectionSubtitle}>
+              <Text style={[styles.sectionTitleInline, { color: palette.text }]}>Restaurants partenaires</Text>
+              <Text style={[styles.sectionSubtitle, { color: palette.textSecondary }]}>
                 {dbRestaurants.length} restaurant{dbRestaurants.length > 1 ? 's' : ''} ouverts à M'Saken
               </Text>
             </View>
@@ -470,6 +470,7 @@ export default function Home() {
                 key={resto.id}
                 style={({ pressed }) => [
                   styles.restaurantHomeCard,
+                  { backgroundColor: palette.card, borderColor: palette.border },
                   pressed && { borderColor: colors.primary },
                 ]}
                 onPress={() => router.push(`/food/restaurant/${resto.id}`)}
@@ -484,10 +485,10 @@ export default function Home() {
                   contentFit="cover"
                 />
                 <View style={styles.restaurantHomeBody}>
-                  <Text style={styles.restaurantHomeName} numberOfLines={1}>
+                  <Text style={[styles.restaurantHomeName, { color: palette.text }]} numberOfLines={1}>
                     {resto.name}
                   </Text>
-                  <Text style={styles.restaurantHomeFood} numberOfLines={1}>
+                  <Text style={[styles.restaurantHomeFood, { color: palette.textSecondary }]} numberOfLines={1}>
                     {resto.description || 'Restaurant partenaire REDGO'}
                   </Text>
                   <View style={styles.restaurantHomeMeta}>
@@ -512,8 +513,8 @@ export default function Home() {
         <>
           <View style={styles.sectionHeader}>
             <View>
-              <Text style={styles.sectionTitleInline}>Sélection du moment</Text>
-              <Text style={styles.sectionSubtitle}>
+              <Text style={[styles.sectionTitleInline, { color: palette.text }]}>Sélection du moment</Text>
+              <Text style={[styles.sectionSubtitle, { color: palette.textSecondary }]}>
                 {isLoading ? 'Synchronisation…' : 'Ajoutez en 1 clic à votre panier partagé'}
               </Text>
             </View>
@@ -538,6 +539,7 @@ export default function Home() {
                   key={product.id}
                   style={({ pressed }) => [
                     styles.productCard,
+                    { backgroundColor: palette.card, borderColor: palette.border },
                     pressed && { borderColor: colors.primary },
                   ]}
                   onPress={() =>
@@ -554,10 +556,10 @@ export default function Home() {
                     contentFit="cover"
                   />
                   <View style={styles.productBody}>
-                    <Text style={styles.productName} numberOfLines={1}>
+                    <Text style={[styles.productName, { color: palette.text }]} numberOfLines={1}>
                       {product.name}
                     </Text>
-                    <Text style={styles.productShop} numberOfLines={1}>
+                    <Text style={[styles.productShop, { color: palette.textSecondary }]} numberOfLines={1}>
                       {product.shop}
                     </Text>
                     <View style={styles.productFooter}>

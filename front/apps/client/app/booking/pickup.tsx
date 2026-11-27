@@ -19,6 +19,7 @@ import { Screen } from '../../components/Screen';
 import { LocalLandmarkMarkers } from '../../components/LocalLandmarkMarkers';
 import { RestaurantMapMarkers } from '../../components/RestaurantMapMarkers';
 import { colors } from '../../constants/theme';
+import { ThemePalette, useTheme } from '../../context/ThemeContext';
 import { formatMillimes } from '../../services/cart';
 import { MESSAADINE_CENTER, MSAKEN_CENTER } from '../../services/delivery';
 import { formatHumanReadableAddress, reverseGeocodeAddress } from '../../services/geocoding';
@@ -49,6 +50,8 @@ const QUICK_PLACES: { id: string; label: string; coords: Point }[] = [
 ];
 
 export default function BookingPickupScreen() {
+  const { palette } = useTheme();
+  const styles = useMemo(() => createStyles(palette), [palette]);
   const { tripMode: initialMode } = useLocalSearchParams<{ tripMode?: string }>();
 
   const [tripMode, setTripMode] = useState<ScooterMode>(
@@ -681,7 +684,8 @@ export default function BookingPickupScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemePalette) {
+  return StyleSheet.create({
   screen: {
     paddingHorizontal: 18,
     paddingTop: 12,
@@ -1023,3 +1027,4 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 });
+}
