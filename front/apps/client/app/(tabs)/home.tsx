@@ -318,51 +318,60 @@ export default function Home() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.bannerTrack}
         >
-          {promos.map((promo) => (
-            <Pressable
-              key={promo.id}
-              style={({ pressed }) => [styles.banner, pressed && { opacity: 0.88 }]}
-              onPress={() => router.push(promo.targetRoute as any)}
-            >
-              <Image
-                source={{ uri: promo.imageUrl }}
-                style={StyleSheet.absoluteFill}
-                contentFit="cover"
-              />
-              <View style={styles.bannerOverlay} />
-              <View style={styles.bannerCopy}>
-                {promo.badgeText ? (
-                  <Text style={styles.bannerLabel}>{promo.badgeText}</Text>
-                ) : null}
-                <Text
-                  style={[
-                    styles.bannerTitle,
-                    promo.titleAr ? { textAlign: 'right' } : undefined,
-                  ]}
-                >
-                  {promo.titleAr ?? promo.title}
-                </Text>
-                {(promo.subtitleAr ?? promo.subtitle) ? (
-                  <Text
-                    style={[
-                      styles.bannerSubtitle,
-                      promo.subtitleAr ? { textAlign: 'right' } : undefined,
-                    ]}
+          {promos.map((promo) => {
+            const isRtl = Boolean(promo.titleAr || promo.subtitleAr);
+            return (
+              <Pressable
+                key={promo.id}
+                style={({ pressed }) => [styles.banner, pressed && { opacity: 0.88 }]}
+                onPress={() => router.push(promo.targetRoute as any)}
+              >
+                <Image
+                  source={{ uri: promo.imageUrl }}
+                  style={StyleSheet.absoluteFill}
+                  contentFit="cover"
+                />
+                <View style={styles.bannerOverlay} />
+                <View style={styles.bannerCopy}>
+                  <View>
+                    {promo.badgeText ? (
+                      <Text style={[styles.bannerLabel, isRtl && { textAlign: 'right' }]} numberOfLines={1}>
+                        {promo.badgeText}
+                      </Text>
+                    ) : null}
+                    <Text
+                      style={[
+                        styles.bannerTitle,
+                        promo.titleAr ? { textAlign: 'right' } : undefined,
+                      ]}
+                      numberOfLines={2}
+                    >
+                      {promo.titleAr ?? promo.title}
+                    </Text>
+                    {(promo.subtitleAr ?? promo.subtitle) ? (
+                      <Text
+                        style={[
+                          styles.bannerSubtitle,
+                          promo.subtitleAr ? { textAlign: 'right' } : undefined,
+                        ]}
+                        numberOfLines={2}
+                      >
+                        {promo.subtitleAr ?? promo.subtitle}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Pressable
+                    style={[styles.bannerCta, isRtl && { alignSelf: 'flex-end' }]}
+                    onPress={() => router.push(promo.targetRoute as any)}
                   >
-                    {promo.subtitleAr ?? promo.subtitle}
-                  </Text>
-                ) : null}
-                <Pressable
-                  style={styles.bannerCta}
-                  onPress={() => router.push(promo.targetRoute as any)}
-                >
-                  <Text style={styles.bannerCtaText}>
-                    {promo.ctaTextAr ?? promo.ctaText ?? 'Découvrir'}
-                  </Text>
-                </Pressable>
-              </View>
-            </Pressable>
-          ))}
+                    <Text style={styles.bannerCtaText}>
+                      {promo.ctaTextAr ?? promo.ctaText ?? 'Découvrir'}
+                    </Text>
+                  </Pressable>
+                </View>
+              </Pressable>
+            );
+          })}
         </ScrollView>
       ) : null}
 
@@ -748,7 +757,7 @@ const styles = StyleSheet.create({
   },
   banner: {
     width: 300,
-    height: 132,
+    minHeight: 144,
     borderRadius: 18,
     overflow: 'hidden',
     marginTop: 12,
@@ -758,9 +767,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(9,9,11,0.68)',
   },
   bannerCopy: {
-    padding: 14,
+    padding: 13,
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
   },
   bannerLabel: {
     color: '#FFB3BA',
@@ -770,8 +780,8 @@ const styles = StyleSheet.create({
   },
   bannerTitle: {
     color: '#fff',
-    fontSize: 17,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '900',
     marginTop: 3,
   },
@@ -788,7 +798,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     paddingHorizontal: 13,
     justifyContent: 'center',
-    marginTop: 8,
   },
   bannerCtaText: {
     color: '#fff',
