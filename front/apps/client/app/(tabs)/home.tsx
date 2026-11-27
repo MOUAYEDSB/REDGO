@@ -17,6 +17,7 @@ import { colors } from '../../constants/theme';
 import { useCart } from '../../context/CartContext';
 import { useRedgoAuth } from '../../context/RedgoAuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { fetchUnreadNotificationsCount, subscribeToMyNotifications } from '../../services/notifications';
 import { formatMillimes } from '../../services/cart';
 import {
   CatalogBusiness,
@@ -89,6 +90,22 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeOrder, setActiveOrder] = useState<{ id: string; reference: string } | null>(null);
   const [activeRide, setActiveRide] = useState<{ id: string; reference: string; status: string } | null>(null);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.id) {
+        setUnreadNotifCount(0);
+        return;
+      }
+      void fetchUnreadNotificationsCount(user.id).then(setUnreadNotifCount);
+      return subscribeToMyNotifications(
+        user.id,
+        () => void fetchUnreadNotificationsCount(user.id).then(setUnreadNotifCount),
+        () => void fetchUnreadNotificationsCount(user.id).then(setUnreadNotifCount),
+      );
+    }, [user?.id]),
+  );
 
   // Nom dynamique utilisateur
   const userGreeting = useMemo(() => {
@@ -241,9 +258,11 @@ export default function Home() {
             onPress={() => router.push('/(tabs)/notifications')}
           >
             <Ionicons name="notifications-outline" size={21} color={palette.text} />
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>2</Text>
-            </View>
+            {unreadNotifCount > 0 ? (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{unreadNotifCount > 9 ? '9+' : unreadNotifCount}</Text>
+              </View>
+            ) : null}
           </Pressable>
           <Pressable
             style={[styles.avatar, { overflow: 'hidden' }]}

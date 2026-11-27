@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import { AddToCartSheet } from '../components/AddToCartSheet';
+import { NotificationToastHost } from '../components/NotificationToastHost';
 import { CartProvider } from '../context/CartContext';
 import { RedgoAuthProvider, useRedgoAuth } from '../context/RedgoAuthContext';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
@@ -12,6 +13,7 @@ export default function RootLayout() {
         <CartProvider>
           <RoleAwareStack />
           <AddToCartSheet />
+          <NotificationToastHost />
         </CartProvider>
       </RedgoAuthProvider>
     </ThemeProvider>

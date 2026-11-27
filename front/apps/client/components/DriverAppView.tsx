@@ -43,6 +43,7 @@ import {
   updateDriverMissionStatus,
 } from '../services/driverMissions';
 import { DriverReviewsSummary, fetchDriverReviews } from '../services/driverReviews';
+import { fetchUnreadNotificationsCount, subscribeToMyNotifications } from '../services/notifications';
 import { markMissionReadyForCash } from '../services/cashPayment';
 import { formatMillimes } from '../services/cart';
 import { requireSupabase } from '../services/supabase';
@@ -120,6 +121,22 @@ export default function DriverAppView({
   const [liveClock, setLiveClock] = useState(() => formatClockHHMM());
   const [activeElapsedSec, setActiveElapsedSec] = useState(0);
   const [expandedOpenMapId, setExpandedOpenMapId] = useState<string | null>(null);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!userId || isPreview) {
+        setUnreadNotifCount(0);
+        return;
+      }
+      void fetchUnreadNotificationsCount(userId).then(setUnreadNotifCount);
+      return subscribeToMyNotifications(
+        userId,
+        () => void fetchUnreadNotificationsCount(userId).then(setUnreadNotifCount),
+        () => void fetchUnreadNotificationsCount(userId).then(setUnreadNotifCount),
+      );
+    }, [userId, isPreview]),
+  );
 
   // Horloge temps réel + chronomètre de mission active
   useEffect(() => {
@@ -378,6 +395,34 @@ export default function DriverAppView({
         </View>
 
         <View style={styles.headerActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Notifications"
+            onPress={() => router.push('/driver/notifications')}
+            style={[styles.actionBtn, { backgroundColor: palette.card, borderColor: palette.border, position: 'relative' }]}
+          >
+            <Ionicons name="notifications-outline" size={19} color={palette.text} />
+            {unreadNotifCount > 0 ? (
+              <View
+                style={{
+                  position: 'absolute',
+                  right: 3,
+                  top: 3,
+                  minWidth: 15,
+                  height: 15,
+                  borderRadius: 8,
+                  backgroundColor: colors.primary,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingHorizontal: 3,
+                }}
+              >
+                <Text style={{ color: '#fff', fontSize: 9, fontWeight: '900' }}>
+                  {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
+                </Text>
+              </View>
+            ) : null}
+          </Pressable>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Actualiser"
