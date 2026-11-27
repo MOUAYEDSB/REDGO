@@ -71,7 +71,9 @@ export async function fetchPromoAnnouncements(): Promise<PromoAnnouncement[]> {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.warn('Erreur fetchPromoAnnouncements Supabase :', error.message);
+      if (error.code !== 'PGRST205' && !String(error.message || '').includes('schema cache')) {
+        console.warn('Erreur fetchPromoAnnouncements Supabase :', error.message);
+      }
       return FALLBACK_PROMOS;
     }
     if (!data || data.length === 0) return FALLBACK_PROMOS;
