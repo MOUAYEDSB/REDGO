@@ -7,6 +7,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../components/Screen';
 import { colors } from '../constants/theme';
 import { useRedgoAuth } from '../context/RedgoAuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { authEnabled } from '../services/auth';
 
 const destinations = {
@@ -19,6 +20,7 @@ const destinations = {
 } as const;
 
 export default function RoleSelection() {
+  const { isDark } = useTheme();
   const {
     user,
     roles,
@@ -68,7 +70,7 @@ export default function RoleSelection() {
     <Screen scroll style={styles.screen}>
       <View style={styles.brand}>
         <Image
-          source={require('../assets/logo.png')}
+          source={isDark ? require('../assets/logo-dark.png') : require('../assets/logo-light.png')}
           style={styles.logoImage}
           contentFit="contain"
         />
@@ -196,7 +198,7 @@ function RoleCard({
 const styles = StyleSheet.create({
   screen: { paddingHorizontal: 22, paddingTop: 22, paddingBottom: 28 },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 11 },
-  logoImage: { width: 44, height: 44, borderRadius: 13, backgroundColor: '#000' },
+  logoImage: { width: 50, height: 38, backgroundColor: 'transparent' },
   logo: { width: 42, height: 42, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   logoText: { color: colors.text, fontSize: 25, fontWeight: '900' },
   brandName: { color: colors.text, fontSize: 18, fontWeight: '900', letterSpacing: 2.5 },

@@ -4,13 +4,15 @@ import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../components/Screen';
 import { colors } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 
 export default function Welcome() {
+  const { isDark } = useTheme();
   return (
     <Screen style={styles.screen}>
       <View style={styles.brand}>
         <Image
-          source={require('../assets/logo.png')}
+          source={isDark ? require('../assets/logo-dark.png') : require('../assets/logo-light.png')}
           style={styles.logoImage}
           contentFit="contain"
         />
@@ -41,7 +43,7 @@ export default function Welcome() {
 const styles = StyleSheet.create({
   screen: { paddingHorizontal: 26, paddingTop: 24, paddingBottom: 28 },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  logoImage: { width: 48, height: 48, borderRadius: 14, backgroundColor: '#000' },
+  logoImage: { width: 54, height: 42, backgroundColor: 'transparent' },
   logo: { width: 48, height: 48, borderRadius: 16, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   logoText: { color: colors.text, fontSize: 28, fontWeight: '900' },
   brandName: { color: colors.text, fontSize: 20, fontWeight: '900', letterSpacing: 3 },

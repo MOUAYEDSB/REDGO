@@ -85,7 +85,7 @@ export default function DriverAppView({
   onSwitchSpace,
 }: DriverAppViewProps) {
   const insets = useSafeAreaInsets();
-  const { palette } = useTheme();
+  const { palette, isDark } = useTheme();
   const [profile, setProfile] = useState<DriverProfileRow | null>(null);
   const [activeMission, setActiveMission] = useState<ActiveDriverMissionRow | null>(null);
   const [openMissions, setOpenMissions] = useState<OpenDriverMissionRow[]>([]);
@@ -360,7 +360,7 @@ export default function DriverAppView({
       <View style={styles.header}>
         <View style={styles.identity}>
           <Image
-            source={require('../assets/logo.png')}
+            source={isDark ? require('../assets/logo-dark.png') : require('../assets/logo-light.png')}
             style={styles.logoImage}
             contentFit="contain"
           />
@@ -1150,7 +1150,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   identity: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  logoImage: { width: 44, height: 44, borderRadius: 13, backgroundColor: '#000' },
+  logoImage: { width: 48, height: 36, backgroundColor: 'transparent' },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   brandTitle: { color: '#fff', fontSize: 18, fontWeight: '900', letterSpacing: 1.5 },
   driverBadge: {

@@ -80,7 +80,7 @@ const categories = [
 export default function Home() {
   const { profile, user } = useRedgoAuth();
   const { addProduct } = useCart();
-  const { palette } = useTheme();
+  const { palette, isDark } = useTheme();
 
   const [dbProducts, setDbProducts] = useState<HomeFeaturedProduct[]>([]);
   const [dbRestaurants, setDbRestaurants] = useState<CatalogBusiness[]>([]);
@@ -224,9 +224,9 @@ export default function Home() {
       <View style={styles.header}>
         <View style={styles.identity}>
           <Image
-            source={require('../../assets/logo.png')}
+            source={isDark ? require('../../assets/logo-dark.png') : require('../../assets/logo-light.png')}
             style={styles.logoImage}
-            contentFit="cover"
+            contentFit="contain"
           />
           <View>
             <Text style={[styles.brand, { color: palette.text }]}>REDGO</Text>
@@ -633,10 +633,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   logoImage: {
-    width: 44,
-    height: 44,
-    borderRadius: 13,
-    backgroundColor: '#000',
+    width: 48,
+    height: 36,
+    backgroundColor: 'transparent',
   },
   logo: {
     width: 42,
