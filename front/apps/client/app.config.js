@@ -10,10 +10,10 @@ module.exports = ({ config }) => {
   const plugins = appConfig.plugins || [];
 
   const requiredPlugins = [
-  'expo-router',
-  'expo-secure-store',
-  'expo-status-bar',
-];
+    'expo-router',
+    'expo-secure-store',
+    'expo-status-bar',
+  ];
 
   const existingPluginNames = plugins.map((plugin) =>
     Array.isArray(plugin) ? plugin[0] : plugin
@@ -27,30 +27,23 @@ module.exports = ({ config }) => {
   ];
 
   return {
-    // Conserver toute la configuration Expo existante
     ...appConfig,
-
-    // Plugins
     plugins: updatedPlugins,
 
-    // Configuration Android
     android: {
       ...appConfig.android,
-
       config: {
         ...appConfig.android?.config,
-
         ...(googleMapsApiKey
           ? {
-            googleMaps: {
-              apiKey: googleMapsApiKey,
-            },
-          }
+              googleMaps: {
+                apiKey: googleMapsApiKey,
+              },
+            }
           : {}),
       },
     },
 
-    // Configuration iOS
     ios: {
       ...appConfig.ios,
     },
